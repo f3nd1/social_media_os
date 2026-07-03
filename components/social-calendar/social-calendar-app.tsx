@@ -16,6 +16,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
+  Database,
   Download,
   FileSpreadsheet,
   FileText,
@@ -40,6 +41,11 @@ import {
 } from "lucide-react";
 
 import { useTheme } from "@/components/theme-provider";
+import {
+  useWorkspaceSync,
+  type WorkspaceSync,
+} from "@/components/social-calendar/use-workspace-sync";
+import { resolveSupabaseConfig } from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -201,6 +207,8 @@ export function SocialCalendarApp() {
       localSocialCalendarRepository.save(data);
     }
   }, [data, isHydrated]);
+
+  const sync = useWorkspaceSync(data, setData, isHydrated);
 
   const auditAverage = useMemo(() => {
     if (data.audits.length === 0) {
@@ -562,9 +570,7 @@ export function SocialCalendarApp() {
                   <Badge variant={data.brief.approved ? "success" : "warning"}>
                     {data.brief.approved ? "Brief approved" : "Brief needs approval"}
                   </Badge>
-                  <Badge variant="outline">
-                    Saved {isHydrated ? "locally" : "loading"}
-                  </Badge>
+                  <SyncStatusBadge isHydrated={isHydrated} sync={sync} />
                 </div>
                 <h1 className="text-2xl font-semibold leading-tight text-foreground sm:text-3xl">
                   UCC Marketing Strategy OS
@@ -595,6 +601,24 @@ export function SocialCalendarApp() {
                 </Button>
               </div>
             </header>
+
+            {sync.needsMigration ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-info-border bg-info p-3 text-sm text-info-foreground">
+                <span>
+                  Cloud storage is connected but empty. Copy the data on this
+                  device up to Supabase so nothing is lost.
+                </span>
+                <Button
+                  onClick={() => {
+                    void sync.copyLocalToCloud();
+                  }}
+                  size="sm"
+                  type="button"
+                >
+                  Copy local data to cloud
+                </Button>
+              </div>
+            ) : null}
 
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryMetric
@@ -765,6 +789,7 @@ export function SocialCalendarApp() {
 
             {activeView === "settings" ? (
               <SettingsWorkspaceView
+                sync={sync}
                 brand={data.brand}
                 importState={pdfImportState}
                 pdfDataSource={data.pdfDataSource}
@@ -2259,6 +2284,228 @@ function AppearanceSettingsPanel() {
   );
 }
 
+function SyncStatusBadge({
+  isHydrated,
+  sync,
+}: {
+  isHydrated: boolean;
+  sync: WorkspaceSync;
+}) {
+  if (!isHydrated) {
+    return <Badge variant="outline">Loading</Badge>;
+  }
+
+  const display: Record<
+    WorkspaceSync["status"],
+    { label: string; variant: ComponentProps<typeof Badge>["variant"] }
+  > = {
+    "local-only": { label: "Local only", variant: "outline" },
+    connecting: { label: "Connecting to cloud", variant: "secondary" },
+    saving: { label: "Saving", variant: "secondary" },
+    synced: { label: "Synced to cloud", variant: "success" },
+    offline: { label: "Offline, saved on this device", variant: "warning" },
+    error: { label: "Error", variant: "warning" },
+  };
+
+  const current = display[sync.status];
+
+  return <Badge variant={current.variant}>{current.label}</Badge>;
+}
+
+function SupabaseDatabasePanel({ sync }: { sync: WorkspaceSync }) {
+  const [url, setUrl] = useState("");
+  const [anonKey, setAnonKey] = useState("");
+  const [testState, setTestState] = useState<
+    "idle" | "testing" | "ok" | "error"
+  >("idle");
+  const [testMessage, setTestMessage] = useState("");
+
+  useEffect(() => {
+    const resolved = resolveSupabaseConfig();
+
+    if (resolved.config) {
+      setUrl(resolved.config.url);
+      setAnonKey(resolved.config.anonKey);
+    }
+  }, []);
+
+  const statusBadge = !sync.isConfigured
+    ? { label: "Local only", variant: "secondary" as const }
+    : sync.status === "error"
+      ? { label: "Error", variant: "warning" as const }
+      : { label: "Configured", variant: "success" as const };
+
+  function requireFields() {
+    if (!url.trim() || !anonKey.trim()) {
+      setTestState("error");
+      setTestMessage("Enter both the Project URL and the anon key first.");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function handleTest() {
+    if (!requireFields()) {
+      return;
+    }
+
+    setTestState("testing");
+    setTestMessage("");
+
+    const result = await sync.testConnection({
+      url: url.trim(),
+      anonKey: anonKey.trim(),
+    });
+
+    if (result.ok) {
+      setTestState("ok");
+      setTestMessage(
+        "Connection successful. The workspace_state table is reachable.",
+      );
+    } else {
+      setTestState("error");
+      setTestMessage(result.error ?? "Connection failed.");
+    }
+  }
+
+  function handleSave() {
+    if (!requireFields()) {
+      return;
+    }
+
+    sync.saveConfigAndReload({ url: url.trim(), anonKey: anonKey.trim() });
+  }
+
+  async function handleReload() {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "Reload from Supabase will replace the data on this device with the cloud snapshot. Continue?",
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    await sync.reloadFromCloud();
+  }
+
+  function handleClear() {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "Forget the saved Supabase credentials and use local storage only?",
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    sync.clearConfigAndReload();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <SectionTitle
+          icon={Database}
+          kicker="Supabase"
+          title="Supabase database"
+          description="Connect a Supabase project to sync this workspace to the cloud. Local storage stays the source of truth, so the app keeps working offline."
+        />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+          {sync.isConfigured && sync.source === "env" ? (
+            <span className="text-xs text-muted-foreground">
+              Using values from environment variables. Panel values override
+              them.
+            </span>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Project URL">
+            <Input
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://your-project.supabase.co"
+              value={url}
+            />
+          </Field>
+          <Field label="Anon / publishable key">
+            <Input
+              onChange={(event) => setAnonKey(event.target.value)}
+              placeholder="Paste the anon public key"
+              type="password"
+              value={anonKey}
+            />
+          </Field>
+        </div>
+
+        <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+          Use only the anon / publishable key. Never paste the service_role key
+          here. This key allows anyone who has it to read and write the
+          workspace data until sign in is added. Tighten the policy when
+          authentication lands.
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={handleSave} size="sm" type="button">
+            {"Save & reload"}
+          </Button>
+          <Button
+            disabled={testState === "testing"}
+            onClick={handleTest}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {testState === "testing" ? "Testing" : "Test connection"}
+          </Button>
+          <Button
+            disabled={!sync.isConfigured}
+            onClick={handleReload}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Reload from Supabase
+          </Button>
+          <Button
+            onClick={handleClear}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Clear (use local storage only)
+          </Button>
+        </div>
+
+        {testMessage ? (
+          <p
+            className={cn(
+              "text-xs leading-5",
+              testState === "ok"
+                ? "text-success-foreground"
+                : "text-warning-foreground",
+            )}
+          >
+            {testMessage}
+          </p>
+        ) : null}
+
+        {sync.lastError && testState !== "error" ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            Last sync note: {sync.lastError}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsWorkspaceView({
   brand,
   calendar,
@@ -2274,6 +2521,7 @@ function SettingsWorkspaceView({
   onPdfReportUpload,
   onUccChange,
   pdfDataSource,
+  sync,
   ucc,
 }: {
   brand: BrandProfile;
@@ -2296,11 +2544,13 @@ function SettingsWorkspaceView({
   onPdfReportUpload: (files: FileList | null) => void | Promise<void>;
   onUccChange: (ucc: UccStrategyData) => void;
   pdfDataSource: PdfDataSourceSettings;
+  sync: WorkspaceSync;
   ucc: UccStrategyData;
 }) {
   return (
     <section className="space-y-4">
       <AppearanceSettingsPanel />
+      <SupabaseDatabasePanel sync={sync} />
       <BrandSetupView
         brand={brand}
         importState={importState}
