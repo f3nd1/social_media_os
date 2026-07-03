@@ -33,11 +33,14 @@ import {
   Table2,
   Target,
   TrendingUp,
+  Palette,
   UsersRound,
   Wand2,
   type LucideIcon,
 } from "lucide-react";
 
+import { useTheme } from "@/components/theme-provider";
+import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -2191,6 +2194,71 @@ function ReportsView({ data }: { data: MarketingWorkspaceData }) {
   );
 }
 
+const themeSwatches: Record<ThemeId, string[]> = {
+  "original-dark": ["#0d1526", "#151d31", "#17c0e0", "#34c199"],
+  "original-light": ["#f6f8fb", "#ffffff", "#0a6f88", "#37a884"],
+  arcane: ["#0b0a20", "#171236", "#dca63f", "#9a6bd8"],
+  kingdom: ["#e5d2ac", "#f4e9cf", "#b5642c", "#4e7a3f"],
+};
+
+function AppearanceSettingsPanel() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <Card>
+      <CardHeader>
+        <SectionTitle
+          icon={Palette}
+          kicker="Appearance"
+          title="Appearance"
+          description="Choose a colour theme for the workspace. Your choice is saved on this device and applies instantly."
+        />
+      </CardHeader>
+      <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {THEMES.map((option) => {
+          const active = theme === option.id;
+
+          return (
+            <button
+              aria-pressed={active}
+              className={cn(
+                "flex flex-col gap-3 rounded-lg border p-4 text-left transition-colors",
+                active
+                  ? "border-primary ring-2 ring-ring"
+                  : "border-border hover:bg-muted/40",
+              )}
+              key={option.id}
+              onClick={() => setTheme(option.id)}
+              type="button"
+            >
+              <span aria-hidden="true" className="flex gap-1.5">
+                {themeSwatches[option.id].map((colour, index) => (
+                  <span
+                    className="h-6 w-6 rounded-full border"
+                    key={`${option.id}-${index}`}
+                    style={{ backgroundColor: colour }}
+                  />
+                ))}
+              </span>
+              <span className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">{option.label}</span>
+                {active ? (
+                  <span className="rounded-md border border-success-border bg-success px-2 py-0.5 text-xs font-medium text-success-foreground">
+                    Active
+                  </span>
+                ) : null}
+              </span>
+              <span className="text-xs leading-5 text-muted-foreground">
+                {option.description}
+              </span>
+            </button>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsWorkspaceView({
   brand,
   calendar,
@@ -2232,6 +2300,7 @@ function SettingsWorkspaceView({
 }) {
   return (
     <section className="space-y-4">
+      <AppearanceSettingsPanel />
       <BrandSetupView
         brand={brand}
         importState={importState}
@@ -2659,7 +2728,7 @@ function BrandSetupView({
               />
             </label>
 
-            <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950">
+            <div className="rounded-lg border border-info-border bg-info p-3 text-info-foreground">
               <div className="flex gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <p className="text-xs leading-5">
@@ -2973,7 +3042,7 @@ function PdfImportReviewPanel({
       </div>
 
       {upload.warning ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+        <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
           {upload.warning}
         </div>
       ) : null}
@@ -4242,7 +4311,7 @@ function CalendarBuilderView({
         </CardHeader>
         <CardContent className="space-y-4">
           {!brief.approved ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="rounded-lg border border-warning-border bg-warning p-4 text-sm text-warning-foreground">
               Approve the strategy brief before generating the monthly calendar.
             </div>
           ) : null}
@@ -4773,7 +4842,7 @@ function CalendarItemEditor({
         </div>
 
         {!canPublishCalendarItem(item) ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
             Publishing is locked until the approval stage reaches Published. Use
             Compliance Approved and Scheduled before the final publish gate.
           </div>
@@ -5158,7 +5227,7 @@ function ContentProductionView({
         </CardHeader>
         <CardContent className="space-y-4">
           {!brief.approved ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="rounded-lg border border-warning-border bg-warning p-4 text-sm text-warning-foreground">
               Approve the strategy brief before generating production copy.
             </div>
           ) : null}
@@ -5332,7 +5401,7 @@ function ContentProductionView({
                       </NativeSelect>
                     </Field>
                     {!canPublishCalendarItem(item) ? (
-                      <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                      <p className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
                         Publish is blocked until compliance approval reaches
                         Published.
                       </p>
@@ -7357,14 +7426,16 @@ function statusVariant(status: CalendarStatus): BadgeVariant {
 }
 
 function platformBadgeClass(platform: Platform) {
+  // Theme-neutral chip so the platform tag reads correctly on every theme.
+  const tone = "border-border bg-secondary text-secondary-foreground";
   const classes: Record<Platform, string> = {
-    TikTok: "border-zinc-200 bg-zinc-50 text-zinc-800",
-    Instagram: "border-rose-200 bg-rose-50 text-rose-700",
-    "YouTube Shorts": "border-red-200 bg-red-50 text-red-700",
-    LinkedIn: "border-sky-200 bg-sky-50 text-sky-700",
-    Facebook: "border-blue-200 bg-blue-50 text-blue-700",
-    "X/Twitter": "border-slate-200 bg-slate-50 text-slate-700",
-    Threads: "border-violet-200 bg-violet-50 text-violet-700",
+    TikTok: tone,
+    Instagram: tone,
+    "YouTube Shorts": tone,
+    LinkedIn: tone,
+    Facebook: tone,
+    "X/Twitter": tone,
+    Threads: tone,
   };
 
   return classes[platform];

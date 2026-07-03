@@ -518,7 +518,7 @@ function ContentCards({ cards }: { cards: ContentEngineOutput["contentCards"] })
               {[card.funnelStage, card.status, card.cta, ...card.metricsToWatch].map(
                 (item, index) => (
                   <Badge
-                    className={cn(item === card.status && "border-emerald-200")}
+                    className={cn(item === card.status && "border-success-border")}
                     key={`${item}-${index}`}
                     variant={item === card.status ? "success" : "secondary"}
                   >
