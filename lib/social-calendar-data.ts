@@ -853,6 +853,13 @@ export type MarketingWorkspaceData = {
   datasetMode?: "sample" | "live";
   // Set once the owner dismisses the empty-workspace first-run checklist.
   firstRunChecklistDismissed?: boolean;
+  // First-time onboarding. All optional so older saves upgrade safely.
+  // welcomeDismissed hides the welcome card; guidedSetupActive keeps the
+  // step-by-step guide running; dismissedHelpScreens lists the view ids whose
+  // "Need help?" hint the owner has closed.
+  welcomeDismissed?: boolean;
+  guidedSetupActive?: boolean;
+  dismissedHelpScreens?: string[];
 };
 
 export const platformRules: Record<
@@ -2601,6 +2608,11 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     approvalsLog: [],
     approverName: "",
     datasetMode: "sample",
+    // The demo workspace is already populated, so the welcome and guide do
+    // not apply to it.
+    welcomeDismissed: true,
+    guidedSetupActive: false,
+    dismissedHelpScreens: [],
   };
 }
 
@@ -2706,6 +2718,11 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
     approvalsLog: [],
     approverName: "",
     datasetMode: "live",
+    // A blank workspace is a brand-new start, so the welcome card shows and
+    // the guide is available.
+    welcomeDismissed: false,
+    guidedSetupActive: false,
+    dismissedHelpScreens: [],
   };
 }
 

@@ -160,6 +160,11 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
     approverName: typeof data.approverName === "string" ? data.approverName : "",
     datasetMode: (data.datasetMode === "live" ? "live" : "sample") as "sample" | "live",
     firstRunChecklistDismissed: Boolean(data.firstRunChecklistDismissed),
+    welcomeDismissed: Boolean(data.welcomeDismissed),
+    guidedSetupActive: Boolean(data.guidedSetupActive),
+    dismissedHelpScreens: Array.isArray(data.dismissedHelpScreens)
+      ? data.dismissedHelpScreens
+      : [],
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,
