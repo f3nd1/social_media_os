@@ -50,7 +50,12 @@ import {
   useWorkspaceSync,
   type WorkspaceSync,
 } from "@/components/social-calendar/use-workspace-sync";
-import { isLiveAiEnabled } from "@/lib/ai-settings";
+import { isLiveAiEnabled, resolveModelForTask } from "@/lib/ai-settings";
+import {
+  briefDraftToPatch,
+  type BriefAiContext,
+  type BriefAiDraft,
+} from "@/lib/brief-ai";
 import { resolveSupabaseConfig } from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
@@ -745,8 +750,12 @@ export function SocialCalendarApp() {
 
             {activeView === "brief" ? (
               <StrategyBriefView
+                aiIntegration={data.aiIntegration}
+                audits={data.audits}
+                brand={data.brand}
                 brief={data.brief}
                 socialGoals={data.socialGoals}
+                ucc={data.ucc}
                 onBriefChange={(brief) =>
                   updateWorkspace((current) => ({ ...current, brief }))
                 }
@@ -4942,14 +4951,28 @@ function CompetitorIntelligenceView({
 }
 
 function StrategyBriefView({
+  aiIntegration,
+  audits,
+  brand,
   brief,
   socialGoals,
+  ucc,
   onBriefChange,
 }: {
+  aiIntegration: AiIntegrationSettings;
+  audits: SocialAudit[];
+  brand: BrandProfile;
   brief: StrategyBrief;
   socialGoals: SocialGoalSettings;
+  ucc: UccStrategyData;
   onBriefChange: (brief: StrategyBrief) => void;
 }) {
+  const [generating, setGenerating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [aiDraftPending, setAiDraftPending] = useState(false);
+
+  const liveAi = isLiveAiEnabled(aiIntegration);
+
   function updateBrief<K extends keyof StrategyBrief>(
     field: K,
     value: StrategyBrief[K],
@@ -4962,6 +4985,94 @@ function StrategyBriefView({
     });
   }
 
+  function approveBrief() {
+    setAiDraftPending(false);
+    updateBrief("approved", true);
+  }
+
+  function buildContext(): BriefAiContext {
+    return {
+      brand: {
+        name: brand.brandName,
+        industry: brand.industry,
+        toneOfVoice: brand.toneOfVoice,
+        audience: brand.audience,
+        offers: brand.offers,
+        goals: brand.goals,
+        guidelines: brand.brandGuidelines,
+      },
+      courses: ucc.courses
+        .filter((course) => course.status !== "archived")
+        .map((course) => ({
+          name: course.name,
+          category: course.category,
+          usp: course.usp ?? "",
+          description: course.description ?? "",
+          sellingPoints: course.sellingPoints ?? [],
+          complianceNotes: course.complianceNotes,
+        })),
+      audiences: ucc.audiences.map((audience) => ({
+        name: audience.name,
+        goals: audience.motivations,
+        painPoints: audience.concerns,
+        interests: audience.interests ?? [],
+      })),
+      auditGoal: {
+        primaryObjective: socialGoals.primaryObjective,
+        northStarMetric: socialGoals.northStarMetric,
+        conversionAction: socialGoals.conversionAction,
+      },
+      platformAnalytics: audits.map((audit) => ({
+        platform: audit.platform,
+        followers: audit.followers,
+        averageReach: audit.averageReach,
+        engagementRate: audit.engagementRate,
+      })),
+      platforms: [...platforms],
+    };
+  }
+
+  async function generateBrief() {
+    setGenerating(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/ai/brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          model: resolveModelForTask(aiIntegration, "analysis"),
+          context: buildContext(),
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; draft: BriefAiDraft }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setErrorMessage(result.error);
+        return;
+      }
+
+      const patch = briefDraftToPatch(result.draft, brief.platformStrategy, [
+        ...platforms,
+      ]);
+
+      onBriefChange({
+        ...brief,
+        ...patch,
+        approved: false,
+        updatedAt: new Date().toISOString(),
+      });
+      setAiDraftPending(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <Card>
@@ -4970,18 +5081,50 @@ function StrategyBriefView({
             icon={ClipboardCheck}
             kicker="Step 4"
             title="Strategic Narrative Brief"
-            description="Approve the monthly strategy before generating or regenerating the calendar."
+            description="Generate a draft with AI or edit by hand, then approve before generating the calendar."
           />
-          <Button
-            onClick={() => updateBrief("approved", true)}
-            size="sm"
-            variant={brief.approved ? "secondary" : "default"}
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            {brief.approved ? "Approved" : "Approve brief"}
-          </Button>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button
+                disabled={!liveAi || generating}
+                onClick={generateBrief}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Sparkles className="h-4 w-4" />
+                {generating ? "Generating" : "Generate brief with AI"}
+              </Button>
+              <Button
+                onClick={approveBrief}
+                size="sm"
+                type="button"
+                variant={brief.approved ? "secondary" : "default"}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {brief.approved ? "Approved" : "Approve brief"}
+              </Button>
+            </div>
+            {!liveAi ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Connect OpenAI in Settings to generate with AI.
+              </p>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {aiDraftPending && !brief.approved ? (
+            <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              AI draft, not yet approved. Review and edit any field below, then
+              select Approve brief to make it the working brief.
+            </div>
+          ) : null}
+
+          {errorMessage ? (
+            <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              {errorMessage}
+            </div>
+          ) : null}
           <Field label="Monthly campaign goal">
             <Textarea
               value={brief.monthlyCampaignGoal}
@@ -5040,6 +5183,54 @@ function StrategyBriefView({
             value={brief.keyAnglesToOwn}
             onChange={(value) => updateBrief("keyAnglesToOwn", value)}
           />
+
+          <div className="rounded-lg border bg-muted/20 p-4">
+            <p className="text-sm font-semibold">Strategy recommendation (Stage 6)</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Proposed by AI as a draft. Every field is editable and stays a
+              draft until you approve the brief.
+            </p>
+            <div className="mt-3 space-y-4">
+              <TextListField
+                label="Marketing objectives"
+                value={brief.marketingObjectives ?? []}
+                onChange={(value) => updateBrief("marketingObjectives", value)}
+              />
+              <TextListField
+                label="Campaign ideas"
+                value={brief.campaignIdeas ?? []}
+                onChange={(value) => updateBrief("campaignIdeas", value)}
+              />
+              <Field label="Platform mix">
+                <Textarea
+                  value={brief.platformMix ?? ""}
+                  onChange={(event) => updateBrief("platformMix", event.target.value)}
+                />
+              </Field>
+              <Field label="Suggested budget direction">
+                <Textarea
+                  value={brief.suggestedBudget ?? ""}
+                  onChange={(event) => updateBrief("suggestedBudget", event.target.value)}
+                />
+              </Field>
+              <TextListField
+                label="KPIs"
+                value={brief.kpis ?? []}
+                onChange={(value) => updateBrief("kpis", value)}
+              />
+              <Field label="Recommended timeline">
+                <Textarea
+                  value={brief.recommendedTimeline ?? ""}
+                  onChange={(event) => updateBrief("recommendedTimeline", event.target.value)}
+                />
+              </Field>
+              <TextListField
+                label="Recommended resources"
+                value={brief.recommendedResources ?? []}
+                onChange={(value) => updateBrief("recommendedResources", value)}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
