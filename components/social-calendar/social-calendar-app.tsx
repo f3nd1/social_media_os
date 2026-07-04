@@ -7,6 +7,7 @@ import {
   type ReactNode,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -58,6 +59,12 @@ import {
 } from "@/lib/ai-usage";
 import type { OpenAiUsage } from "@/lib/openai-shared";
 import {
+  auditDraftToInsight,
+  upsertAuditInsight,
+  type AuditAiContext,
+  type AuditAiDraft,
+} from "@/lib/audit-ai";
+import {
   briefDraftToPatch,
   type BriefAiContext,
   type BriefAiDraft,
@@ -102,6 +109,7 @@ import {
   statuses,
   type AiIntegrationSettings,
   type AiUsageEntry,
+  type AuditInsight,
   type AuditScores,
   type ApprovalStage,
   type BrandProfile,
@@ -734,11 +742,18 @@ export function SocialCalendarApp() {
 
             {activeView === "objectives" ? (
               <SocialAuditView
+                aiIntegration={data.aiIntegration}
+                auditInsights={data.auditInsights}
                 audits={data.audits}
                 socialGoals={data.socialGoals}
+                ucc={data.ucc}
+                onAuditInsightsChange={(auditInsights) =>
+                  updateWorkspace((current) => ({ ...current, auditInsights }))
+                }
                 onAuditsChange={(audits) =>
                   updateWorkspace((current) => ({ ...current, audits }))
                 }
+                onRecordUsage={recordAiUsage}
                 onSocialGoalsChange={(socialGoals) =>
                   updateWorkspace((current) => ({ ...current, socialGoals }))
                 }
@@ -4874,21 +4889,154 @@ function SocialGoalSettingPanel({
 }
 
 function SocialAuditView({
+  aiIntegration,
+  auditInsights,
   audits,
   socialGoals,
+  ucc,
+  onAuditInsightsChange,
   onAuditsChange,
+  onRecordUsage,
   onSocialGoalsChange,
 }: {
+  aiIntegration: AiIntegrationSettings;
+  auditInsights: AuditInsight[];
   audits: SocialAudit[];
   socialGoals: SocialGoalSettings;
+  ucc: UccStrategyData;
+  onAuditInsightsChange: (auditInsights: AuditInsight[]) => void;
   onAuditsChange: (audits: SocialAudit[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onSocialGoalsChange: (socialGoals: SocialGoalSettings) => void;
 }) {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(
     audits[0]?.platform ?? "TikTok",
   );
+  const [generatingPlatform, setGeneratingPlatform] = useState<Platform | "">("");
+  const [recalcProgress, setRecalcProgress] = useState<Record<string, string>>({});
+  const [recalcRunning, setRecalcRunning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  // Local mirror so a sequential "Recalculate all" run does not lose earlier
+  // platforms' results to stale prop closures between state updates.
+  const insightsRef = useRef(auditInsights);
+  insightsRef.current = auditInsights;
+
+  const liveAi = isLiveAiEnabled(aiIntegration);
   const selectedAudit =
     audits.find((audit) => audit.platform === selectedPlatform) ?? audits[0];
+
+  function buildAuditContext(audit: SocialAudit): AuditAiContext {
+    return {
+      platform: audit.platform,
+      metrics: {
+        followers: audit.followers,
+        averageReach: audit.averageReach,
+        engagementRate: audit.engagementRate,
+        postingFrequency: audit.postingFrequency,
+        scores: audit.scores as unknown as Record<string, number>,
+        notes: audit.notes,
+      },
+      smartGoal: {
+        primaryObjective: socialGoals.primaryObjective,
+        northStarMetric: socialGoals.northStarMetric,
+        conversionAction: socialGoals.conversionAction,
+        funnelStage: socialGoals.funnelStage,
+        isPriorityPlatform: socialGoals.priorityPlatforms.includes(audit.platform),
+        monthlyTargets: socialGoals.monthlyTargets as unknown as Record<string, number>,
+      },
+      courses: ucc.courses
+        .filter((course) => course.status !== "archived")
+        .map((course) => ({ name: course.name, category: course.category })),
+      audiences: ucc.audiences.map((audience) => ({
+        name: audience.name,
+        painPoints: audience.concerns,
+      })),
+    };
+  }
+
+  async function generateForPlatform(audit: SocialAudit): Promise<string> {
+    const response = await fetch("/api/ai/audit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey: aiIntegration.apiKey,
+        model: resolveModelForTask(aiIntegration, "analysis"),
+        context: buildAuditContext(audit),
+      }),
+    });
+    const result = (await response.json()) as
+      | { ok: true; draft: AuditAiDraft; usage?: OpenAiUsage; model?: string }
+      | { ok: false; error: string };
+
+    if (!result.ok) {
+      return result.error;
+    }
+
+    const insight = auditDraftToInsight(result.draft, {
+      platform: audit.platform,
+      model: result.model ?? "unknown",
+      inputSummary: `Metrics: ${formatNumber(audit.followers)} followers, ${formatNumber(
+        audit.averageReach,
+      )} avg reach, ${audit.engagementRate}% engagement. Goal: ${socialGoals.northStarMetric}.`,
+    });
+    onAuditInsightsChange(upsertAuditInsight(insightsRef.current, insight));
+
+    if (result.usage) {
+      onRecordUsage("Objectives audit", result.model ?? "unknown", result.usage);
+    }
+
+    return "";
+  }
+
+  async function generateOne(audit: SocialAudit) {
+    setGeneratingPlatform(audit.platform);
+    setErrorMessage("");
+
+    try {
+      const error = await generateForPlatform(audit);
+
+      if (error) {
+        setErrorMessage(error);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGeneratingPlatform("");
+    }
+  }
+
+  async function recalculateAll() {
+    setRecalcRunning(true);
+    setErrorMessage("");
+    setRecalcProgress({});
+
+    for (const audit of audits) {
+      setRecalcProgress((current) => ({ ...current, [audit.platform]: "generating" }));
+
+      try {
+        const error = await generateForPlatform(audit);
+        setRecalcProgress((current) => ({
+          ...current,
+          [audit.platform]: error ? `failed: ${error}` : "done",
+        }));
+      } catch (error) {
+        setRecalcProgress((current) => ({
+          ...current,
+          [audit.platform]: `failed: ${error instanceof Error ? error.message : String(error)}`,
+        }));
+      }
+    }
+
+    setRecalcRunning(false);
+  }
+
+  function setInsightStatus(id: string, status: AuditInsight["status"]) {
+    onAuditInsightsChange(
+      auditInsights.map((insight) =>
+        insight.id === id ? { ...insight, status } : insight,
+      ),
+    );
+  }
 
   function updateAudit(platform: Platform, updater: (audit: SocialAudit) => SocialAudit) {
     onAuditsChange(
@@ -4932,15 +5080,64 @@ function SocialAuditView({
       />
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <SectionTitle
             icon={SearchCheck}
             kicker="Step 2"
             title="Social Audit"
             description="Score the current platform presence across completeness, consistency, content mix, hooks, CTAs, visuals, and engagement."
           />
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <Button
+              disabled={!liveAi || recalcRunning}
+              onClick={() => void recalculateAll()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Sparkles className="h-4 w-4" />
+              {recalcRunning ? "Recalculating" : "Recalculate all with AI"}
+            </Button>
+            {!liveAi ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Connect OpenAI in Settings to generate with AI.
+              </p>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent>
+          {Object.keys(recalcProgress).length > 0 ? (
+            <div className="mb-3 space-y-1 rounded-lg border bg-muted/20 p-3">
+              {audits.map((audit) => {
+                const state = recalcProgress[audit.platform];
+
+                if (!state) {
+                  return null;
+                }
+
+                return (
+                  <p className="text-xs leading-5" key={audit.platform}>
+                    <span className="font-medium">{audit.platform}:</span>{" "}
+                    <span
+                      className={cn(
+                        state.startsWith("failed") && "text-warning-foreground",
+                        state === "done" && "text-success-foreground",
+                      )}
+                    >
+                      {state}
+                    </span>
+                  </p>
+                );
+              })}
+            </div>
+          ) : null}
+
+          {errorMessage ? (
+            <div className="mb-3 rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              {errorMessage}
+            </div>
+          ) : null}
+
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="border-b text-xs uppercase text-muted-foreground">
@@ -5117,13 +5314,112 @@ function SocialAuditView({
               variant="warning"
             />
             <InsightList
-              title="Priority recommendations"
+              title={
+                liveAi
+                  ? "Rule-based recommendations"
+                  : "Rule-based recommendations (Offline draft, AI not connected)"
+              }
               items={buildGoalAwareAuditRecommendations(
                 selectedAudit,
                 socialGoals,
               )}
               variant="success"
             />
+
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold">AI recommendation</p>
+                <Button
+                  disabled={!liveAi || generatingPlatform === selectedAudit.platform || recalcRunning}
+                  onClick={() => void generateOne(selectedAudit)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {generatingPlatform === selectedAudit.platform
+                    ? "Generating"
+                    : "Generate AI recommendation"}
+                </Button>
+              </div>
+
+              {(() => {
+                const insight = auditInsights.find(
+                  (row) => row.platform === selectedAudit.platform,
+                );
+
+                if (!insight) {
+                  return (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      No AI recommendation yet for {selectedAudit.platform}.
+                    </p>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant={
+                          insight.status === "accepted"
+                            ? "success"
+                            : insight.status === "dismissed"
+                              ? "secondary"
+                              : "warning"
+                        }
+                      >
+                        {insight.status === "accepted"
+                          ? "Accepted"
+                          : insight.status === "dismissed"
+                            ? "Dismissed"
+                            : "AI draft, not yet accepted"}
+                      </Badge>
+                      <Badge variant="outline">
+                        {insight.confidenceLevel} confidence
+                      </Badge>
+                      {insight.limitedData ? (
+                        <Badge variant="secondary">Limited data</Badge>
+                      ) : null}
+                    </div>
+                    <p className="text-sm leading-6">{insight.recommendation}</p>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Confidence: {insight.confidenceReason}
+                    </p>
+                    {insight.nextActions.length > 0 ? (
+                      <ul className="list-disc space-y-1 pl-4 text-sm leading-6">
+                        {insight.nextActions.map((action) => (
+                          <li key={action}>{action}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {formatDateTime(insight.generatedAt)}, {insight.model}.{" "}
+                      {insight.inputSummary}
+                    </p>
+                    {insight.status === "draft" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          onClick={() => setInsightStatus(insight.id, "accepted")}
+                          size="sm"
+                          type="button"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          Accept
+                        </Button>
+                        <Button
+                          onClick={() => setInsightStatus(insight.id, "dismissed")}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
+            </div>
           </CardContent>
         </Card>
       </div>
