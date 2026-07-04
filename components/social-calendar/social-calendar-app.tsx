@@ -75,6 +75,14 @@ import {
   type CalendarAiContext,
   type CalendarDraftItem,
 } from "@/lib/calendar-ai";
+import {
+  formatMomentsForPrompt,
+  suggestionDraftsToSuggestions,
+  suggestionToCampaign,
+  type CampaignAiContext,
+  type CampaignAiSuggestionDraft,
+} from "@/lib/campaign-ai";
+import { upcomingSgMoments } from "@/lib/sg-marketing-moments";
 import { resolveSupabaseConfig } from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
@@ -107,9 +115,11 @@ import {
   platforms,
   roles,
   statuses,
+  isCampaignApproved,
   type AiIntegrationSettings,
   type AiUsageEntry,
   type AuditInsight,
+  type CampaignSuggestion,
   type AuditScores,
   type ApprovalStage,
   type BrandProfile,
@@ -771,7 +781,15 @@ export function SocialCalendarApp() {
 
             {activeView === "campaigns" ? (
               <CampaignPlanningView
+                aiIntegration={data.aiIntegration}
+                auditInsights={data.auditInsights}
+                brief={data.brief}
+                campaignSuggestions={data.campaignSuggestions}
                 ucc={data.ucc}
+                onCampaignSuggestionsChange={(campaignSuggestions) =>
+                  updateWorkspace((current) => ({ ...current, campaignSuggestions }))
+                }
+                onRecordUsage={recordAiUsage}
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
                 }
@@ -1809,13 +1827,309 @@ function AudienceEditorSlideOver({
   );
 }
 
+function CampaignEditorSlideOver({
+  onCancel,
+  onSave,
+  ucc,
+}: {
+  onCancel: () => void;
+  onSave: (campaign: UccCampaign) => void;
+  ucc: UccStrategyData;
+}) {
+  const [draft, setDraft] = useState<UccCampaign>({
+    id: `campaign-${Date.now()}`,
+    name: "",
+    objective: "",
+    courseId: ucc.courses[0]?.id ?? "",
+    audienceId: ucc.audiences[0]?.id ?? "",
+    funnelStage: funnelStages[0],
+    platformMix: [],
+    startDate: "",
+    endDate: "",
+    owner: "marketing manager",
+    budget: 0,
+    status: "planning",
+    kpiTarget: { reach: 0, leads: 0, applications: 0, enrolments: 0, costPerLead: 0 },
+    actualResults: { reach: 0, leads: 0, applications: 0, enrolments: 0, spend: 0 },
+    approvalStatus: "draft",
+  });
+
+  function set<K extends keyof UccCampaign>(field: K, value: UccCampaign[K]) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  const channelOptions: UccMarketingChannel[] = [
+    ...platforms,
+    "Xiaohongshu",
+    "WeChat",
+    "Education fair",
+    "Open house",
+    "Campus visit",
+    "Agent activity",
+  ];
+
+  function toggleChannel(channel: UccMarketingChannel) {
+    setDraft((current) => ({
+      ...current,
+      platformMix: current.platformMix.includes(channel)
+        ? current.platformMix.filter((value) => value !== channel)
+        : [...current.platformMix, channel],
+    }));
+  }
+
+  return (
+    <SlideOver onCancel={onCancel} title="Add campaign">
+      <div className="space-y-4">
+        <Field label="Campaign name">
+          <Input onChange={(event) => set("name", event.target.value)} value={draft.name} />
+        </Field>
+        <Field label="Objective">
+          <Textarea
+            onChange={(event) => set("objective", event.target.value)}
+            value={draft.objective}
+          />
+        </Field>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Course">
+            <NativeSelect
+              onChange={(event) => set("courseId", event.target.value)}
+              value={draft.courseId}
+            >
+              {ucc.courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Audience">
+            <NativeSelect
+              onChange={(event) => set("audienceId", event.target.value)}
+              value={draft.audienceId}
+            >
+              {ucc.audiences.map((audience) => (
+                <option key={audience.id} value={audience.id}>
+                  {audience.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Start date">
+            <Input
+              onChange={(event) => set("startDate", event.target.value)}
+              type="date"
+              value={draft.startDate}
+            />
+          </Field>
+          <Field label="End date">
+            <Input
+              onChange={(event) => set("endDate", event.target.value)}
+              type="date"
+              value={draft.endDate}
+            />
+          </Field>
+          <Field label="Budget (S$)">
+            <Input
+              onChange={(event) => set("budget", toNumber(event.target.value))}
+              type="number"
+              value={draft.budget}
+            />
+          </Field>
+          <Field label="Lead target">
+            <Input
+              onChange={(event) =>
+                set("kpiTarget", { ...draft.kpiTarget, leads: toNumber(event.target.value) })
+              }
+              type="number"
+              value={draft.kpiTarget.leads}
+            />
+          </Field>
+        </div>
+        <div>
+          <p className="mb-2 text-sm font-medium text-foreground">Platform mix</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {channelOptions.map((channel) => (
+              <label
+                className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
+                key={channel}
+              >
+                <input
+                  checked={draft.platformMix.includes(channel)}
+                  onChange={() => toggleChannel(channel)}
+                  type="checkbox"
+                />
+                {channel}
+              </label>
+            ))}
+          </div>
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">
+          New campaigns start as drafts. Approve a campaign on its card before
+          the AI calendar generator will plan content for it.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={!draft.name.trim()} onClick={() => onSave(draft)} type="button">
+            Save campaign
+          </Button>
+          <Button onClick={onCancel} size="sm" type="button" variant="outline">
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </SlideOver>
+  );
+}
+
 function CampaignPlanningView({
+  aiIntegration,
+  auditInsights,
+  brief,
+  campaignSuggestions,
+  onCampaignSuggestionsChange,
+  onRecordUsage,
   onUccChange,
   ucc,
 }: {
+  aiIntegration: AiIntegrationSettings;
+  auditInsights: AuditInsight[];
+  brief: StrategyBrief;
+  campaignSuggestions: CampaignSuggestion[];
+  onCampaignSuggestionsChange: (campaignSuggestions: CampaignSuggestion[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState("");
+  const [campaignEditorOpen, setCampaignEditorOpen] = useState(false);
+
+  const liveAi = isLiveAiEnabled(aiIntegration);
+
+  async function suggestCampaigns() {
+    setSuggesting(true);
+    setSuggestError("");
+
+    try {
+      const response = await fetch("/api/ai/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          model: resolveModelForTask(aiIntegration, "analysis"),
+          context: {
+            todayIso: new Date().toISOString().slice(0, 10),
+            brief: {
+              monthlyCampaignGoal: brief.monthlyCampaignGoal,
+              marketingObjectives: brief.marketingObjectives ?? [],
+              contentPillars: brief.contentPillars,
+              platformMix: brief.platformMix ?? "",
+              keyAnglesToOwn: brief.keyAnglesToOwn,
+            },
+            acceptedAuditInsights: auditInsights
+              .filter((insight) => insight.status === "accepted")
+              .map((insight) => `${insight.platform}: ${insight.recommendation}`),
+            acceptedCompetitorInsights: [],
+            courses: ucc.courses
+              .filter((course) => course.status !== "archived")
+              .map((course) => ({
+                name: course.name,
+                category: course.category,
+                usp: course.usp ?? "",
+              })),
+            audiences: ucc.audiences.map((audience) => ({
+              name: audience.name,
+              goals: audience.motivations,
+              painPoints: audience.concerns,
+            })),
+            existingCampaignNames: ucc.campaigns.map((campaign) => campaign.name),
+            sgMoments: formatMomentsForPrompt(upcomingSgMoments(new Date())),
+          } satisfies CampaignAiContext,
+        }),
+      });
+      const result = (await response.json()) as
+        | {
+            ok: true;
+            suggestions: CampaignAiSuggestionDraft[];
+            usage?: OpenAiUsage;
+            model?: string;
+          }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setSuggestError(result.error);
+        return;
+      }
+
+      onCampaignSuggestionsChange(
+        suggestionDraftsToSuggestions(result.suggestions, result.model ?? "unknown"),
+      );
+
+      if (result.usage) {
+        onRecordUsage("Campaign suggestions", result.model ?? "unknown", result.usage);
+      }
+    } catch (error) {
+      setSuggestError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
+  function acceptSuggestion(suggestion: CampaignSuggestion) {
+    const campaign = suggestionToCampaign(suggestion, {
+      courses: ucc.courses.filter((course) => course.status !== "archived"),
+      audiences: ucc.audiences,
+      validChannels: [
+        ...platforms,
+        "Xiaohongshu",
+        "WeChat",
+        "Education fair",
+        "Open house",
+        "Campus visit",
+      ] as UccMarketingChannel[],
+      defaultFunnelStage: ucc.campaigns[0]?.funnelStage ?? funnelStages[0],
+    });
+
+    onUccChange({ ...ucc, campaigns: [...ucc.campaigns, campaign] });
+    onCampaignSuggestionsChange(
+      campaignSuggestions.filter((row) => row.id !== suggestion.id),
+    );
+  }
+
+  function dismissSuggestion(id: string) {
+    onCampaignSuggestionsChange(campaignSuggestions.filter((row) => row.id !== id));
+  }
+
+  function deleteCampaign(campaign: UccCampaign) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Delete the campaign "${campaign.name}"? This cannot be undone.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    onUccChange({
+      ...ucc,
+      campaigns: ucc.campaigns.filter((row) => row.id !== campaign.id),
+    });
+  }
+
+  function setCampaignApproval(id: string, approvalStatus: "draft" | "approved") {
+    onUccChange({
+      ...ucc,
+      campaigns: ucc.campaigns.map((campaign) =>
+        campaign.id === id ? { ...campaign, approvalStatus } : campaign,
+      ),
+    });
+  }
+
+  function addCampaign(campaign: UccCampaign) {
+    onUccChange({ ...ucc, campaigns: [...ucc.campaigns, campaign] });
+    setCampaignEditorOpen(false);
+  }
+
   const offlineActivities: Array<{
     channel: UccMarketingChannel;
     purpose: string;
@@ -1896,35 +2210,192 @@ function CampaignPlanningView({
   return (
     <section className="space-y-4">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <SectionTitle
             icon={ClipboardCheck}
             kicker="Campaigns"
             title="Campaign-Level Planning"
-            description="Plan objective, audience, course, platform mix, budget, timeline, content pieces, KPI target, owner, and actual results."
+            description="Plan objective, audience, course, platform mix, budget, timeline, content pieces, KPI target, owner, and actual results. Only approved campaigns feed the AI calendar generator."
           />
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {ucc.campaigns.map((campaign) => (
-            <div className="rounded-lg border bg-muted/20 p-3" key={campaign.id}>
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-semibold leading-5">{campaign.name}</p>
-                <StatusLabel status={getCampaignStatus(campaign)} />
-              </div>
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                {campaign.objective}
-              </p>
-              <Progress
-                className="mt-3"
-                value={percentOf(campaign.actualResults.leads, campaign.kpiTarget.leads)}
-              />
-              <p className="mt-2 text-xs text-muted-foreground">
-                {campaign.actualResults.leads}/{campaign.kpiTarget.leads} leads
-              </p>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button
+                disabled={!liveAi || !brief.approved || suggesting}
+                onClick={() => void suggestCampaigns()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Sparkles className="h-4 w-4" />
+                {suggesting ? "Suggesting" : "Suggest campaigns with AI"}
+              </Button>
+              <Button
+                onClick={() => setCampaignEditorOpen(true)}
+                size="sm"
+                type="button"
+              >
+                <Plus className="h-4 w-4" />
+                Add campaign
+              </Button>
             </div>
-          ))}
+            {!liveAi ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Connect OpenAI in Settings to generate with AI.
+              </p>
+            ) : !brief.approved ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Approve a strategy brief first.
+              </p>
+            ) : null}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {suggestError ? (
+            <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              {suggestError}
+            </div>
+          ) : null}
+
+          {campaignSuggestions.length > 0 ? (
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+              <p className="text-sm font-semibold">
+                AI campaign proposals, drafts awaiting your decision
+              </p>
+              {campaignSuggestions.map((suggestion) => (
+                <div className="rounded-lg border bg-background p-3" key={suggestion.id}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-sm font-semibold">{suggestion.name}</p>
+                    <Badge variant="warning">AI draft</Badge>
+                  </div>
+                  <p className="mt-2 text-xs leading-5">{suggestion.objective}</p>
+                  <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground md:grid-cols-2">
+                    <p>
+                      <span className="font-medium">Audience:</span>{" "}
+                      {suggestion.audienceName}
+                    </p>
+                    <p>
+                      <span className="font-medium">Courses:</span>{" "}
+                      {suggestion.courseNames.join(", ") || "Not specified"}
+                    </p>
+                    <p>
+                      <span className="font-medium">Platforms:</span>{" "}
+                      {suggestion.platformMix.join(", ")}
+                    </p>
+                    <p>
+                      <span className="font-medium">Dates:</span>{" "}
+                      {suggestion.startDate} to {suggestion.endDate}
+                    </p>
+                    <p className="md:col-span-2">
+                      <span className="font-medium">Timeline:</span> {suggestion.timeline}
+                    </p>
+                    <p className="md:col-span-2">
+                      <span className="font-medium">SG moments:</span>{" "}
+                      {suggestion.alignedMoments.join(", ") || "None named"}
+                    </p>
+                    <p className="md:col-span-2">
+                      <span className="font-medium">Indicative budget:</span>{" "}
+                      {suggestion.budgetSplit}
+                    </p>
+                    <p className="md:col-span-2">
+                      <span className="font-medium">KPIs:</span>{" "}
+                      {suggestion.kpis.join("; ")}
+                    </p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => acceptSuggestion(suggestion)}
+                      size="sm"
+                      type="button"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Accept as draft campaign
+                    </Button>
+                    <Button
+                      onClick={() => dismissSuggestion(suggestion.id)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {ucc.campaigns.map((campaign) => (
+              <div className="rounded-lg border bg-muted/20 p-3" key={campaign.id}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold leading-5">{campaign.name}</p>
+                  <StatusLabel status={getCampaignStatus(campaign)} />
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {isCampaignApproved(campaign) ? (
+                    <Badge variant="success">Approved</Badge>
+                  ) : (
+                    <Badge variant="warning">Draft, not approved</Badge>
+                  )}
+                </div>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  {campaign.objective}
+                </p>
+                {campaign.aiNotes ? (
+                  <p className="mt-2 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+                    {campaign.aiNotes}
+                  </p>
+                ) : null}
+                <Progress
+                  className="mt-3"
+                  value={percentOf(campaign.actualResults.leads, campaign.kpiTarget.leads)}
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {campaign.actualResults.leads}/{campaign.kpiTarget.leads} leads
+                </p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {isCampaignApproved(campaign) ? (
+                    <Button
+                      onClick={() => setCampaignApproval(campaign.id, "draft")}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Move back to draft
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => setCampaignApproval(campaign.id, "approved")}
+                      size="sm"
+                      type="button"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Approve campaign
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => deleteCampaign(campaign)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
+
+      {campaignEditorOpen ? (
+        <CampaignEditorSlideOver
+          ucc={ucc}
+          onCancel={() => setCampaignEditorOpen(false)}
+          onSave={addCampaign}
+        />
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -6166,7 +6637,9 @@ function CalendarBuilderView({
         toneGuidance: brief.toneGuidance,
         keyAnglesToOwn: brief.keyAnglesToOwn,
       },
-      campaigns: ucc.campaigns.map((campaign) => ({
+      // Approval gate (Module A2): only approved campaigns reach the
+      // calendar generator's context.
+      campaigns: ucc.campaigns.filter(isCampaignApproved).map((campaign) => ({
         name: campaign.name,
         objective: campaign.objective,
         platformMix: campaign.platformMix,
@@ -6206,6 +6679,13 @@ function CalendarBuilderView({
   }
 
   async function runAiGenerate() {
+    if (!ucc.campaigns.some(isCampaignApproved)) {
+      setErrorMessage(
+        "Approve at least one campaign first. The AI calendar only plans content for approved campaigns.",
+      );
+      return;
+    }
+
     if (!confirmReplaceIfNeeded()) {
       return;
     }
