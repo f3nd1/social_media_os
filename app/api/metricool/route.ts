@@ -11,6 +11,8 @@ export const runtime = "nodejs";
 type MetricoolRequestBody = {
   action?: "test" | "sync";
   credentials?: Partial<MetricoolCredentials>;
+  // 7, 30, or 90; anything else falls back to 30.
+  rangeDays?: number;
 };
 
 function readCredentials(body: MetricoolRequestBody) {
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
   }
 
   if (body.action === "sync") {
-    const result = await syncMetricoolMetrics(credentials);
+    const result = await syncMetricoolMetrics(credentials, body.rangeDays ?? 30);
 
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.error, status: result.status });
@@ -64,6 +66,7 @@ export async function POST(request: Request) {
       ok: true,
       metrics: result.value.metrics,
       skippedNetworks: result.value.skippedNetworks,
+      report: result.value.report,
     });
   }
 

@@ -107,10 +107,12 @@ function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function last30DayRange() {
+export const METRICOOL_RANGE_OPTIONS = [7, 30, 90] as const;
+
+function lastNDayRange(days: number) {
   const to = new Date();
   const from = new Date();
-  from.setDate(from.getDate() - 30);
+  from.setDate(from.getDate() - days);
 
   return { from: isoDate(from), to: isoDate(to) };
 }
@@ -156,6 +158,73 @@ function matchBrand(
   );
 }
 
+// Network names Metricool may reference inside a brand record. Used to work
+// out, best effort, which networks the account actually has connected.
+const KNOWN_NETWORK_NAMES = [
+  "facebook",
+  "instagram",
+  "twitter",
+  "linkedincompany",
+  "linkedin",
+  "tiktok",
+  "youtube",
+  "threads",
+  "pinterest",
+  "googlemybusiness",
+  "gmb",
+  "bluesky",
+  "twitch",
+  "web",
+] as const;
+
+// Best-effort read of which networks the brand record shows as connected:
+// truthy fields whose names start with a network name (facebook, instagramId,
+// tiktokPicture and so on), plus any nested "networks" list.
+export function extractConnectedNetworks(row: Record<string, unknown>): string[] {
+  const found = new Set<string>();
+
+  const consider = (key: string, value: unknown) => {
+    const lower = key.toLowerCase();
+    const match = KNOWN_NETWORK_NAMES.find((name) => lower.startsWith(name));
+
+    if (!match || match === "web") {
+      return;
+    }
+
+    if (
+      value === null ||
+      value === undefined ||
+      value === false ||
+      value === "" ||
+      value === 0 ||
+      (typeof value === "object" && Object.keys(value as object).length === 0)
+    ) {
+      return;
+    }
+
+    found.add(match);
+  };
+
+  for (const [key, value] of Object.entries(row)) {
+    consider(key, value);
+  }
+
+  const networks = (row as { networks?: unknown }).networks;
+
+  if (Array.isArray(networks)) {
+    for (const entry of networks) {
+      if (typeof entry === "string") {
+        consider(entry, true);
+      } else if (entry && typeof entry === "object") {
+        const record = entry as Record<string, unknown>;
+        consider(String(record.name ?? record.network ?? record.id ?? ""), true);
+      }
+    }
+  }
+
+  return [...found].sort();
+}
+
 // Reads one brand-listing endpoint. Distinguishes: found the brand (ok),
 // got a list without the brand (ok:false with the ids we did see), got a
 // non-list body (unrecognised, with the raw body), or an HTTP error
@@ -164,7 +233,7 @@ async function readBrandEndpoint(
   credentials: MetricoolCredentials,
   url: string,
 ): Promise<
-  | { kind: "found"; label: string }
+  | { kind: "found"; label: string; row: MetricoolBrandRow }
   | { kind: "empty-list" }
   | { kind: "wrong-brand"; ids: string }
   | { kind: "unrecognised"; raw: string }
@@ -207,6 +276,7 @@ async function readBrandEndpoint(
       return {
         kind: "found",
         label: matched.label ?? matched.name ?? matched.title ?? "connected brand",
+        row: matched,
       };
     }
 
@@ -222,9 +292,9 @@ async function readBrandEndpoint(
   }
 }
 
-async function fetchBrandLabel(
+async function fetchBrandInfo(
   credentials: MetricoolCredentials,
-): Promise<MetricoolResult<string>> {
+): Promise<MetricoolResult<{ label: string; row: MetricoolBrandRow }>> {
   const v2Url = `${METRICOOL_BASE_URL}/v2/settings/brands?userId=${encodeURIComponent(credentials.userId)}`;
   // The endpoint Metricool's own help pages document for listing brands and
   // their blogIds.
@@ -233,7 +303,7 @@ async function fetchBrandLabel(
   const v2 = await readBrandEndpoint(credentials, v2Url);
 
   if (v2.kind === "found") {
-    return { ok: true, value: v2.label };
+    return { ok: true, value: { label: v2.label, row: v2.row } };
   }
 
   if (v2.kind === "wrong-brand") {
@@ -252,7 +322,7 @@ async function fetchBrandLabel(
   const legacy = await readBrandEndpoint(credentials, legacyUrl);
 
   if (legacy.kind === "found") {
-    return { ok: true, value: legacy.label };
+    return { ok: true, value: { label: legacy.label, row: legacy.row } };
   }
 
   if (legacy.kind === "wrong-brand") {
@@ -300,14 +370,86 @@ async function fetchBrandLabel(
 export async function testMetricoolConnection(
   credentials: MetricoolCredentials,
 ): Promise<MetricoolResult<{ accountLabel: string }>> {
-  const result = await fetchBrandLabel(credentials);
+  const result = await fetchBrandInfo(credentials);
 
   if (!result.ok) {
     return result;
   }
 
-  return { ok: true, value: { accountLabel: result.value } };
+  return { ok: true, value: { accountLabel: result.value.label } };
 }
+
+const TIMELINE_CONTAINER_KEYS = ["data", "values", "timeline", "items", "content", "points"];
+
+// Finds the list of data points wherever Metricool put it: a bare array, an
+// array under a known key, or one level deeper (for example {data:{values:
+// [...]}}). Returns null when no list exists so the raw body can be shown.
+function extractTimelinePoints(payload: unknown): unknown[] | null {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+
+  for (const key of TIMELINE_CONTAINER_KEYS) {
+    const inner = record[key];
+
+    if (Array.isArray(inner)) {
+      return inner;
+    }
+
+    if (inner && typeof inner === "object") {
+      const nested = inner as Record<string, unknown>;
+
+      for (const innerKey of TIMELINE_CONTAINER_KEYS) {
+        if (Array.isArray(nested[innerKey])) {
+          return nested[innerKey] as unknown[];
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// Reads one data point however it is shaped: a plain number, a [date, value]
+// pair, or an object using any of the value field names seen in analytics
+// APIs.
+function timelinePointValue(point: unknown): number {
+  if (typeof point === "number") {
+    return point;
+  }
+
+  if (Array.isArray(point)) {
+    const candidate = Number(point[1] ?? point[0] ?? 0);
+    return Number.isFinite(candidate) ? candidate : 0;
+  }
+
+  if (point && typeof point === "object") {
+    const record = point as Record<string, unknown>;
+    const candidate = Number(
+      record.value ?? record.y ?? record.count ?? record.total ?? record.metricValue ?? 0,
+    );
+    return Number.isFinite(candidate) ? candidate : 0;
+  }
+
+  return 0;
+}
+
+type TimelineOutcome =
+  | { ok: true; total: number; latest: number; points: number }
+  | {
+      ok: false;
+      status: number;
+      notFound: boolean;
+      unrecognised: boolean;
+      error: string;
+      raw: string;
+    };
 
 async function fetchTimelineMetric(
   credentials: MetricoolCredentials,
@@ -315,41 +457,60 @@ async function fetchTimelineMetric(
   metric: string,
   from: string,
   to: string,
-): Promise<
-  | { ok: true; total: number; latest: number }
-  | { ok: false; error: string; status: number; notFound: boolean }
-> {
+): Promise<TimelineOutcome> {
   const url = `${METRICOOL_BASE_URL}/v2/analytics/timelines/${metric}?from=${from}&to=${to}&blogId=${encodeURIComponent(
     credentials.blogId,
   )}&userId=${encodeURIComponent(credentials.userId)}&network=${encodeURIComponent(network)}`;
 
   try {
     const response = await fetch(url, { headers: authHeaders(credentials.apiToken) });
+    const raw = await readBody(response);
 
     if (!response.ok) {
       return {
         ok: false,
-        error: await describeError(response, url),
         status: response.status,
         notFound: response.status === 404,
+        unrecognised: false,
+        error: describeUpstream(response.status, response.statusText, raw, endpointPath(url)),
+        raw: raw.slice(0, 200),
       };
     }
 
-    const payload = (await response.json()) as
-      | Array<{ value?: number; y?: number }>
-      | { data?: Array<{ value?: number; y?: number }> };
-    const points = Array.isArray(payload) ? payload : payload.data ?? [];
-    const values = points.map((point) => Number(point.value ?? point.y ?? 0));
-    const total = values.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+    let payload: unknown = null;
+
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = null;
+    }
+
+    const points = extractTimelinePoints(payload);
+
+    if (!points) {
+      return {
+        ok: false,
+        status: 200,
+        notFound: false,
+        unrecognised: true,
+        error: `Metricool answered HTTP 200 for ${endpointPath(url)} but the body held no recognisable list of data points.`,
+        raw: raw.slice(0, 200),
+      };
+    }
+
+    const values = points.map(timelinePointValue);
+    const total = values.reduce((sum, value) => sum + value, 0);
     const latest = values.length > 0 ? values[values.length - 1] : 0;
 
-    return { ok: true, total, latest };
+    return { ok: true, total, latest, points: values.length };
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
       status: 0,
       notFound: false,
+      unrecognised: false,
+      error: error instanceof Error ? error.message : String(error),
+      raw: "",
     };
   }
 }
@@ -377,22 +538,68 @@ async function fetchPostCount(
   }
 }
 
+// One plain-words phrase for a metric outcome, used in the sync report.
+function describeTimelineOutcome(outcome: TimelineOutcome): string {
+  if (outcome.ok) {
+    return `${outcome.points} data point${outcome.points === 1 ? "" : "s"}`;
+  }
+
+  if (outcome.unrecognised) {
+    return "HTTP 200 but unreadable body";
+  }
+
+  return outcome.status === 0 ? "network error" : `HTTP ${outcome.status}`;
+}
+
 export async function syncMetricoolMetrics(
   credentials: MetricoolCredentials,
+  rangeDays = 30,
   networks: string[] = METRICOOL_SYNC_NETWORKS,
-): Promise<MetricoolResult<{ metrics: PlatformDataMetrics[]; skippedNetworks: string[] }>> {
-  const brandCheck = await fetchBrandLabel(credentials);
+): Promise<
+  MetricoolResult<{
+    metrics: PlatformDataMetrics[];
+    skippedNetworks: string[];
+    // A plain-English account of exactly what Metricool returned: the range
+    // asked for, the brand record's connected networks, and per-network
+    // per-metric statuses with raw samples where relevant. Shown in the UI
+    // so an empty sync is never a mystery.
+    report: string[];
+  }>
+> {
+  const brandCheck = await fetchBrandInfo(credentials);
 
   if (!brandCheck.ok) {
     return brandCheck;
   }
 
-  const { from, to } = last30DayRange();
+  const days = METRICOOL_RANGE_OPTIONS.includes(
+    rangeDays as (typeof METRICOOL_RANGE_OPTIONS)[number],
+  )
+    ? rangeDays
+    : 30;
+  const { from, to } = lastNDayRange(days);
+  const report: string[] = [];
+  const brandRow = brandCheck.value.row as Record<string, unknown>;
+  const connectedNetworks = extractConnectedNetworks(brandRow);
+
+  report.push(`Date range requested: ${from} to ${to} (last ${days} days).`);
+  report.push(`Brand found: "${brandCheck.value.label}" (Blog ID ${credentials.blogId}).`);
+
+  if (connectedNetworks.length > 0) {
+    report.push(
+      `Networks the Metricool brand record appears to have connected: ${connectedNetworks.join(", ")}.`,
+    );
+  } else {
+    report.push(
+      `The brand record did not clearly list any connected networks. Raw brand record (truncated): ${JSON.stringify(brandRow).slice(0, 300)}`,
+    );
+  }
+
   const metrics: PlatformDataMetrics[] = [];
   const skippedNetworks: string[] = [];
   let planGatedCount = 0;
   // The first genuine (non plan-gated) upstream failure, kept verbatim so a
-  // 400 or 404 is reported exactly instead of being flattened into "skipped".
+  // 400 or 5xx is reported exactly instead of being flattened into "skipped".
   let firstRealError: { error: string; status: number } | null = null;
 
   for (const network of networks) {
@@ -402,21 +609,41 @@ export async function syncMetricoolMetrics(
       continue;
     }
 
-    const [followers, impressions, reach, engagement, clicks] = await Promise.all([
-      fetchTimelineMetric(credentials, network, METRICOOL_METRIC_IDS.followers, from, to),
-      fetchTimelineMetric(credentials, network, METRICOOL_METRIC_IDS.impressions, from, to),
-      fetchTimelineMetric(credentials, network, METRICOOL_METRIC_IDS.reach, from, to),
-      fetchTimelineMetric(credentials, network, METRICOOL_METRIC_IDS.engagement, from, to),
-      fetchTimelineMetric(credentials, network, METRICOOL_METRIC_IDS.clicks, from, to),
-    ]);
+    const metricNames = Object.values(METRICOOL_METRIC_IDS);
+    const [followers, impressions, reach, engagement, clicks] = await Promise.all(
+      metricNames.map((metric) =>
+        fetchTimelineMetric(credentials, network, metric, from, to),
+      ),
+    );
 
     const results = [followers, impressions, reach, engagement, clicks];
+    const outcomes = metricNames.map(
+      (metric, index) => `${metric} ${describeTimelineOutcome(results[index])}`,
+    );
+    const distinct = new Set(results.map((result) => describeTimelineOutcome(result)));
+    const rawSample = results.find(
+      (result) => !result.ok && result.raw.trim().length > 0,
+    );
+
+    if (distinct.size === 1) {
+      report.push(
+        `${network}: all five metrics returned ${[...distinct][0]}${
+          rawSample && !rawSample.ok ? `. Raw reply: ${rawSample.raw}` : "."
+        }`,
+      );
+    } else {
+      report.push(
+        `${network}: ${outcomes.join(", ")}${
+          rawSample && !rawSample.ok ? `. Raw reply sample: ${rawSample.raw}` : "."
+        }`,
+      );
+    }
+
     const allFailed = results.every((result) => !result.ok);
 
     if (allFailed) {
       const failures = results.filter(
-        (result): result is { ok: false; error: string; status: number; notFound: boolean } =>
-          !result.ok,
+        (result): result is Exclude<TimelineOutcome, { ok: true }> => !result.ok,
       );
       // 401/402/403 mean the plan does not include API access; those are the
       // only failures we treat as "gated" and roll up into the plan message.
@@ -429,19 +656,19 @@ export async function syncMetricoolMetrics(
         continue;
       }
 
-      // A 404 across every metric means Metricool tracks nothing for this
-      // network on this brand: a genuine skip, not an error.
-      const allNotFound = failures.every((result) => result.status === 404);
+      // A 404 across every metric means Metricool holds no data at these
+      // endpoints for this network: a genuine skip, not an error.
+      const allNotFound = failures.every((result) => result.notFound);
 
       if (allNotFound) {
         skippedNetworks.push(network);
         continue;
       }
 
-      // Anything else (a 400 malformed request, a 5xx, a wrong endpoint) is a
-      // real error we must surface exactly, not hide.
+      // Anything else (a 400, a 5xx, an unreadable 200) is a real problem we
+      // must surface exactly, not hide.
       if (!firstRealError) {
-        const first = failures[0];
+        const first = failures.find((f) => f.unrecognised) ?? failures[0];
         firstRealError = { error: `${network}: ${first.error}`, status: first.status };
       }
 
@@ -481,8 +708,10 @@ export async function syncMetricoolMetrics(
         status: 403,
       };
     }
-    // Everything was a clean 404: the account simply has no tracked networks.
+    // Everything was a clean 404: Metricool holds no timeline data at these
+    // endpoints for any network in this range. The report says so per
+    // network; the UI shows it rather than inventing numbers.
   }
 
-  return { ok: true, value: { metrics, skippedNetworks } };
+  return { ok: true, value: { metrics, skippedNetworks, report } };
 }

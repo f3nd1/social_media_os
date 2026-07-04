@@ -71,6 +71,10 @@ export function ConnectionManagerPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [actionMessages, setActionMessages] = useState<Record<string, ActionMessage>>({});
   const [pendingAction, setPendingAction] = useState<Record<string, "testing" | "syncing">>({});
+  // Sync date range per connection (7, 30, or 90 days; default 30) and the
+  // plain-words account of what Metricool actually returned on the last sync.
+  const [syncRanges, setSyncRanges] = useState<Record<string, number>>({});
+  const [syncReports, setSyncReports] = useState<Record<string, string[]>>({});
 
   function setMessage(id: string, tone: ActionMessage["tone"], text: string) {
     setActionMessages((current) => ({ ...current, [id]: { tone, text } }));
@@ -174,20 +178,30 @@ export function ConnectionManagerPanel({
     }
 
     setPendingAction((current) => ({ ...current, [connection.id]: "syncing" }));
+    setSyncReports((current) => ({ ...current, [connection.id]: [] }));
 
     try {
       const response = await fetch("/api/metricool", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "sync", credentials: connection.credentials }),
+        body: JSON.stringify({
+          action: "sync",
+          credentials: connection.credentials,
+          rangeDays: syncRanges[connection.id] ?? 30,
+        }),
       });
       const result = (await response.json()) as
         | {
             ok: true;
             metrics: Parameters<typeof buildPdfMetricReviewRows>[0];
             skippedNetworks: string[];
+            report?: string[];
           }
         | { ok: false; error: string; status?: number };
+
+      if (result.ok && Array.isArray(result.report)) {
+        setSyncReports((current) => ({ ...current, [connection.id]: result.report ?? [] }));
+      }
 
       if (!result.ok) {
         onConnectionsChange(
@@ -216,7 +230,7 @@ export function ConnectionManagerPanel({
         setMessage(
           connection.id,
           "info",
-          "Sync completed but returned no metrics for the networks connected in Metricool.",
+          "Metricool answered, but no usable metric rows came back for any network in this range. The details below show exactly what it returned. Try a wider date range, and if Metricool genuinely has no data for these networks, use the CSV import instead. No numbers were invented.",
         );
         return;
       }
@@ -339,8 +353,13 @@ export function ConnectionManagerPanel({
                 key={connection.id}
                 message={actionMessages[connection.id]}
                 pendingAction={pendingAction[connection.id]}
+                rangeDays={syncRanges[connection.id] ?? 30}
+                syncReport={syncReports[connection.id] ?? []}
                 onCsvFile={(file) => void handleMetricoolCsvFile(connection, file)}
                 onEdit={() => openEditFlow(connection.id)}
+                onRangeDaysChange={(days) =>
+                  setSyncRanges((current) => ({ ...current, [connection.id]: days }))
+                }
                 onRemove={() => removeConnection(connection)}
                 onSync={() => void handleSync(connection)}
                 onTest={() => void handleTest(connection)}
@@ -366,19 +385,25 @@ function ConnectionRow({
   message,
   onCsvFile,
   onEdit,
+  onRangeDaysChange,
   onRemove,
   onSync,
   onTest,
   pendingAction,
+  rangeDays,
+  syncReport,
 }: {
   connection: PlatformConnection;
   message?: ActionMessage;
   onCsvFile: (file: File) => void;
   onEdit: () => void;
+  onRangeDaysChange: (days: number) => void;
   onRemove: () => void;
   onSync: () => void;
   onTest: () => void;
   pendingAction?: "testing" | "syncing";
+  rangeDays: number;
+  syncReport: string[];
 }) {
   const statusDisplay = getConnectionStatusDisplay(connection);
   const isImplemented = CONNECTION_IMPLEMENTED_SOURCES.includes(connection.source);
@@ -414,6 +439,18 @@ function ConnectionRow({
           >
             {pendingAction === "testing" ? "Testing" : "Test"}
           </Button>
+          {isImplemented ? (
+            <select
+              aria-label="Sync date range"
+              className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+              onChange={(event) => onRangeDaysChange(Number(event.target.value))}
+              value={rangeDays}
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+            </select>
+          ) : null}
           <Button
             disabled={pendingAction === "syncing"}
             onClick={onSync}
@@ -473,6 +510,17 @@ function ConnectionRow({
         >
           {message.text}
         </p>
+      ) : null}
+
+      {syncReport.length > 0 ? (
+        <div className="space-y-1 rounded-md border bg-background p-3">
+          <p className="text-xs font-semibold">What Metricool returned</p>
+          {syncReport.map((line, index) => (
+            <p className="text-xs leading-5 text-muted-foreground" key={index}>
+              {line}
+            </p>
+          ))}
+        </div>
       ) : null}
     </div>
   );
