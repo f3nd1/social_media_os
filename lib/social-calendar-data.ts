@@ -615,6 +615,18 @@ export type AiUsageEntry = {
   estimatedCost: number | null;
 };
 
+// One uploaded compliance guideline document (Module B3). The extracted text
+// is capped so the workspace document stays small; the AI reviewer quotes
+// rules from these texts alongside the built-in education rules.
+export type ComplianceDoc = {
+  id: string;
+  name: string;
+  uploadedAt: string;
+  source: "pdf" | "docx" | "text";
+  characters: number;
+  text: string;
+};
+
 // One AI competitor insight awaiting accept or dismiss (Module A3). Accepted
 // insights become context for the Strategy Brief and campaign suggestions.
 export type CompetitorInsight = {
@@ -752,6 +764,7 @@ export type MarketingWorkspaceData = {
   auditInsights: AuditInsight[];
   campaignSuggestions: CampaignSuggestion[];
   competitorInsights: CompetitorInsight[];
+  complianceDocs: ComplianceDoc[];
 };
 
 export const platformRules: Record<
@@ -2492,6 +2505,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     auditInsights: [],
     campaignSuggestions: [],
     competitorInsights: [],
+    complianceDocs: [],
   };
 }
 
