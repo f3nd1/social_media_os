@@ -156,7 +156,10 @@ import {
   downloadCsvPack,
   downloadExcelWorkbook,
 } from "@/lib/social-calendar-export";
-import { localSocialCalendarRepository } from "@/lib/social-calendar-storage";
+import {
+  localSocialCalendarRepository,
+  normalizeWorkspaceData,
+} from "@/lib/social-calendar-storage";
 import { cn } from "@/lib/utils";
 
 type BadgeVariant = ComponentProps<typeof Badge>["variant"];
@@ -878,6 +881,10 @@ export function SocialCalendarApp() {
                 aiUsage={data.aiUsage}
                 brand={data.brand}
                 connections={data.connections}
+                workspaceData={data}
+                onRestoreWorkspace={(workspace) =>
+                  setData(normalizeWorkspaceData(workspace))
+                }
                 importState={pdfImportState}
                 pdfDataSource={data.pdfDataSource}
                 ucc={data.ucc}
@@ -3470,6 +3477,241 @@ function AiUsageMeter({
   );
 }
 
+function BackupHistoryPanel({
+  onRestoreWorkspace,
+  sync,
+  workspaceData,
+}: {
+  onRestoreWorkspace: (workspace: MarketingWorkspaceData) => void;
+  sync: WorkspaceSync;
+  workspaceData: MarketingWorkspaceData;
+}) {
+  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [snapshots, setSnapshots] = useState<Array<{ id: string; createdAt: string }>>([]);
+  const [busy, setBusy] = useState<"" | "saving" | "listing" | string>("");
+
+  function downloadBackup() {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const blob = new Blob([JSON.stringify(workspaceData, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ucc-marketing-os-backup-${stamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setMessage({ tone: "success", text: "Backup file downloaded." });
+  }
+
+  async function restoreFromFile(file: File) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "Restore from this backup file? It replaces everything currently in the workspace.",
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text()) as MarketingWorkspaceData;
+
+      if (!parsed || typeof parsed !== "object" || !parsed.brand) {
+        setMessage({
+          tone: "error",
+          text: "That file does not look like a workspace backup.",
+        });
+        return;
+      }
+
+      onRestoreWorkspace(parsed);
+      setMessage({ tone: "success", text: `Restored from ${file.name}.` });
+    } catch {
+      setMessage({
+        tone: "error",
+        text: "Could not read that file as JSON. Choose a backup downloaded from this panel.",
+      });
+    }
+  }
+
+  async function saveVersionNow() {
+    setBusy("saving");
+    const result = await sync.saveSnapshotNow();
+    setBusy("");
+    setMessage(
+      result.ok
+        ? { tone: "success", text: "Version saved to Supabase." }
+        : { tone: "error", text: result.error ?? "Could not save a version." },
+    );
+
+    if (result.ok) {
+      void refreshList();
+    }
+  }
+
+  async function refreshList() {
+    setBusy("listing");
+    const result = await sync.listSnapshots();
+    setBusy("");
+
+    if (result.ok) {
+      setSnapshots(result.snapshots);
+      setMessage(
+        result.snapshots.length === 0
+          ? {
+              tone: "success",
+              text: "No saved versions yet. They appear after cloud saves, or use Save a version now.",
+            }
+          : null,
+      );
+    } else {
+      setMessage({ tone: "error", text: result.error });
+    }
+  }
+
+  async function restoreVersion(id: string, createdAt: string) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Restore the version saved ${formatDateTime(createdAt)}? It replaces everything currently in the workspace.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setBusy(id);
+    const result = await sync.restoreSnapshot(id);
+    setBusy("");
+    setMessage(
+      result.ok
+        ? { tone: "success", text: "Version restored." }
+        : { tone: "error", text: result.error ?? "Could not restore that version." },
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <SectionTitle
+          icon={Download}
+          kicker="Safety"
+          title="Backup and history"
+          description="Download the whole workspace as a file, restore from a file, and roll back to an earlier cloud version."
+        />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={downloadBackup} size="sm" type="button">
+            <Download className="h-4 w-4" />
+            Download backup
+          </Button>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-muted"
+            style={{ height: "2.25rem" }}
+          >
+            <FileUp className="h-4 w-4" />
+            Restore from backup
+            <input
+              accept=".json,application/json"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+
+                if (file) {
+                  void restoreFromFile(file);
+                }
+
+                event.target.value = "";
+              }}
+              type="file"
+            />
+          </label>
+        </div>
+
+        <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Cloud version history</p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={!sync.isConfigured || busy === "saving"}
+                onClick={saveVersionNow}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {busy === "saving" ? "Saving" : "Save a version now"}
+              </Button>
+              <Button
+                disabled={!sync.isConfigured || busy === "listing"}
+                onClick={refreshList}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <RefreshCcw className="h-4 w-4" />
+                {busy === "listing" ? "Loading" : "Show versions"}
+              </Button>
+            </div>
+          </div>
+
+          {!sync.isConfigured ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Connect Supabase above to keep the last 20 versions in the cloud.
+              The file backup buttons work without it.
+            </p>
+          ) : (
+            <p className="text-xs leading-5 text-muted-foreground">
+              A version is saved automatically at most once every five minutes
+              while you work, keeping the newest 20.
+            </p>
+          )}
+
+          {snapshots.length > 0 ? (
+            <div className="space-y-1">
+              {snapshots.map((snapshot) => (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2"
+                  key={snapshot.id}
+                >
+                  <p className="text-xs leading-5">
+                    {formatDateTime(snapshot.createdAt)}
+                  </p>
+                  <Button
+                    disabled={busy === snapshot.id}
+                    onClick={() => void restoreVersion(snapshot.id, snapshot.createdAt)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {busy === snapshot.id ? "Restoring" : "Restore"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {message ? (
+          <p
+            className={cn(
+              "text-xs leading-5",
+              message.tone === "success"
+                ? "text-success-foreground"
+                : "text-warning-foreground",
+            )}
+          >
+            {message.text}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsWorkspaceView({
   aiIntegration,
   aiUsage,
@@ -3480,6 +3722,8 @@ function SettingsWorkspaceView({
   importState,
   onAiIntegrationChange,
   onApplyMetrics,
+  onRestoreWorkspace,
+  workspaceData,
   onBrandChange,
   onCalendarChange,
   onCompetitorsChange,
@@ -3501,6 +3745,8 @@ function SettingsWorkspaceView({
   competitors: Competitor[];
   connections: PlatformConnection[];
   importState: PdfImportState;
+  onRestoreWorkspace: (workspace: MarketingWorkspaceData) => void;
+  workspaceData: MarketingWorkspaceData;
   onAiIntegrationChange: (aiIntegration: AiIntegrationSettings) => void;
   onApplyMetrics: (
     metrics: PlatformDataMetrics[],
@@ -3564,6 +3810,11 @@ function SettingsWorkspaceView({
     <section className="space-y-4">
       <AppearanceSettingsPanel />
       <SupabaseDatabasePanel sync={sync} />
+      <BackupHistoryPanel
+        sync={sync}
+        workspaceData={workspaceData}
+        onRestoreWorkspace={onRestoreWorkspace}
+      />
       <AiIntegrationPanel
         aiIntegration={aiIntegration}
         aiUsage={aiUsage}

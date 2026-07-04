@@ -173,6 +173,88 @@ export async function upsertWorkspaceState(
   }
 }
 
+// Workspace snapshot history (Module E1). One row per saved version, newest
+// first, pruned to the last 20.
+
+export const WORKSPACE_SNAPSHOTS_TABLE = "workspace_snapshots";
+export const SNAPSHOT_KEEP_COUNT = 20;
+
+export type WorkspaceSnapshotMeta = {
+  id: string;
+  createdAt: string;
+};
+
+export async function insertWorkspaceSnapshot(
+  config: SupabaseConfig,
+  data: MarketingWorkspaceData,
+): Promise<void> {
+  const endpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { ...restHeaders(config.anonKey), Prefer: "return=minimal" },
+    body: JSON.stringify({ workspace_id: WORKSPACE_STATE_ROW_ID, data }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await describeError(response));
+  }
+}
+
+export async function listWorkspaceSnapshots(
+  config: SupabaseConfig,
+): Promise<WorkspaceSnapshotMeta[]> {
+  const endpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}?workspace_id=eq.${WORKSPACE_STATE_ROW_ID}&select=id,created_at&order=created_at.desc&limit=${SNAPSHOT_KEEP_COUNT}`;
+  const response = await fetch(endpoint, { headers: restHeaders(config.anonKey) });
+
+  if (!response.ok) {
+    throw new Error(await describeError(response));
+  }
+
+  const rows = (await response.json()) as Array<{ id: string; created_at: string }>;
+  return rows.map((row) => ({ id: row.id, createdAt: row.created_at }));
+}
+
+export async function fetchWorkspaceSnapshot(
+  config: SupabaseConfig,
+  id: string,
+): Promise<MarketingWorkspaceData | null> {
+  const endpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}?id=eq.${encodeURIComponent(id)}&select=data`;
+  const response = await fetch(endpoint, { headers: restHeaders(config.anonKey) });
+
+  if (!response.ok) {
+    throw new Error(await describeError(response));
+  }
+
+  const rows = (await response.json()) as Array<{ data: MarketingWorkspaceData }>;
+  return rows[0]?.data ?? null;
+}
+
+export async function pruneWorkspaceSnapshots(config: SupabaseConfig): Promise<void> {
+  const listEndpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}?workspace_id=eq.${WORKSPACE_STATE_ROW_ID}&select=id&order=created_at.desc&offset=${SNAPSHOT_KEEP_COUNT}&limit=100`;
+  const response = await fetch(listEndpoint, { headers: restHeaders(config.anonKey) });
+
+  if (!response.ok) {
+    throw new Error(await describeError(response));
+  }
+
+  const rows = (await response.json()) as Array<{ id: string }>;
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const ids = rows.map((row) => `"${row.id}"`).join(",");
+  const deleteEndpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}?id=in.(${ids})`;
+  const deleteResponse = await fetch(deleteEndpoint, {
+    method: "DELETE",
+    headers: restHeaders(config.anonKey),
+  });
+
+  if (!deleteResponse.ok) {
+    throw new Error(await describeError(deleteResponse));
+  }
+}
+
 export async function testWorkspaceConnection(
   config: SupabaseConfig,
 ): Promise<{ ok: true } | { ok: false; error: string }> {

@@ -6,13 +6,18 @@ import type { MarketingWorkspaceData } from "@/lib/social-calendar-data";
 import { normalizeWorkspaceData } from "@/lib/social-calendar-storage";
 import {
   clearSupabaseConfig,
+  fetchWorkspaceSnapshot,
   fetchWorkspaceState,
+  insertWorkspaceSnapshot,
+  listWorkspaceSnapshots,
+  pruneWorkspaceSnapshots,
   resolveSupabaseConfig,
   saveSupabaseConfig,
   testWorkspaceConnection,
   upsertWorkspaceState,
   type SupabaseConfig,
   type SupabaseConfigSource,
+  type WorkspaceSnapshotMeta,
 } from "@/lib/supabase-client";
 
 export type SyncStatus =
@@ -36,6 +41,12 @@ export type WorkspaceSync = {
   ) => Promise<{ ok: boolean; error?: string }>;
   saveConfigAndReload: (config: SupabaseConfig) => void;
   clearConfigAndReload: () => void;
+  // Snapshot history (Module E1). All report honest errors, never fake success.
+  saveSnapshotNow: () => Promise<{ ok: boolean; error?: string }>;
+  listSnapshots: () => Promise<
+    { ok: true; snapshots: WorkspaceSnapshotMeta[] } | { ok: false; error: string }
+  >;
+  restoreSnapshot: (id: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const PUSH_DEBOUNCE_MS = 1200;
@@ -57,6 +68,8 @@ export function useWorkspaceSync(
   const pulledRef = useRef(false);
   const skipNextPushRef = useRef(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Throttle for automatic history snapshots: at most one every 5 minutes.
+  const lastSnapshotAtRef = useRef(0);
 
   const config = resolved.config;
   const isConfigured = config !== null;
@@ -142,6 +155,21 @@ export function useWorkspaceSync(
         .then(() => {
           setStatus("synced");
           setLastError("");
+
+          // Automatic history snapshot, throttled. Failures here are
+          // non-fatal (the main save already succeeded); the manual
+          // "Save a version now" button reports snapshot errors honestly.
+          const now = Date.now();
+
+          if (now - lastSnapshotAtRef.current > 5 * 60_000) {
+            lastSnapshotAtRef.current = now;
+            insertWorkspaceSnapshot(config, data)
+              .then(() => pruneWorkspaceSnapshots(config))
+              .catch(() => {
+                // Retry sooner next time rather than waiting the full window.
+                lastSnapshotAtRef.current = 0;
+              });
+          }
         })
         .catch((error) => {
           setLastError(error instanceof Error ? error.message : String(error));
@@ -221,6 +249,66 @@ export function useWorkspaceSync(
     }
   }, []);
 
+  const saveSnapshotNow = useCallback(async () => {
+    if (!config) {
+      return { ok: false, error: "Connect Supabase first." };
+    }
+
+    try {
+      await insertWorkspaceSnapshot(config, data);
+      await pruneWorkspaceSnapshots(config);
+      lastSnapshotAtRef.current = Date.now();
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, [config, data]);
+
+  const listSnapshots = useCallback(async () => {
+    if (!config) {
+      return { ok: false as const, error: "Connect Supabase first." };
+    }
+
+    try {
+      const snapshots = await listWorkspaceSnapshots(config);
+      return { ok: true as const, snapshots };
+    } catch (error) {
+      return {
+        ok: false as const,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, [config]);
+
+  const restoreSnapshot = useCallback(
+    async (id: string) => {
+      if (!config) {
+        return { ok: false, error: "Connect Supabase first." };
+      }
+
+      try {
+        const snapshot = await fetchWorkspaceSnapshot(config, id);
+
+        if (!snapshot) {
+          return { ok: false, error: "That version could not be found." };
+        }
+
+        // Restored data becomes the working state and syncs like any edit.
+        setData(normalizeWorkspaceData(snapshot));
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+    [config, setData],
+  );
+
   return {
     status,
     source: resolved.source,
@@ -232,5 +320,8 @@ export function useWorkspaceSync(
     testConnection,
     saveConfigAndReload,
     clearConfigAndReload,
+    saveSnapshotNow,
+    listSnapshots,
+    restoreSnapshot,
   };
 }
