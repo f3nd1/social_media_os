@@ -100,6 +100,12 @@ import {
   type InsightsAiDraft,
 } from "@/lib/insights-ai";
 import { buildReportContext } from "@/lib/report-ai";
+import {
+  audienceIncludesChinese,
+  remixDraftToItems,
+  type RemixAiContext,
+  type RemixAiDraft,
+} from "@/lib/remix-ai";
 import { buildTrendContext } from "@/lib/trend-ai";
 import {
   deleteAssetFile,
@@ -3087,8 +3093,9 @@ const SKILL_ENGINE_LINKS: Record<
     runLabel: "the AI compliance review",
   },
   "ai-video": {
-    notBuilt:
-      "Engine not yet built. Video script drafting is planned for the Content Remix module.",
+    view: "production",
+    screenLabel: "Production Board",
+    runLabel: "Generate video script with AI",
   },
   "ai-kpi": {
     view: "kpi",
@@ -9802,7 +9809,7 @@ function ContentProductionView({
 }) {
   const [roleView, setRoleView] = useState<Role>("copywriter");
   const [selectedItemId, setSelectedItemId] = useState(calendar[0]?.id ?? "");
-  const [aiBusy, setAiBusy] = useState<"" | "copy" | "video-script" | "guidance">("");
+  const [aiBusy, setAiBusy] = useState<"" | "copy" | "video-script" | "guidance" | "remix">("");
   const [guidance, setGuidance] = useState("");
   const [genMessage, setGenMessage] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
 
@@ -9905,6 +9912,148 @@ function ContentProductionView({
 
       if (result.usage) {
         onRecordUsage("Production copy", result.model ?? "unknown", result.usage);
+      }
+    } catch (error) {
+      setGenMessage({
+        tone: "error",
+        text: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setAiBusy("");
+    }
+  }
+
+  // Content Remix (Module D2): adapt one manager-approved item for the other
+  // platforms in its campaign's mix. Variants restart the approval path and
+  // are compliance-checked the moment they arrive.
+  async function remixItem(id: string) {
+    const item = calendar.find((row) => row.id === id);
+
+    if (!item || !canPublishCalendarItem(item)) {
+      return;
+    }
+
+    const campaign = ucc.campaigns.find((row) => row.id === item.campaignId) ?? null;
+
+    if (!campaign) {
+      setGenMessage({
+        tone: "error",
+        text: "This item is not linked to a campaign, so there is no platform mix to remix into. Link it to a campaign first.",
+      });
+      return;
+    }
+
+    const targetPlatforms = campaign.platformMix.filter(
+      (channel): channel is Platform =>
+        (platforms as readonly string[]).includes(channel) && channel !== item.platform,
+    );
+
+    if (targetPlatforms.length === 0) {
+      setGenMessage({
+        tone: "error",
+        text: `The campaign "${campaign.name}" has no other calendar platforms in its mix, so there is nothing to remix into.`,
+      });
+      return;
+    }
+
+    const audience = ucc.audiences.find((row) => row.id === item.audienceId) ?? null;
+
+    setAiBusy("remix");
+    setGenMessage(null);
+
+    try {
+      const response = await fetch("/api/ai/remix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          model: resolveModelForTask(aiIntegration, "analysis"),
+          context: {
+            source: {
+              platform: item.platform,
+              contentPillar: item.contentPillar,
+              contentTopic: item.contentTopic,
+              format: item.format,
+              hook: item.hook,
+              caption: item.caption,
+              cta: item.cta,
+              hashtags: item.hashtags,
+              videoScript: item.videoScript,
+              businessGoalConnection: item.businessGoalConnection,
+            },
+            targetPlatforms: targetPlatforms.map((platform) => {
+              const rule = platformRules[platform];
+
+              return {
+                platform,
+                rulebook: {
+                  role: rule.role,
+                  persona: rule.persona,
+                  content: rule.content,
+                  cta: rule.cta,
+                  defaultFormat: rule.defaultFormat,
+                  guardrail: rule.guardrail,
+                },
+              };
+            }),
+            audience: audience
+              ? { name: audience.name, languages: audience.languages }
+              : null,
+            includeChinese: audience
+              ? audienceIncludesChinese(audience.languages)
+              : false,
+            brand: { name: brand.brandName, toneOfVoice: brand.toneOfVoice },
+          } satisfies RemixAiContext,
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; draft: RemixAiDraft; usage?: OpenAiUsage; model?: string }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setGenMessage({ tone: "error", text: result.error });
+        return;
+      }
+
+      const newItems = remixDraftToItems(result.draft, item, targetPlatforms).map(
+        (variant) => {
+          const flags = checkComplianceText(
+            `${variant.hook}\n${variant.caption}\n${variant.cta}`,
+          );
+
+          return flags.length > 0
+            ? {
+                ...variant,
+                blocker: `Compliance flags to resolve before approval: ${flags.join(" / ")}`,
+              }
+            : variant;
+        },
+      );
+
+      if (newItems.length === 0) {
+        setGenMessage({
+          tone: "error",
+          text: "The AI returned no usable variants for the target platforms. Try again.",
+        });
+        return;
+      }
+
+      onCalendarChange([...calendar, ...newItems]);
+
+      const flagged = newItems.filter((row) => row.blocker).length;
+
+      setGenMessage({
+        tone: flagged > 0 ? "info" : "success",
+        text:
+          `${newItems.length} platform variant${newItems.length === 1 ? "" : "s"} created as drafts (${targetPlatforms.join(", ")}). ` +
+          "Each starts at the beginning of the approval path. " +
+          (flagged > 0
+            ? `${flagged} came back with compliance flags written into the blocker field; fix the wording before approval.`
+            : "The automatic compliance check found no flagged wording."),
+      });
+
+      if (result.usage) {
+        onRecordUsage("Content Remix", result.model ?? "unknown", result.usage);
       }
     } catch (error) {
       setGenMessage({
@@ -10159,10 +10308,27 @@ function ContentProductionView({
                     <Wand2 className="h-4 w-4" />
                     Offline template copy
                   </Button>
+                  <Button
+                    disabled={
+                      !liveAi || aiBusy !== "" || !canPublishCalendarItem(selectedItem)
+                    }
+                    onClick={() => void remixItem(selectedItem.id)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <RefreshCcw className="h-4 w-4" />
+                    {aiBusy === "remix" ? "Remixing" : "Remix for other platforms"}
+                  </Button>
                 </div>
                 {!liveAi ? (
                   <p className="text-xs leading-5 text-muted-foreground">
                     Connect OpenAI in Settings to generate with AI.
+                  </p>
+                ) : null}
+                {liveAi && !canPublishCalendarItem(selectedItem) ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Remix unlocks once this item is manager approved.
                   </p>
                 ) : null}
               </div>
