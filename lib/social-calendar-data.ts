@@ -848,6 +848,11 @@ export type MarketingWorkspaceData = {
   approvalsLog: ApprovalLogEntry[];
   // Free-text reviewer name until sign-in exists; stamped onto log entries.
   approverName: string;
+  // Whether the workspace currently holds the demo content or the owner's own
+  // data, shown as a badge. Optional so older saves upgrade safely.
+  datasetMode?: "sample" | "live";
+  // Set once the owner dismisses the empty-workspace first-run checklist.
+  firstRunChecklistDismissed?: boolean;
 };
 
 export const platformRules: Record<
@@ -2595,6 +2600,112 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     listeningResults: [],
     approvalsLog: [],
     approverName: "",
+    datasetMode: "sample",
+  };
+}
+
+// A blank workspace that keeps the structure (platform keys, the AI skill
+// definitions, sensible enum defaults) but holds none of the demo content, so
+// the owner can enter real UCC data from scratch. The AI skill catalogue is
+// reference structure, so it is preserved; everything the owner would author
+// starts empty.
+export function createEmptyWorkspaceData(): MarketingWorkspaceData {
+  const emptyBrand: BrandProfile = {
+    brandName: "",
+    website: "",
+    industry: "",
+    audience: "",
+    offers: "",
+    toneOfVoice: "",
+    brandColors: [],
+    goals: [],
+    brandGuidelines: "",
+  };
+
+  const emptyGoals: SocialGoalSettings = {
+    primaryObjective: "",
+    campaignWindow: "",
+    funnelStage: "lead generation",
+    targetAudienceSegment: "",
+    priorityPlatforms: [],
+    northStarMetric: "",
+    conversionAction: "",
+    monthlyTargets: {
+      reach: 0,
+      engagementRate: 0,
+      clicks: 0,
+      saves: 0,
+      shares: 0,
+      inquiries: 0,
+      followersGained: 0,
+      posts: 0,
+    },
+    contentPriorities: [],
+    reportingCadence: "",
+    owner: "marketing manager",
+    notes: "",
+  };
+
+  const emptyBrief: StrategyBrief = {
+    monthlyCampaignGoal: "",
+    audiencePainPoints: [],
+    contentPillars: [],
+    platformStrategy: platforms.reduce(
+      (record, platform) => ({ ...record, [platform]: "" }),
+      {} as Record<Platform, string>,
+    ),
+    contentMixRecommendation: "",
+    toneGuidance: "",
+    keyAnglesToOwn: [],
+    complianceReminders: [],
+    approved: false,
+    updatedAt: "",
+  };
+
+  return {
+    version: 1,
+    generatedAt: "",
+    brand: emptyBrand,
+    socialGoals: emptyGoals,
+    ucc: {
+      courses: [],
+      audiences: [],
+      campaigns: [],
+      budgetPlans: [],
+      assets: [],
+      events: [],
+      connectors: [],
+      // The AI skill catalogue is structural reference data, kept so the
+      // Skill Control Panel still describes the available engines.
+      aiModules: seedUccStrategy.aiModules,
+      kpiRecords: [],
+    },
+    pdfDataSource: {
+      uploads: [],
+      importLog: [],
+      selectedUploadId: "",
+      lastImportedAt: "",
+      lastImportSummary: "No PDF report data has been applied yet.",
+    },
+    audits: [],
+    competitors: [],
+    brief: emptyBrief,
+    calendar: [],
+    performanceResults: [],
+    connections: [],
+    aiIntegration: createDefaultAiIntegration(),
+    aiUsage: [],
+    auditInsights: [],
+    campaignSuggestions: [],
+    competitorInsights: [],
+    complianceDocs: [],
+    aiRecommendations: [],
+    weeklyReport: null,
+    trendInsights: [],
+    listeningResults: [],
+    approvalsLog: [],
+    approverName: "",
+    datasetMode: "live",
   };
 }
 
