@@ -56,6 +56,12 @@ import {
   type BriefAiContext,
   type BriefAiDraft,
 } from "@/lib/brief-ai";
+import {
+  calendarDraftToItems,
+  calendarDraftToPatch,
+  type CalendarAiContext,
+  type CalendarDraftItem,
+} from "@/lib/calendar-ai";
 import { resolveSupabaseConfig } from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
@@ -764,24 +770,24 @@ export function SocialCalendarApp() {
 
             {activeView === "calendar" ? (
               <CalendarBuilderView
+                aiIntegration={data.aiIntegration}
+                audits={data.audits}
                 brand={data.brand}
                 brief={data.brief}
                 calendar={data.calendar}
+                performanceResults={data.performanceResults}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onCalendarChange={(calendar) =>
                   updateWorkspace((current) => ({ ...current, calendar }))
                 }
-                onRegenerateCalendar={() =>
+                onReplaceCalendar={(calendar, clearPerformance) =>
                   updateWorkspace((current) => ({
                     ...current,
-                    calendar: generateCalendarFromBrief(
-                      current.brief,
-                      current.brand,
-                      current.calendar[0]?.date ?? "2026-07-01",
-                      current.socialGoals,
-                    ),
-                    performanceResults: [],
+                    calendar,
+                    performanceResults: clearPerformance
+                      ? []
+                      : current.performanceResults,
                   }))
                 }
               />
@@ -5385,25 +5391,139 @@ function GoalImpactStrip({
 }
 
 function CalendarBuilderView({
+  aiIntegration,
+  audits,
   brand,
   brief,
   calendar,
+  performanceResults,
   socialGoals,
   ucc,
   onCalendarChange,
-  onRegenerateCalendar,
+  onReplaceCalendar,
 }: {
+  aiIntegration: AiIntegrationSettings;
+  audits: SocialAudit[];
   brand: BrandProfile;
   brief: StrategyBrief;
   calendar: CalendarItem[];
+  performanceResults: PerformanceResult[];
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onCalendarChange: (calendar: CalendarItem[]) => void;
-  onRegenerateCalendar: () => void;
+  onReplaceCalendar: (calendar: CalendarItem[], clearPerformance: boolean) => void;
 }) {
   const [platformFilter, setPlatformFilter] = useState<"all" | Platform>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | CalendarStatus>("all");
   const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
+  const [generating, setGenerating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [generationMode, setGenerationMode] = useState<"ai" | "offline" | null>(null);
+  const [regeneratingItemId, setRegeneratingItemId] = useState("");
+
+  const liveAi = isLiveAiEnabled(aiIntegration);
+  const hasPerformanceData = performanceResults.length > 0;
+  const AI_CALENDAR_COUNT = 12;
+
+  function confirmReplaceIfNeeded() {
+    if (!hasPerformanceData || typeof window === "undefined") {
+      return true;
+    }
+
+    return window.confirm(
+      "Regenerating replaces the current calendar and clears the performance results already recorded against these items. Continue?",
+    );
+  }
+
+  function buildCalendarContext(count: number, focus?: CalendarAiContext["focus"]): CalendarAiContext {
+    return {
+      brief: {
+        monthlyCampaignGoal: brief.monthlyCampaignGoal,
+        marketingObjectives: brief.marketingObjectives ?? [],
+        campaignIdeas: brief.campaignIdeas ?? [],
+        contentPillars: brief.contentPillars,
+        platformMix: brief.platformMix ?? "",
+        toneGuidance: brief.toneGuidance,
+        keyAnglesToOwn: brief.keyAnglesToOwn,
+      },
+      campaigns: ucc.campaigns.map((campaign) => ({
+        name: campaign.name,
+        objective: campaign.objective,
+        platformMix: campaign.platformMix,
+      })),
+      courses: ucc.courses
+        .filter((course) => course.status !== "archived")
+        .map((course) => ({
+          name: course.name,
+          category: course.category,
+          usp: course.usp ?? "",
+        })),
+      audiences: ucc.audiences.map((audience) => ({
+        name: audience.name,
+        goals: audience.motivations,
+        painPoints: audience.concerns,
+      })),
+      platforms: [...platforms],
+      count,
+      focus,
+    };
+  }
+
+  function runOfflineGenerate() {
+    if (!confirmReplaceIfNeeded()) {
+      return;
+    }
+
+    const items = generateCalendarFromBrief(
+      brief,
+      brand,
+      calendar[0]?.date ?? "2026-07-01",
+      socialGoals,
+    );
+    onReplaceCalendar(items, hasPerformanceData);
+    setGenerationMode("offline");
+    setErrorMessage("");
+  }
+
+  async function runAiGenerate() {
+    if (!confirmReplaceIfNeeded()) {
+      return;
+    }
+
+    setGenerating(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/ai/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          model: resolveModelForTask(aiIntegration, "analysis"),
+          context: buildCalendarContext(AI_CALENDAR_COUNT),
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; items: CalendarDraftItem[] }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setErrorMessage(result.error);
+        return;
+      }
+
+      const items = calendarDraftToItems(result.items, {
+        startDate: calendar[0]?.date ?? "2026-07-01",
+        campaigns: ucc.campaigns,
+      });
+      onReplaceCalendar(items, hasPerformanceData);
+      setGenerationMode("ai");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGenerating(false);
+    }
+  }
   const [selectedItemId, setSelectedItemId] = useState(calendar[0]?.id ?? "");
   const defaultGoalPlatform =
     socialGoals.priorityPlatforms[0] ?? ("Instagram" as Platform);
@@ -5439,6 +5559,99 @@ function CalendarBuilderView({
         item.id === id ? { ...item, ...sanitizeCalendarPatch(item, patch) } : item,
       ),
     );
+  }
+
+  function deleteItem(id: string) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Delete this calendar item? This cannot be undone.");
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    onCalendarChange(calendar.filter((item) => item.id !== id));
+  }
+
+  function duplicateItem(id: string) {
+    const source = calendar.find((item) => item.id === id);
+
+    if (!source) {
+      return;
+    }
+
+    const copyId = `copy-${Date.now()}`;
+    const copy: CalendarItem = {
+      ...source,
+      id: copyId,
+      status: "idea",
+      approvalStage: "idea",
+      finalCaption: "",
+      finalAssetLink: "",
+      publishedUrl: "",
+      kpiResult: "",
+      followUpAction: "",
+    };
+    onCalendarChange(sortCalendarItems([...calendar, copy]));
+    setSelectedItemId(copyId);
+  }
+
+  function approveItem(id: string) {
+    updateItem(id, { status: "approved", approvalStage: "calendar approved" });
+  }
+
+  function rejectItem(id: string) {
+    updateItem(id, { status: "review", approvalStage: "revision" });
+  }
+
+  async function regenerateItem(id: string) {
+    const item = calendar.find((row) => row.id === id);
+
+    if (!item || !liveAi) {
+      return;
+    }
+
+    setRegeneratingItemId(id);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/ai/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          model: resolveModelForTask(aiIntegration, "analysis"),
+          context: buildCalendarContext(1, {
+            platform: item.platform,
+            contentPillar: item.contentPillar,
+            contentTopic: item.contentTopic,
+            currentCaption: item.caption,
+          }),
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; items: CalendarDraftItem[] }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setErrorMessage(result.error);
+        return;
+      }
+
+      const draft = result.items[0];
+
+      if (draft) {
+        updateItem(id, {
+          ...calendarDraftToPatch(draft),
+          status: "idea",
+          approvalStage: "idea",
+        });
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRegeneratingItemId("");
+    }
   }
 
   function updateNewCalendarItem(patch: Partial<typeof newCalendarItem>) {
@@ -5558,19 +5771,61 @@ function CalendarBuilderView({
             title="Calendar Builder"
             description={`${brand.brandName} has ${calendar.length} platform-native calendar items connected to the approved strategy brief.`}
           />
-          <Button
-            disabled={!brief.approved}
-            onClick={onRegenerateCalendar}
-            size="sm"
-          >
-            <Wand2 className="h-4 w-4" />
-            Generate 30 days
-          </Button>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button
+                disabled={!brief.approved || !liveAi || generating}
+                onClick={runAiGenerate}
+                size="sm"
+                type="button"
+              >
+                <Sparkles className="h-4 w-4" />
+                {generating ? "Generating" : "Generate calendar with AI"}
+              </Button>
+              <Button
+                disabled={!brief.approved || generating}
+                onClick={runOfflineGenerate}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Wand2 className="h-4 w-4" />
+                Generate offline
+              </Button>
+            </div>
+            {brief.approved && !liveAi ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Connect OpenAI in Settings to generate with AI.
+              </p>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {!brief.approved ? (
             <div className="rounded-lg border border-warning-border bg-warning p-4 text-sm text-warning-foreground">
-              Approve the strategy brief before generating the monthly calendar.
+              Approve a strategy brief first. The calendar is generated only
+              after the brief is approved.
+            </div>
+          ) : null}
+
+          {generationMode === "ai" ? (
+            <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              AI draft, not yet approved. Edit, delete, duplicate, or regenerate
+              any item, then approve each one. Nothing is approved or published
+              automatically.
+            </div>
+          ) : null}
+
+          {generationMode === "offline" ? (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+              Offline draft, AI not connected. These items came from the
+              template generator.
+            </div>
+          ) : null}
+
+          {errorMessage ? (
+            <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              {errorMessage}
             </div>
           ) : null}
 
@@ -5770,7 +6025,18 @@ function CalendarBuilderView({
           />
         </div>
 
-        <CalendarItemEditor item={selectedItem} onChange={updateItem} ucc={ucc} />
+        <CalendarItemEditor
+          item={selectedItem}
+          liveAi={liveAi}
+          regenerating={Boolean(selectedItem && regeneratingItemId === selectedItem.id)}
+          onApprove={approveItem}
+          onChange={updateItem}
+          onDelete={deleteItem}
+          onDuplicate={duplicateItem}
+          onRegenerate={regenerateItem}
+          onReject={rejectItem}
+          ucc={ucc}
+        />
       </div>
     </section>
   );
@@ -5959,11 +6225,25 @@ function buildCalendarMonthGroups(calendar: CalendarItem[]) {
 
 function CalendarItemEditor({
   item,
+  liveAi,
+  onApprove,
   onChange,
+  onDelete,
+  onDuplicate,
+  onRegenerate,
+  onReject,
+  regenerating,
   ucc,
 }: {
   item?: CalendarItem;
+  liveAi: boolean;
+  onApprove: (id: string) => void;
   onChange: (id: string, patch: Partial<CalendarItem>) => void;
+  onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onRegenerate: (id: string) => void;
+  onReject: (id: string) => void;
+  regenerating: boolean;
   ucc: UccStrategyData;
 }) {
   if (!item) {
@@ -5976,6 +6256,8 @@ function CalendarItemEditor({
     );
   }
 
+  const isApproved = item.approvalStage === "calendar approved" || item.status === "approved";
+
   return (
     <Card className="xl:sticky xl:top-8">
       <CardHeader>
@@ -5983,6 +6265,44 @@ function CalendarItemEditor({
         <CardDescription>Every required calendar field is editable.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="rounded-lg border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={isApproved ? "success" : "secondary"}>
+              {isApproved ? "Approved" : "Draft, not approved"}
+            </Badge>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <Button onClick={() => onApprove(item.id)} size="sm" type="button">
+              <CheckCircle2 className="h-4 w-4" />
+              Approve
+            </Button>
+            <Button onClick={() => onReject(item.id)} size="sm" type="button" variant="outline">
+              Reject
+            </Button>
+            <Button
+              disabled={!liveAi || regenerating}
+              onClick={() => onRegenerate(item.id)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Sparkles className="h-4 w-4" />
+              {regenerating ? "Regenerating" : "Regenerate"}
+            </Button>
+            <Button onClick={() => onDuplicate(item.id)} size="sm" type="button" variant="outline">
+              Duplicate
+            </Button>
+            <Button onClick={() => onDelete(item.id)} size="sm" type="button" variant="outline">
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </Button>
+          </div>
+          {!liveAi ? (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Connect OpenAI in Settings to regenerate a single item with AI.
+            </p>
+          ) : null}
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Type">
             <NativeSelect
