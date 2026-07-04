@@ -353,6 +353,15 @@ export type StrategyBrief = {
   complianceReminders: string[];
   approved: boolean;
   updatedAt: string;
+  // Stage 6 strategy outputs. Optional so existing saved briefs upgrade
+  // without a rewrite; populated by the live AI draft and editable by hand.
+  marketingObjectives?: string[];
+  campaignIdeas?: string[];
+  platformMix?: string;
+  suggestedBudget?: string;
+  kpis?: string[];
+  recommendedTimeline?: string;
+  recommendedResources?: string[];
 };
 
 export type CalendarItem = {
