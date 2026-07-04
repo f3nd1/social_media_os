@@ -59,10 +59,14 @@ type ConnectionManagerPanelProps = {
 };
 
 export function ConnectionManagerPanel({
-  connections,
+  connections: connectionsProp,
   onConnectionsChange,
   onSyncReview,
 }: ConnectionManagerPanelProps) {
+  // Defensive default: workspace snapshots saved before this field existed
+  // (for example an older Supabase sync) should upgrade on load, but this
+  // keeps the panel safe even if one somehow arrives without it.
+  const connections = connectionsProp ?? [];
   const [flowOpen, setFlowOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [actionMessages, setActionMessages] = useState<Record<string, ActionMessage>>({});

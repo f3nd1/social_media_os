@@ -56,7 +56,7 @@ export const localSocialCalendarRepository: SocialCalendarRepository = {
   },
 };
 
-function normalizeWorkspaceData(data: MarketingWorkspaceData) {
+export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
   const seed = createSeedWorkspaceData();
   const shouldUseUccSeed = isLegacySeedBrand(data.brand?.brandName);
   const brand = shouldUseUccSeed ? seed.brand : { ...seed.brand, ...data.brand };

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { MarketingWorkspaceData } from "@/lib/social-calendar-data";
+import { normalizeWorkspaceData } from "@/lib/social-calendar-storage";
 import {
   clearSupabaseConfig,
   fetchWorkspaceState,
@@ -89,7 +90,10 @@ export function useWorkspaceSync(
 
         if (row) {
           skipNextPushRef.current = true;
-          setData(row.data);
+          // Cloud data may predate fields added to the workspace shape since
+          // it was last saved, so it goes through the same upgrade path as
+          // data loaded from localStorage.
+          setData(normalizeWorkspaceData(row.data));
           setStatus("synced");
         } else {
           // Cloud row is empty: offer the one-time migration of local data.
@@ -182,7 +186,7 @@ export function useWorkspaceSync(
 
       if (row) {
         skipNextPushRef.current = true;
-        setData(row.data);
+        setData(normalizeWorkspaceData(row.data));
         setNeedsMigration(false);
         setStatus("synced");
         setLastError("");
