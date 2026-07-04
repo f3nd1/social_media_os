@@ -825,6 +825,7 @@ export function SocialCalendarApp() {
             {activeView === "platform" ? (
               <PlatformStrategyView
                 ucc={data.ucc}
+                onNavigate={setActiveView}
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
                 }
@@ -1127,6 +1128,55 @@ function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
   const weakKpis = data.ucc.kpiRecords.filter(
     (row) => row.status === "behind target" || row.status === "needs attention",
   );
+  const acceptedAiRecommendations = data.aiRecommendations.filter(
+    (rec) => rec.status === "accepted",
+  );
+  const pendingApprovals: Array<{ label: string; count: number; where: string }> = [
+    {
+      label: "Platform audit insights",
+      count: data.auditInsights.filter((row) => row.status === "draft").length,
+      where: "Platform Audit screen",
+    },
+    {
+      label: "Campaign ideas",
+      count: data.campaignSuggestions.length,
+      where: "Campaigns screen",
+    },
+    {
+      label: "Competitor insights",
+      count: data.competitorInsights.filter((row) => row.status === "draft").length,
+      where: "Competitors screen",
+    },
+    {
+      label: "Budget suggestions",
+      count: data.aiRecommendations.filter(
+        (row) => row.module === "budget" && row.status === "draft",
+      ).length,
+      where: "Budget & Resources screen",
+    },
+    {
+      label: "KPI suggestions",
+      count: data.aiRecommendations.filter(
+        (row) => row.module === "kpi" && row.status === "draft",
+      ).length,
+      where: "KPI Tracker screen",
+    },
+    {
+      label: "Weekly report draft",
+      count: data.weeklyReport?.status === "draft" ? 1 : 0,
+      where: "Reports screen",
+    },
+    {
+      label: "Strategy brief",
+      count: data.brief.approved ? 0 : 1,
+      where: "Strategy Brief screen",
+    },
+    {
+      label: "Content in review",
+      count: data.calendar.filter((item) => item.status === "review").length,
+      where: "Production Board",
+    },
+  ].filter((row) => row.count > 0);
 
   return (
     <section className="space-y-4">
@@ -1209,31 +1259,75 @@ function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Weekly Report Snapshot</CardTitle>
-            <CardDescription>Management summary for this working week.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <InsightList
-              items={[
-                `${data.calendar.filter((item) => item.status === "posted" || item.approvalStage === "published").length} items posted or published`,
-                `${delayedItems.length} items delayed or still in review`,
-                `${strongKpis.length} channels on track or exceeding target`,
-              ]}
-              title="What happened"
-              variant="info"
-            />
-            <InsightList
-              items={[
-                ...weakKpis.map((row) => row.recommendation),
-                "Review Chinese-language proof content for PRC students and parents before the next campaign cycle.",
-              ].slice(0, 4)}
-              title="Next actions"
-              variant="warning"
-            />
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Approvals Pending</CardTitle>
+              <CardDescription>
+                Everything waiting for your decision. AI never approves or
+                publishes anything; these stay drafts until you act.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {pendingApprovals.length === 0 ? (
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Nothing is waiting for your decision right now.
+                </p>
+              ) : (
+                pendingApprovals.map((row) => (
+                  <div
+                    className="flex items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3 text-sm"
+                    key={row.label}
+                  >
+                    <div>
+                      <p className="font-medium">{row.label}</p>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        Decide on the {row.where}
+                      </p>
+                    </div>
+                    <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-semibold text-warning-foreground">
+                      {row.count}
+                    </span>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Weekly Report Snapshot</CardTitle>
+              <CardDescription>Management summary for this working week.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <InsightList
+                items={[
+                  `${data.calendar.filter((item) => item.status === "posted" || item.approvalStage === "published").length} items posted or published`,
+                  `${delayedItems.length} items delayed or still in review`,
+                  `${strongKpis.length} channels on track or exceeding target`,
+                ]}
+                title="What happened"
+                variant="info"
+              />
+              <InsightList
+                items={[
+                  ...weakKpis.map((row) => row.recommendation),
+                  ...acceptedAiRecommendations.map(
+                    (rec) => `${rec.subject}: ${rec.recommendation}`,
+                  ),
+                ].slice(0, 4)}
+                title="Next actions"
+                variant="warning"
+              />
+              {weakKpis.length === 0 && acceptedAiRecommendations.length === 0 ? (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Next actions appear here from KPI records that need attention
+                  and from AI suggestions you accept.
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </section>
   );
@@ -2580,9 +2674,11 @@ function CampaignPlanningView({
 }
 
 function PlatformStrategyView({
+  onNavigate,
   onUccChange,
   ucc,
 }: {
+  onNavigate: (view: ViewId) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
@@ -2696,17 +2792,83 @@ function PlatformStrategyView({
       <AiSkillControlPanel
         modules={ucc.aiModules}
         onModulesChange={(aiModules) => onUccChange({ ...ucc, aiModules })}
+        onNavigate={onNavigate}
       />
     </section>
   );
 }
 
+// Where each AI skill's real engine lives. The control panel never runs
+// generation itself; it sends the manager to the screen with the real
+// button, or says honestly that the engine is not built yet.
+const SKILL_ENGINE_LINKS: Record<
+  string,
+  { view: ViewId; screenLabel: string; runLabel: string } | { notBuilt: string }
+> = {
+  "ai-content-strategy": {
+    view: "brief",
+    screenLabel: "Strategy Brief",
+    runLabel: "Generate brief with AI",
+  },
+  "ai-copywriting": {
+    view: "production",
+    screenLabel: "Production Board",
+    runLabel: "the copywriting AI buttons",
+  },
+  "ai-calendar": {
+    view: "calendar",
+    screenLabel: "Content Calendar",
+    runLabel: "Generate calendar with AI",
+  },
+  "ai-competitor": {
+    view: "competitors",
+    screenLabel: "Competitors",
+    runLabel: "Analyse competitors with AI",
+  },
+  "ai-compliance": {
+    view: "compliance",
+    screenLabel: "Compliance",
+    runLabel: "the AI compliance review",
+  },
+  "ai-video": {
+    notBuilt:
+      "Engine not yet built. Video script drafting is planned for the Content Remix module.",
+  },
+  "ai-kpi": {
+    view: "kpi",
+    screenLabel: "KPI Tracker",
+    runLabel: "Generate insights with AI",
+  },
+  "ai-budget": {
+    view: "budget",
+    screenLabel: "Budget & Resources",
+    runLabel: "Run AI budget review",
+  },
+  "ai-campaign": {
+    view: "campaigns",
+    screenLabel: "Campaigns",
+    runLabel: "Suggest campaigns with AI",
+  },
+  "ai-multilingual": {
+    view: "production",
+    screenLabel: "Production Board",
+    runLabel: "the copywriting AI, which writes the Chinese version when the audience language includes Chinese",
+  },
+  "ai-performance-recommendation": {
+    view: "kpi",
+    screenLabel: "KPI Tracker",
+    runLabel: "Generate insights with AI",
+  },
+};
+
 function AiSkillControlPanel({
   modules,
   onModulesChange,
+  onNavigate,
 }: {
   modules: UccAiModule[];
   onModulesChange: (modules: UccAiModule[]) => void;
+  onNavigate: (view: ViewId) => void;
 }) {
   const [selectedModuleId, setSelectedModuleId] = useState(modules[0]?.id ?? "");
   const selectedModule =
@@ -2761,6 +2923,7 @@ function AiSkillControlPanel({
                 <th className="py-3 pr-4 font-medium">Last used</th>
                 <th className="py-3 pr-4 font-medium">Reviewer</th>
                 <th className="py-3 pr-4 font-medium">Risk</th>
+                <th className="py-3 pr-4 font-medium">Run</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -2834,6 +2997,33 @@ function AiSkillControlPanel({
                       <option value="high">High</option>
                     </NativeSelect>
                   </td>
+                  <td className="min-w-[170px] py-3 pr-4">
+                    {(() => {
+                      const link = SKILL_ENGINE_LINKS[module.id];
+
+                      if (!link || "notBuilt" in link) {
+                        return (
+                          <Button disabled size="sm" type="button" variant="outline">
+                            Engine not yet built
+                          </Button>
+                        );
+                      }
+
+                      return (
+                        <Button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onNavigate(link.view);
+                          }}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Open engine
+                        </Button>
+                      );
+                    })()}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2893,6 +3083,26 @@ function AiSkillControlPanel({
                 title="Compliance guardrails"
                 variant="warning"
               />
+              {(() => {
+                const link = SKILL_ENGINE_LINKS[selectedModule.id];
+
+                if (!link || "notBuilt" in link) {
+                  return (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {link && "notBuilt" in link
+                        ? link.notBuilt
+                        : "Engine not yet built."}
+                    </p>
+                  );
+                }
+
+                return (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    This skill runs on the {link.screenLabel} screen using{" "}
+                    {link.runLabel}. Open engine takes you there.
+                  </p>
+                );
+              })()}
             </div>
 
             <div className="space-y-3 rounded-lg border bg-background p-3">
