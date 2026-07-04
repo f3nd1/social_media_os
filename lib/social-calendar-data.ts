@@ -670,6 +670,17 @@ export type ListeningResult = {
   generatedAt: string;
 };
 
+// One line in the permanent approvals log (Module E3). Append-only audit
+// evidence: what was decided, in which module, by whom, and when.
+export type ApprovalLogEntry = {
+  id: string;
+  module: string;
+  subject: string;
+  decision: "approved" | "rejected";
+  decidedBy: string;
+  decidedAt: string;
+};
+
 // The AI weekly narrative for Reports (Module C4). Draft until approved;
 // only an approved narrative joins the export pack.
 export type WeeklyReport = {
@@ -834,6 +845,9 @@ export type MarketingWorkspaceData = {
   weeklyReport: WeeklyReport | null;
   trendInsights: TrendInsight[];
   listeningResults: ListeningResult[];
+  approvalsLog: ApprovalLogEntry[];
+  // Free-text reviewer name until sign-in exists; stamped onto log entries.
+  approverName: string;
 };
 
 export const platformRules: Record<
@@ -2579,6 +2593,8 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     weeklyReport: null,
     trendInsights: [],
     listeningResults: [],
+    approvalsLog: [],
+    approverName: "",
   };
 }
 

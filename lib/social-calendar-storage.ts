@@ -156,6 +156,8 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
           quotes: Array.isArray(result.quotes) ? result.quotes : [],
         }))
       : [],
+    approvalsLog: Array.isArray(data.approvalsLog) ? data.approvalsLog : [],
+    approverName: typeof data.approverName === "string" ? data.approverName : "",
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,

@@ -111,6 +111,10 @@ import {
   SUGGESTED_LISTENING_TOPICS,
   type ListeningAnalysisType,
 } from "@/lib/listening-ai";
+import {
+  appendApprovalLog,
+  deriveApprovalLogEntries,
+} from "@/lib/approvals-log";
 import { buildTrendContext } from "@/lib/trend-ai";
 import {
   deleteAssetFile,
@@ -152,6 +156,7 @@ import {
   type AiIntegrationSettings,
   type AiRecommendation,
   type AiUsageEntry,
+  type ApprovalLogEntry,
   type ListeningResult,
   type TrendInsight,
   type WeeklyReport,
@@ -291,6 +296,19 @@ export function SocialCalendarApp() {
     createSeedWorkspaceData(),
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
+  const [myDayMode, setMyDayMode] = useState(false);
+
+  // Undo for destructive deletes (Module E5). Deleting keeps a snapshot of
+  // the workspace for ten seconds; Undo restores it, expiry runs any
+  // deferred clean-up (like removing a stored file).
+  const [undoToast, setUndoToast] = useState<{ message: string } | null>(null);
+  const undoPendingRef = useRef<{
+    snapshot: MarketingWorkspaceData;
+    onExpire?: () => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const dataRef = useRef<MarketingWorkspaceData | null>(null);
+  dataRef.current = data;
   const [isHydrated, setIsHydrated] = useState(false);
   const [pdfImportState, setPdfImportState] = useState<PdfImportState>({
     status: "idle",
@@ -329,14 +347,64 @@ export function SocialCalendarApp() {
   function updateWorkspace(
     updater: (current: MarketingWorkspaceData) => MarketingWorkspaceData,
   ) {
-    setData((current) => ({
-      ...updater(current),
-      generatedAt: new Date().toISOString(),
-    }));
+    setData((current) => {
+      const stamp = new Date().toISOString();
+      const next = { ...updater(current), generatedAt: stamp };
+
+      // Approvals log (Module E3): every approval or rejection anywhere in
+      // the workspace is detected here centrally and appended permanently.
+      const logEntries = deriveApprovalLogEntries(current, next, stamp);
+
+      return logEntries.length > 0
+        ? { ...next, approvalsLog: appendApprovalLog(next.approvalsLog, logEntries) }
+        : next;
+    });
   }
 
   function resetSampleData() {
     setData(localSocialCalendarRepository.reset());
+  }
+
+  // Finalise any pending delete: run its deferred clean-up and drop the
+  // snapshot. Called when the timer expires or a new delete starts.
+  function finalizePendingUndo() {
+    const pending = undoPendingRef.current;
+
+    if (pending) {
+      clearTimeout(pending.timer);
+      undoPendingRef.current = null;
+      pending.onExpire?.();
+    }
+  }
+
+  // Called by a view just BEFORE it removes something. Shows the Undo toast
+  // for ten seconds; onExpire runs only if the user does not undo.
+  function offerUndo(message: string, onExpire?: () => void) {
+    finalizePendingUndo();
+
+    const snapshot = dataRef.current ?? data;
+    const timer = setTimeout(() => {
+      const pending = undoPendingRef.current;
+      undoPendingRef.current = null;
+      setUndoToast(null);
+      pending?.onExpire?.();
+    }, 10_000);
+
+    undoPendingRef.current = { snapshot, onExpire, timer };
+    setUndoToast({ message });
+  }
+
+  function undoLastDelete() {
+    const pending = undoPendingRef.current;
+
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    undoPendingRef.current = null;
+    setUndoToast(null);
+    setData({ ...pending.snapshot, generatedAt: new Date().toISOString() });
   }
 
   // Records one AI call into the usage meter. Called by every AI feature
@@ -608,7 +676,12 @@ export function SocialCalendarApp() {
   return (
     <main className="min-h-screen">
       <div className="mx-auto flex w-full max-w-[1560px] gap-0 px-4 py-4 sm:px-6 lg:gap-8 lg:px-8 lg:py-8">
-        <aside className="sticky top-8 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col border-r pr-5 lg:flex">
+        <aside
+          className={cn(
+            "sticky top-8 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col border-r pr-5 lg:flex",
+            myDayMode && "lg:hidden",
+          )}
+        >
           <div className="flex items-center gap-3 px-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-foreground text-background">
               <GraduationCap className="h-5 w-5" />
@@ -654,7 +727,12 @@ export function SocialCalendarApp() {
         </aside>
 
         <section className="min-w-0 flex-1">
-          <div className="sticky top-0 z-30 mb-5 border-b bg-background/95 py-3 backdrop-blur lg:hidden">
+          <div
+            className={cn(
+              "sticky top-0 z-30 mb-5 border-b bg-background/95 py-3 backdrop-blur lg:hidden",
+              myDayMode && "hidden",
+            )}
+          >
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
@@ -721,6 +799,14 @@ export function SocialCalendarApp() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  onClick={() => setMyDayMode((current) => !current)}
+                  size="sm"
+                  variant={myDayMode ? "default" : "outline"}
+                >
+                  <CalendarDays className="h-4 w-4" />
+                  {myDayMode ? "Full workspace" : "My day"}
+                </Button>
                 <Button onClick={() => downloadCsvPack(data)} size="sm" variant="outline">
                   <Download className="h-4 w-4" />
                   CSV
@@ -758,6 +844,10 @@ export function SocialCalendarApp() {
               </div>
             ) : null}
 
+            {myDayMode ? <MyDayView data={data} /> : null}
+
+            {myDayMode ? null : (
+              <>
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryMetric
                 icon={Target}
@@ -811,6 +901,7 @@ export function SocialCalendarApp() {
 
             {activeView === "courses" ? (
               <CoursesAudiencesView
+                onOfferUndo={offerUndo}
                 ucc={data.ucc}
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
@@ -821,6 +912,7 @@ export function SocialCalendarApp() {
             {activeView === "campaigns" ? (
               <CampaignPlanningView
                 acceptedTrends={acceptedTrendLines(data.trendInsights)}
+                onOfferUndo={offerUndo}
                 aiIntegration={data.aiIntegration}
                 auditInsights={data.auditInsights}
                 brief={data.brief}
@@ -891,6 +983,7 @@ export function SocialCalendarApp() {
             {activeView === "calendar" ? (
               <CalendarBuilderView
                 acceptedTrends={acceptedTrendLines(data.trendInsights)}
+                onOfferUndo={offerUndo}
                 aiIntegration={data.aiIntegration}
                 audits={data.audits}
                 brand={data.brand}
@@ -935,6 +1028,7 @@ export function SocialCalendarApp() {
 
             {activeView === "assets" ? (
               <AssetLibraryView
+                onOfferUndo={offerUndo}
                 calendar={data.calendar}
                 ucc={data.ucc}
                 onUccChange={(ucc) =>
@@ -946,6 +1040,7 @@ export function SocialCalendarApp() {
             {activeView === "budget" ? (
               <BudgetResourcesView
                 data={data}
+                onOfferUndo={offerUndo}
                 onAiRecommendationsChange={(aiRecommendations) =>
                   updateWorkspace((current) => ({ ...current, aiRecommendations }))
                 }
@@ -985,6 +1080,9 @@ export function SocialCalendarApp() {
             {activeView === "reports" ? (
               <ReportsView
                 data={data}
+                onApproverNameChange={(approverName) =>
+                  updateWorkspace((current) => ({ ...current, approverName }))
+                }
                 onRecordUsage={recordAiUsage}
                 onWeeklyReportChange={(weeklyReport) =>
                   updateWorkspace((current) => ({ ...current, weeklyReport }))
@@ -1070,9 +1168,34 @@ export function SocialCalendarApp() {
                 }
               />
             ) : null}
+              </>
+            )}
           </div>
         </section>
       </div>
+
+      {undoToast ? (
+        <div className="fixed bottom-4 left-1/2 z-50 flex w-[min(480px,90vw)] -translate-x-1/2 items-center justify-between gap-3 rounded-lg border bg-card p-3 shadow-lg">
+          <p className="text-sm leading-5">{undoToast.message}</p>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button onClick={undoLastDelete} size="sm" type="button">
+              Undo
+            </Button>
+            <Button
+              aria-label="Dismiss undo message"
+              onClick={() => {
+                setUndoToast(null);
+                finalizePendingUndo();
+              }}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -1132,30 +1255,12 @@ function SummaryMetric({
   );
 }
 
-function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
-  const totalBudget = data.ucc.budgetPlans.reduce(
-    (sum, budget) => sum + budget.totalCost,
-    0,
-  );
-  const totalSpend = data.ucc.campaigns.reduce(
-    (sum, campaign) => sum + campaign.actualResults.spend,
-    0,
-  );
-  const totalLeads = data.ucc.kpiRecords.reduce((sum, row) => sum + row.leads, 0);
-  const delayedItems = data.calendar.filter((item) =>
-    ["revision", "drafting", "review"].includes(item.status) ||
-    item.approvalStage === "revision",
-  );
-  const strongKpis = data.ucc.kpiRecords.filter(
-    (row) => row.status === "on track" || row.status === "exceeded target",
-  );
-  const weakKpis = data.ucc.kpiRecords.filter(
-    (row) => row.status === "behind target" || row.status === "needs attention",
-  );
-  const acceptedAiRecommendations = data.aiRecommendations.filter(
-    (rec) => rec.status === "accepted",
-  );
-  const pendingApprovals: Array<{ label: string; count: number; where: string }> = [
+// Everything currently waiting for the manager's decision, shared by the
+// Dashboard (Module C5) and the My day view (Module E4).
+function buildPendingApprovals(
+  data: MarketingWorkspaceData,
+): Array<{ label: string; count: number; where: string }> {
+  return [
     {
       label: "Platform audit insights",
       count: data.auditInsights.filter((row) => row.status === "draft").length,
@@ -1186,6 +1291,11 @@ function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
       where: "KPI Tracker screen",
     },
     {
+      label: "Trend cards",
+      count: data.trendInsights.filter((row) => row.status === "draft").length,
+      where: "Platform Strategy screen (Trend Radar)",
+    },
+    {
       label: "Weekly report draft",
       count: data.weeklyReport?.status === "draft" ? 1 : 0,
       where: "Reports screen",
@@ -1201,6 +1311,162 @@ function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
       where: "Production Board",
     },
   ].filter((row) => row.count > 0);
+}
+
+// The stripped-down daily view for non-technical staff (Module E4).
+function MyDayView({ data }: { data: MarketingWorkspaceData }) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const myName = data.approverName.trim().toLowerCase();
+  const assignedToMe = myName
+    ? data.calendar.filter(
+        (item) =>
+          (item.owner ?? "").trim().toLowerCase() === myName ||
+          (item.reviewer ?? "").trim().toLowerCase() === myName,
+      )
+    : [];
+  const todaysItems = data.calendar.filter(
+    (item) => (item.plannedDate ?? item.date) === todayIso,
+  );
+  const pendingApprovals = buildPendingApprovals(data);
+
+  function itemRow(item: CalendarItem) {
+    return (
+      <div className="rounded-lg border bg-muted/20 p-3 text-sm" key={item.id}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="font-medium">
+            {item.platform} / {item.contentTopic}
+          </p>
+          <StatusLabel status={item.status} />
+        </div>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          {item.plannedDate ?? item.date}
+          {item.owner ? ` / Owner: ${item.owner}` : ""}
+          {item.reviewer ? ` / Reviewer: ${item.reviewer}` : ""}
+          {item.approvalStage ? ` / Stage: ${item.approvalStage}` : ""}
+        </p>
+        {item.blocker ? (
+          <p className="mt-1 text-xs leading-5 text-warning-foreground">
+            Blocker: {item.blocker}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <section className="space-y-4">
+      <Card>
+        <CardHeader>
+          <SectionTitle
+            icon={CalendarDays}
+            kicker="My day"
+            title={`Today, ${todayIso}`}
+            description="Just your work: what is assigned to you, what waits for your approval, and what is planned for today. Switch off My day in the header for the full workspace."
+          />
+        </CardHeader>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle>Assigned to me</CardTitle>
+            <CardDescription>
+              Calendar items where you are the owner or reviewer.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {!myName ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                Set your name in Reports (Approvals Log panel) so the workspace
+                knows which items are yours.
+              </p>
+            ) : assignedToMe.length === 0 ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                Nothing is assigned to {data.approverName.trim()} right now.
+              </p>
+            ) : (
+              assignedToMe.map((item) => itemRow(item))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Waiting for approval</CardTitle>
+            <CardDescription>
+              Draft AI output and content that needs a human decision.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pendingApprovals.length === 0 ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                Nothing is waiting for a decision right now.
+              </p>
+            ) : (
+              pendingApprovals.map((row) => (
+                <div
+                  className="flex items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3 text-sm"
+                  key={row.label}
+                >
+                  <div>
+                    <p className="font-medium">{row.label}</p>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Decide on the {row.where}
+                    </p>
+                  </div>
+                  <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-semibold text-warning-foreground">
+                    {row.count}
+                  </span>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Today&apos;s calendar</CardTitle>
+            <CardDescription>Items planned for {todayIso}.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {todaysItems.length === 0 ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                No calendar items are planned for today.
+              </p>
+            ) : (
+              todaysItems.map((item) => itemRow(item))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
+  const totalBudget = data.ucc.budgetPlans.reduce(
+    (sum, budget) => sum + budget.totalCost,
+    0,
+  );
+  const totalSpend = data.ucc.campaigns.reduce(
+    (sum, campaign) => sum + campaign.actualResults.spend,
+    0,
+  );
+  const totalLeads = data.ucc.kpiRecords.reduce((sum, row) => sum + row.leads, 0);
+  const delayedItems = data.calendar.filter((item) =>
+    ["revision", "drafting", "review"].includes(item.status) ||
+    item.approvalStage === "revision",
+  );
+  const strongKpis = data.ucc.kpiRecords.filter(
+    (row) => row.status === "on track" || row.status === "exceeded target",
+  );
+  const weakKpis = data.ucc.kpiRecords.filter(
+    (row) => row.status === "behind target" || row.status === "needs attention",
+  );
+  const acceptedAiRecommendations = data.aiRecommendations.filter(
+    (rec) => rec.status === "accepted",
+  );
+  const pendingApprovals = buildPendingApprovals(data);
 
   return (
     <section className="space-y-4">
@@ -1418,9 +1684,11 @@ function courseStatusLabel(status: UccCourse["status"]) {
 }
 
 function CoursesAudiencesView({
+  onOfferUndo,
   onUccChange,
   ucc,
 }: {
+  onOfferUndo: (message: string, onExpire?: () => void) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
@@ -1451,7 +1719,7 @@ function CoursesAudiencesView({
   function deleteCourse(course: UccCourse) {
     if (typeof window !== "undefined") {
       const confirmed = window.confirm(
-        `Delete the course "${course.name || "Untitled"}"? This cannot be undone.`,
+        `Delete the course "${course.name || "Untitled"}"? You will have 10 seconds to undo.`,
       );
 
       if (!confirmed) {
@@ -1459,6 +1727,7 @@ function CoursesAudiencesView({
       }
     }
 
+    onOfferUndo(`Course "${course.name || "Untitled"}" deleted.`);
     onUccChange({
       ...ucc,
       courses: ucc.courses.filter((row) => row.id !== course.id),
@@ -1479,7 +1748,7 @@ function CoursesAudiencesView({
   function deleteAudience(audience: UccAudience) {
     if (typeof window !== "undefined") {
       const confirmed = window.confirm(
-        `Delete the audience "${audience.name || "Untitled"}"? This cannot be undone.`,
+        `Delete the audience "${audience.name || "Untitled"}"? You will have 10 seconds to undo.`,
       );
 
       if (!confirmed) {
@@ -1487,6 +1756,7 @@ function CoursesAudiencesView({
       }
     }
 
+    onOfferUndo(`Audience "${audience.name || "Untitled"}" deleted.`);
     onUccChange({
       ...ucc,
       audiences: ucc.audiences.filter((row) => row.id !== audience.id),
@@ -2166,6 +2436,7 @@ function CampaignPlanningView({
   campaignSuggestions,
   competitorInsights,
   onCampaignSuggestionsChange,
+  onOfferUndo,
   onRecordUsage,
   onUccChange,
   ucc,
@@ -2177,6 +2448,7 @@ function CampaignPlanningView({
   campaignSuggestions: CampaignSuggestion[];
   competitorInsights: CompetitorInsight[];
   onCampaignSuggestionsChange: (campaignSuggestions: CampaignSuggestion[]) => void;
+  onOfferUndo: (message: string, onExpire?: () => void) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
@@ -2290,7 +2562,7 @@ function CampaignPlanningView({
   function deleteCampaign(campaign: UccCampaign) {
     if (typeof window !== "undefined") {
       const confirmed = window.confirm(
-        `Delete the campaign "${campaign.name}"? This cannot be undone.`,
+        `Delete the campaign "${campaign.name}"? You will have 10 seconds to undo.`,
       );
 
       if (!confirmed) {
@@ -2298,6 +2570,7 @@ function CampaignPlanningView({
       }
     }
 
+    onOfferUndo(`Campaign "${campaign.name}" deleted.`);
     onUccChange({
       ...ucc,
       campaigns: ucc.campaigns.filter((row) => row.id !== campaign.id),
@@ -3672,10 +3945,12 @@ function AiSkillControlPanel({
 
 function AssetLibraryView({
   calendar,
+  onOfferUndo,
   onUccChange,
   ucc,
 }: {
   calendar: CalendarItem[];
+  onOfferUndo: (message: string, onExpire?: () => void) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
@@ -3779,7 +4054,7 @@ function AssetLibraryView({
   async function deleteAsset(asset: UccAsset) {
     if (typeof window !== "undefined") {
       const confirmed = window.confirm(
-        `Delete the asset "${asset.name}"?${asset.storagePath ? " The stored file will also be removed from Supabase Storage." : ""} This cannot be undone.`,
+        `Delete the asset "${asset.name}"?${asset.storagePath ? " The stored file will also be removed from Supabase Storage." : ""} You will have 10 seconds to undo.`,
       );
 
       if (!confirmed) {
@@ -3787,22 +4062,25 @@ function AssetLibraryView({
       }
     }
 
-    if (asset.storagePath) {
-      const resolved = resolveSupabaseConfig();
+    // The stored file is only removed once the Undo window has passed, so
+    // Undo genuinely brings the whole asset back.
+    const storagePath = asset.storagePath;
 
-      if (resolved.config) {
-        try {
-          await deleteAssetFile(resolved.config, asset.storagePath);
-        } catch (error) {
-          setAssetMessage({
-            tone: "error",
-            text: `The entry was removed, but deleting the stored file failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          });
-        }
-      }
-    }
+    onOfferUndo(
+      `Asset "${asset.name}" deleted.`,
+      storagePath
+        ? () => {
+            const resolved = resolveSupabaseConfig();
+
+            if (resolved.config) {
+              void deleteAssetFile(resolved.config, storagePath).catch(() => {
+                // The record is gone either way; a leftover stored file is
+                // harmless and can be removed from Supabase Storage directly.
+              });
+            }
+          }
+        : undefined,
+    );
 
     onUccChange({
       ...ucc,
@@ -4222,11 +4500,13 @@ function AiRecommendationPanel({
 function BudgetResourcesView({
   data,
   onAiRecommendationsChange,
+  onOfferUndo,
   onRecordUsage,
   onUccChange,
 }: {
   data: MarketingWorkspaceData;
   onAiRecommendationsChange: (aiRecommendations: AiRecommendation[]) => void;
+  onOfferUndo: (message: string, onExpire?: () => void) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onUccChange: (ucc: UccStrategyData) => void;
 }) {
@@ -4270,13 +4550,14 @@ function BudgetResourcesView({
   function deleteBudgetLine(budget: UccBudgetPlan) {
     const campaignName = findCampaign(ucc, budget.campaignId)?.name ?? "this campaign";
     const confirmed = window.confirm(
-      `Delete the budget line for ${campaignName}? This cannot be undone from this screen.`,
+      `Delete the budget line for ${campaignName}? You will have 10 seconds to undo.`,
     );
 
     if (!confirmed) {
       return;
     }
 
+    onOfferUndo(`Budget line for ${campaignName} deleted.`);
     onUccChange({
       ...ucc,
       budgetPlans: ucc.budgetPlans.filter((row) => row.id !== budget.id),
@@ -5162,12 +5443,93 @@ function WeeklyNarrativePanel({
   );
 }
 
+function ApprovalsLogPanel({
+  approvalsLog,
+  approverName,
+  onApproverNameChange,
+}: {
+  approvalsLog: ApprovalLogEntry[];
+  approverName: string;
+  onApproverNameChange: (approverName: string) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={ShieldCheck}
+          kicker="Audit trail"
+          title="Approvals Log"
+          description="A permanent record of every approval and rejection: what was decided, in which module, by whom, and when. Entries are written automatically and cannot be edited."
+        />
+        <div className="w-full sm:w-[260px]">
+          <Field label="Your name (stamped on decisions)">
+            <Input
+              placeholder="e.g. Felix"
+              value={approverName}
+              onChange={(event) => onApproverNameChange(event.target.value)}
+            />
+          </Field>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {approvalsLog.length === 0 ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            No decisions recorded yet. Approvals and rejections across the
+            whole workspace will appear here automatically.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-left text-sm">
+              <thead className="border-b text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="py-3 pr-4 font-medium">When</th>
+                  <th className="py-3 pr-4 font-medium">Module</th>
+                  <th className="py-3 pr-4 font-medium">What</th>
+                  <th className="py-3 pr-4 font-medium">Decision</th>
+                  <th className="py-3 pr-4 font-medium">By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {approvalsLog.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="whitespace-nowrap py-3 pr-4 text-xs">
+                      {entry.decidedAt.slice(0, 16).replace("T", " ")}
+                    </td>
+                    <td className="min-w-[150px] py-3 pr-4">{entry.module}</td>
+                    <td className="min-w-[320px] py-3 pr-4 text-xs leading-5">
+                      {entry.subject}
+                    </td>
+                    <td className="py-3 pr-4">
+                      {entry.decision === "approved" ? (
+                        <span className="rounded-md border border-success-border bg-success px-2 py-0.5 text-xs font-medium text-success-foreground">
+                          Approved
+                        </span>
+                      ) : (
+                        <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-medium text-warning-foreground">
+                          Rejected
+                        </span>
+                      )}
+                    </td>
+                    <td className="min-w-[130px] py-3 pr-4">{entry.decidedBy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ReportsView({
   data,
+  onApproverNameChange,
   onRecordUsage,
   onWeeklyReportChange,
 }: {
   data: MarketingWorkspaceData;
+  onApproverNameChange: (approverName: string) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onWeeklyReportChange: (weeklyReport: WeeklyReport | null) => void;
 }) {
@@ -5218,6 +5580,11 @@ function ReportsView({
         data={data}
         onRecordUsage={onRecordUsage}
         onWeeklyReportChange={onWeeklyReportChange}
+      />
+      <ApprovalsLogPanel
+        approvalsLog={data.approvalsLog}
+        approverName={data.approverName}
+        onApproverNameChange={onApproverNameChange}
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <ExportView data={data} />
@@ -8761,6 +9128,7 @@ function CalendarBuilderView({
   socialGoals,
   ucc,
   onCalendarChange,
+  onOfferUndo,
   onRecordUsage,
   onReplaceCalendar,
 }: {
@@ -8774,6 +9142,7 @@ function CalendarBuilderView({
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onCalendarChange: (calendar: CalendarItem[]) => void;
+  onOfferUndo: (message: string, onExpire?: () => void) => void;
   onReplaceCalendar: (calendar: CalendarItem[], clearPerformance: boolean) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
@@ -8941,13 +9310,20 @@ function CalendarBuilderView({
 
   function deleteItem(id: string) {
     if (typeof window !== "undefined") {
-      const confirmed = window.confirm("Delete this calendar item? This cannot be undone.");
+      const confirmed = window.confirm(
+        "Delete this calendar item? You will have 10 seconds to undo.",
+      );
 
       if (!confirmed) {
         return;
       }
     }
 
+    const item = calendar.find((row) => row.id === id);
+
+    onOfferUndo(
+      `Calendar item "${item?.contentTopic ?? "Untitled"}" deleted.`,
+    );
     onCalendarChange(calendar.filter((item) => item.id !== id));
   }
 
