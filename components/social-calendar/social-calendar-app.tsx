@@ -106,6 +106,11 @@ import {
   type RemixAiContext,
   type RemixAiDraft,
 } from "@/lib/remix-ai";
+import {
+  LISTENING_ANALYSIS_OPTIONS,
+  SUGGESTED_LISTENING_TOPICS,
+  type ListeningAnalysisType,
+} from "@/lib/listening-ai";
 import { buildTrendContext } from "@/lib/trend-ai";
 import {
   deleteAssetFile,
@@ -147,6 +152,7 @@ import {
   type AiIntegrationSettings,
   type AiRecommendation,
   type AiUsageEntry,
+  type ListeningResult,
   type TrendInsight,
   type WeeklyReport,
   type AuditInsight,
@@ -835,6 +841,9 @@ export function SocialCalendarApp() {
               <PlatformStrategyView
                 data={data}
                 ucc={data.ucc}
+                onListeningResultsChange={(listeningResults) =>
+                  updateWorkspace((current) => ({ ...current, listeningResults }))
+                }
                 onNavigate={setActiveView}
                 onRecordUsage={recordAiUsage}
                 onTrendInsightsChange={(trendInsights) =>
@@ -2700,17 +2709,87 @@ function acceptedTrendLines(trendInsights: TrendInsight[]): string[] {
 
 function TrendRadarPanel({
   data,
+  onListeningResultsChange,
   onRecordUsage,
   onTrendInsightsChange,
 }: {
   data: MarketingWorkspaceData;
+  onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<"trends" | "listening">("trends");
   const [scanning, setScanning] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [listeningTopic, setListeningTopic] = useState("");
+  const [listeningType, setListeningType] = useState<ListeningAnalysisType>("quick");
+  const [listening, setListening] = useState(false);
+  const [listeningError, setListeningError] = useState("");
 
   const liveAi = isLiveAiEnabled(data.aiIntegration);
+  const hasXaiKey = Boolean(data.aiIntegration.xaiApiKey?.trim());
+
+  async function runListening() {
+    if (!listeningTopic.trim()) {
+      setListeningError("Enter a topic first, or pick one of the suggested topics.");
+      return;
+    }
+
+    setListening(true);
+    setListeningError("");
+
+    try {
+      const response = await fetch("/api/social-listening", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: data.aiIntegration.apiKey,
+          xaiApiKey: data.aiIntegration.xaiApiKey ?? "",
+          model: resolveModelForTask(data.aiIntegration, "analysis"),
+          topic: listeningTopic.trim(),
+          analysisType: listeningType,
+        }),
+      });
+      const result = (await response.json()) as
+        | {
+            ok: true;
+            insight: string;
+            quotes: Array<{ text: string; source: string; url: string }>;
+            sourcesCovered: string;
+            dateRange: string;
+            usage?: OpenAiUsage;
+            model?: string;
+          }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setListeningError(result.error);
+        return;
+      }
+
+      const entry: ListeningResult = {
+        id: `listen-${Date.now()}`,
+        topic: listeningTopic.trim(),
+        analysisType: listeningType,
+        insight: result.insight,
+        quotes: result.quotes,
+        sourcesCovered: result.sourcesCovered,
+        dateRange: result.dateRange,
+        model: result.model ?? "unknown",
+        generatedAt: new Date().toISOString(),
+      };
+
+      onListeningResultsChange([entry, ...data.listeningResults].slice(0, 20));
+
+      if (result.usage) {
+        onRecordUsage("Social listening", result.model ?? "unknown", result.usage);
+      }
+    } catch (error) {
+      setListeningError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setListening(false);
+    }
+  }
   const drafts = data.trendInsights.filter((trend) => trend.status === "draft");
   const accepted = data.trendInsights.filter((trend) => trend.status === "accepted");
   const dismissed = data.trendInsights.filter((trend) => trend.status === "dismissed");
@@ -2870,54 +2949,201 @@ function TrendRadarPanel({
           description="A real web search for current Singapore private education, recruitment, and content trends. Every card cites the pages it came from; accepted trends feed campaign ideas and calendar generation."
         />
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          <Button
-            disabled={!liveAi || scanning}
-            onClick={scanTrends}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Sparkles className="h-4 w-4" />
-            {scanning ? "Scanning the web" : "Scan trends"}
-          </Button>
+          {activeTab === "trends" ? (
+            <Button
+              disabled={!liveAi || scanning}
+              onClick={scanTrends}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Sparkles className="h-4 w-4" />
+              {scanning ? "Scanning the web" : "Scan trends"}
+            </Button>
+          ) : null}
           {!liveAi ? (
             <p className="text-xs leading-5 text-muted-foreground">
-              Connect OpenAI in Settings to scan trends.
+              Connect OpenAI in Settings to use the Trend Radar.
             </p>
           ) : null}
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {errorMessage ? (
-          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
-            {errorMessage}
-          </div>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={() => setActiveTab("trends")}
+            size="sm"
+            type="button"
+            variant={activeTab === "trends" ? "default" : "outline"}
+          >
+            Web trends
+          </Button>
+          <Button
+            onClick={() => setActiveTab("listening")}
+            size="sm"
+            type="button"
+            variant={activeTab === "listening" ? "default" : "outline"}
+          >
+            Social listening
+          </Button>
+        </div>
 
-        {drafts.length === 0 && accepted.length === 0 ? (
-          <p className="text-sm leading-6 text-muted-foreground">
-            No trends scanned yet. Scan trends runs a live web search; if the
-            search finds nothing solid, it says so instead of inventing trends.
-          </p>
-        ) : null}
-
-        {drafts.map((trend) => trendCard(trend))}
-
-        {accepted.length > 0 ? (
+        {activeTab === "trends" ? (
           <>
-            <p className="pt-1 text-xs font-medium uppercase text-muted-foreground">
-              Accepted trends (used by campaign and calendar AI)
-            </p>
-            {accepted.map((trend) => trendCard(trend))}
-          </>
-        ) : null}
+            {errorMessage ? (
+              <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+                {errorMessage}
+              </div>
+            ) : null}
 
-        {dismissed.length > 0 ? (
-          <p className="text-xs leading-5 text-muted-foreground">
-            {dismissed.length} dismissed trend{dismissed.length === 1 ? "" : "s"} hidden.
-            They are cleared on the next scan.
-          </p>
-        ) : null}
+            {drafts.length === 0 && accepted.length === 0 ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                No trends scanned yet. Scan trends runs a live web search; if the
+                search finds nothing solid, it says so instead of inventing trends.
+              </p>
+            ) : null}
+
+            {drafts.map((trend) => trendCard(trend))}
+
+            {accepted.length > 0 ? (
+              <>
+                <p className="pt-1 text-xs font-medium uppercase text-muted-foreground">
+                  Accepted trends (used by campaign and calendar AI)
+                </p>
+                {accepted.map((trend) => trendCard(trend))}
+              </>
+            ) : null}
+
+            {dismissed.length > 0 ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                {dismissed.length} dismissed trend{dismissed.length === 1 ? "" : "s"} hidden.
+                They are cleared on the next scan.
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Live public-opinion research from Reddit{hasXaiKey ? " and X" : ""}, powered
+              by the open-source sc-research tool (MIT licence).{" "}
+              {hasXaiKey
+                ? ""
+                : "No xAI key is set, so X is not searched; add one in Settings to include X."}{" "}
+              Quotes are research evidence for internal planning only, never marketing copy.
+            </p>
+
+            <div className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
+              <div className="min-w-[260px] flex-1">
+                <Field label="Topic">
+                  <Input
+                    placeholder="What are people discussing?"
+                    value={listeningTopic}
+                    onChange={(event) => setListeningTopic(event.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="min-w-[180px]">
+                <Field label="Analysis type">
+                  <NativeSelect
+                    value={listeningType}
+                    onChange={(event) =>
+                      setListeningType(event.target.value as ListeningAnalysisType)
+                    }
+                  >
+                    {LISTENING_ANALYSIS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+              </div>
+              <Button
+                disabled={!liveAi || listening}
+                onClick={() => void runListening()}
+                size="sm"
+                type="button"
+              >
+                <SearchCheck className="h-4 w-4" />
+                {listening ? "Researching" : "Run listening research"}
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTED_LISTENING_TOPICS.map((topic) => (
+                <Button
+                  key={topic}
+                  onClick={() => setListeningTopic(topic)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {topic}
+                </Button>
+              ))}
+            </div>
+
+            {listeningError ? (
+              <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+                {listeningError}
+              </div>
+            ) : null}
+
+            {data.listeningResults.length === 0 ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                No listening research yet. Runs can take a minute or two because
+                the tool fetches real posts before the analysis starts.
+              </p>
+            ) : (
+              data.listeningResults.map((result) => (
+                <div className="space-y-2 rounded-lg border p-3" key={result.id}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-sm font-semibold">
+                      {result.topic}
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {LISTENING_ANALYSIS_OPTIONS.find(
+                          (option) => option.value === result.analysisType,
+                        )?.label ?? result.analysisType}
+                      </span>
+                    </p>
+                    <Badge variant="outline">{result.dateRange}</Badge>
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm leading-6">{result.insight}</p>
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
+                      Evidence: real posts this rests on
+                    </p>
+                    {result.quotes.map((quote, index) => (
+                      <div
+                        className="rounded-md border bg-muted/20 p-2 text-xs leading-5"
+                        key={`${result.id}-quote-${index}`}
+                      >
+                        <p className="italic">&ldquo;{quote.text}&rdquo;</p>
+                        <p className="mt-1 text-muted-foreground">
+                          {quote.source}
+                          {" / "}
+                          <a
+                            className="underline underline-offset-2"
+                            href={quote.url}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            view post
+                          </a>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Covered: {result.sourcesCovered}. Analysed by {result.model} on{" "}
+                    {result.generatedAt.slice(0, 16).replace("T", " ")}. Research
+                    evidence only; do not copy quotes into marketing content.
+                  </p>
+                </div>
+              ))
+            )}
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -2925,6 +3151,7 @@ function TrendRadarPanel({
 
 function PlatformStrategyView({
   data,
+  onListeningResultsChange,
   onNavigate,
   onRecordUsage,
   onTrendInsightsChange,
@@ -2932,6 +3159,7 @@ function PlatformStrategyView({
   ucc,
 }: {
   data: MarketingWorkspaceData;
+  onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
   onNavigate: (view: ViewId) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
@@ -3047,6 +3275,7 @@ function PlatformStrategyView({
 
       <TrendRadarPanel
         data={data}
+        onListeningResultsChange={onListeningResultsChange}
         onRecordUsage={onRecordUsage}
         onTrendInsightsChange={onTrendInsightsChange}
       />
@@ -5546,6 +5775,19 @@ function AiIntegrationPanel({
             </p>
           </Field>
         </div>
+
+        <Field label="xAI API key (optional, for social listening on X)">
+          <Input
+            onChange={(event) => update({ xaiApiKey: event.target.value })}
+            placeholder="xai-..."
+            type="password"
+            value={aiIntegration.xaiApiKey ?? ""}
+          />
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Without this key, social listening searches Reddit only and says
+            so. Stored the same way as the OpenAI key.
+          </p>
+        </Field>
 
         <p className="text-xs leading-5 text-muted-foreground">
           AI output is always a draft for your approval. The AI never approves
@@ -11697,6 +11939,12 @@ function checkComplianceText(text: string) {
     {
       pattern: /testimonial|life changing|success story/i,
       message: "Testimonial risk: avoid implying typical outcomes from individual stories.",
+    },
+    {
+      // Social listening quotes are research evidence only (Module D3).
+      pattern: /\b(u\/[a-z0-9_-]{3,}|r\/[a-z0-9_]{3,}|reddit|(said|posted|wrote|commented)\s+on\s+x\b)|["“][^"”]{8,}["”]\s*-?\s*@\w{2,}/i,
+      message:
+        "Private individual quote risk: this copy appears to quote or reference a social media user. Listening quotes are internal research evidence only; get consent or rewrite in your own words.",
     },
   ];
 
