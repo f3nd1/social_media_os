@@ -43,6 +43,7 @@ export const approvalStages = [
   "copy approved",
   "design/video approved",
   "compliance approved",
+  "manager approved",
   "revision",
   "scheduled",
   "published",
