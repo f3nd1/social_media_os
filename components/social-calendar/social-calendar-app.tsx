@@ -140,6 +140,7 @@ import {
   approvalStages,
   calculateAuditScore,
   calendarItemKinds,
+  createEmptyWorkspaceData,
   createSeedWorkspaceData,
   dailyPublishingRhythm,
   funnelStages,
@@ -848,6 +849,21 @@ export function SocialCalendarApp() {
 
             {myDayMode ? null : (
               <>
+            {!data.firstRunChecklistDismissed &&
+            !data.brand.brandName.trim() &&
+            data.calendar.length === 0 ? (
+              <FirstRunChecklist
+                data={data}
+                onNavigate={setActiveView}
+                onDismiss={() =>
+                  updateWorkspace((current) => ({
+                    ...current,
+                    firstRunChecklistDismissed: true,
+                  }))
+                }
+              />
+            ) : null}
+
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryMetric
                 icon={Target}
@@ -876,7 +892,7 @@ export function SocialCalendarApp() {
             </section>
 
             {activeView === "dashboard" ? (
-              <ManagementDashboardView data={data} />
+              <ManagementDashboardView data={data} onNavigate={setActiveView} />
             ) : null}
 
             {activeView === "objectives" ? (
@@ -1443,7 +1459,244 @@ function MyDayView({ data }: { data: MarketingWorkspaceData }) {
   );
 }
 
-function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
+// Every accepted AI suggestion, from all six draft stores, as plain action
+// lines. Used so that accepting a budget/KPI recommendation, an audit insight,
+// a competitor insight, or a trend all show up consistently in the Dashboard
+// and Reports "next actions", not just one of them.
+function acceptedInsightLines(data: MarketingWorkspaceData): string[] {
+  return [
+    ...data.aiRecommendations
+      .filter((rec) => rec.status === "accepted")
+      .map((rec) => `${rec.subject}: ${rec.recommendation}`),
+    ...data.auditInsights
+      .filter((insight) => insight.status === "accepted")
+      .map((insight) => `${insight.platform}: ${insight.recommendation}`),
+    ...data.competitorInsights
+      .filter((insight) => insight.status === "accepted")
+      .map((insight) => `${insight.competitorName}: ${insight.insight}`),
+    ...data.trendInsights
+      .filter((trend) => trend.status === "accepted")
+      .map((trend) => `${trend.title}: ${trend.contentAngle}`),
+  ];
+}
+
+// The whole-system checklist (Module: cross-module health check). Each row is
+// a real prerequisite with a plain rule for "done" and the screen that
+// completes it, so the owner can see at a glance whether the app is connected.
+type SetupStatusRow = {
+  label: string;
+  done: boolean;
+  view: ViewId;
+  next: string;
+};
+
+function buildSetupStatus(data: MarketingWorkspaceData): SetupStatusRow[] {
+  const liveCourses = data.ucc.courses.filter((course) => course.status !== "archived");
+  const complianceReviewed =
+    data.complianceDocs.length > 0 ||
+    data.calendar.some((item) =>
+      ["compliance approved", "manager approved", "scheduled", "published"].includes(
+        item.approvalStage ?? "idea",
+      ),
+    );
+
+  return [
+    {
+      label: "Brand set up",
+      done: data.brand.brandName.trim().length > 0,
+      view: "settings",
+      next: "Add your brand name and details in Settings.",
+    },
+    {
+      label: "Courses added",
+      done: liveCourses.length > 0,
+      view: "courses",
+      next: "Add at least one course on Courses & Audiences.",
+    },
+    {
+      label: "Audiences added",
+      done: data.ucc.audiences.length > 0,
+      view: "courses",
+      next: "Add at least one audience on Courses & Audiences.",
+    },
+    {
+      label: "Audit done",
+      done: data.audits.length > 0,
+      view: "objectives",
+      next: "Record a platform audit on the Objectives screen.",
+    },
+    {
+      label: "Brief approved",
+      done: data.brief.approved,
+      view: "brief",
+      next: "Generate or edit the Strategy Brief, then approve it.",
+    },
+    {
+      label: "Campaigns approved",
+      done: data.ucc.campaigns.some(isCampaignApproved),
+      view: "campaigns",
+      next: "Approve at least one campaign on the Campaigns screen.",
+    },
+    {
+      label: "Calendar generated",
+      done: data.calendar.length > 0,
+      view: "calendar",
+      next: "Generate the content calendar from the approved brief.",
+    },
+    {
+      label: "Compliance reviewed",
+      done: complianceReviewed,
+      view: "compliance",
+      next: "Upload a guideline or move an item through the compliance stage.",
+    },
+  ];
+}
+
+// The five steps from a blank workspace to a working calendar, shown once on
+// a brand-new empty workspace and dismissible. Each step links to its screen
+// and ticks itself off as the owner completes it.
+function FirstRunChecklist({
+  data,
+  onDismiss,
+  onNavigate,
+}: {
+  data: MarketingWorkspaceData;
+  onDismiss: () => void;
+  onNavigate: (view: ViewId) => void;
+}) {
+  const steps: Array<{ label: string; done: boolean; view: ViewId }> = [
+    {
+      label: "1. Set up your brand in Settings",
+      done: data.brand.brandName.trim().length > 0,
+      view: "settings",
+    },
+    {
+      label: "2. Add your courses and audiences",
+      done:
+        data.ucc.courses.some((course) => course.status !== "archived") &&
+        data.ucc.audiences.length > 0,
+      view: "courses",
+    },
+    {
+      label: "3. Record an audit and set your objectives",
+      done: data.audits.length > 0,
+      view: "objectives",
+    },
+    {
+      label: "4. Generate the Strategy Brief and approve it",
+      done: data.brief.approved,
+      view: "brief",
+    },
+    {
+      label: "5. Approve a campaign, then generate the Content Calendar",
+      done: data.ucc.campaigns.some(isCampaignApproved) && data.calendar.length > 0,
+      view: "calendar",
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={ListChecks}
+          kicker="Getting started"
+          title="Your first five steps"
+          description="A blank workspace becomes a working calendar in five steps. Select any step to open its screen. Dismiss this once you are set up."
+        />
+        <Button onClick={onDismiss} size="sm" type="button" variant="outline">
+          <X className="h-4 w-4" />
+          Dismiss
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {steps.map((step) => (
+          <button
+            className="flex w-full items-start gap-3 rounded-lg border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/40"
+            key={step.label}
+            onClick={() => onNavigate(step.view)}
+            type="button"
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-bold",
+                step.done
+                  ? "border-success-border bg-success text-success-foreground"
+                  : "border-border bg-background text-muted-foreground",
+              )}
+            >
+              {step.done ? "✓" : ""}
+            </span>
+            <span className="text-sm leading-6">{step.label}</span>
+          </button>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SetupStatusPanel({
+  data,
+  onNavigate,
+}: {
+  data: MarketingWorkspaceData;
+  onNavigate: (view: ViewId) => void;
+}) {
+  const rows = buildSetupStatus(data);
+  const doneCount = rows.filter((row) => row.done).length;
+
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={ListChecks}
+          kicker="Setup status"
+          title="Is the system connected?"
+          description="One glance at whether each part of the workspace is ready. Select a row to jump to the screen that completes it."
+        />
+        <Badge variant={doneCount === rows.length ? "success" : "info"}>
+          {doneCount}/{rows.length} done
+        </Badge>
+      </CardHeader>
+      <CardContent className="grid gap-2 sm:grid-cols-2">
+        {rows.map((row) => (
+          <button
+            className="flex items-start gap-3 rounded-lg border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/40"
+            key={row.label}
+            onClick={() => onNavigate(row.view)}
+            type="button"
+          >
+            <span
+              className={cn(
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-bold",
+                row.done
+                  ? "border-success-border bg-success text-success-foreground"
+                  : "border-warning-border bg-warning text-warning-foreground",
+              )}
+              aria-hidden="true"
+            >
+              {row.done ? "✓" : "✗"}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{row.label}</span>
+              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                {row.done ? "Ready" : row.next}
+              </span>
+            </span>
+          </button>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManagementDashboardView({
+  data,
+  onNavigate,
+}: {
+  data: MarketingWorkspaceData;
+  onNavigate: (view: ViewId) => void;
+}) {
   const totalBudget = data.ucc.budgetPlans.reduce(
     (sum, budget) => sum + budget.totalCost,
     0,
@@ -1463,13 +1716,11 @@ function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
   const weakKpis = data.ucc.kpiRecords.filter(
     (row) => row.status === "behind target" || row.status === "needs attention",
   );
-  const acceptedAiRecommendations = data.aiRecommendations.filter(
-    (rec) => rec.status === "accepted",
-  );
   const pendingApprovals = buildPendingApprovals(data);
 
   return (
     <section className="space-y-4">
+      <SetupStatusPanel data={data} onNavigate={onNavigate} />
       <Card>
         <CardHeader>
           <SectionTitle
@@ -1602,17 +1853,16 @@ function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
               <InsightList
                 items={[
                   ...weakKpis.map((row) => row.recommendation),
-                  ...acceptedAiRecommendations.map(
-                    (rec) => `${rec.subject}: ${rec.recommendation}`,
-                  ),
-                ].slice(0, 4)}
+                  ...acceptedInsightLines(data),
+                ].slice(0, 6)}
                 title="Next actions"
                 variant="warning"
               />
-              {weakKpis.length === 0 && acceptedAiRecommendations.length === 0 ? (
+              {weakKpis.length === 0 && acceptedInsightLines(data).length === 0 ? (
                 <p className="text-xs leading-5 text-muted-foreground">
                   Next actions appear here from KPI records that need attention
-                  and from AI suggestions you accept.
+                  and from any AI suggestion you accept (budget, KPI, audit,
+                  competitor, or trend).
                 </p>
               ) : null}
             </CardContent>
@@ -5538,9 +5788,7 @@ function ReportsView({
     item.approvalStage === "revision",
   );
   const topRecommendations = data.ucc.kpiRecords.map((row) => row.recommendation);
-  const acceptedAiRecommendations = data.aiRecommendations.filter(
-    (rec) => rec.status === "accepted",
-  );
+  const acceptedActions = acceptedInsightLines(data);
 
   return (
     <section className="space-y-4">
@@ -5592,8 +5840,8 @@ function ReportsView({
           <CardHeader>
             <CardTitle>Recommended Next Actions</CardTitle>
             <CardDescription>
-              Recommendations from your KPI records, plus AI suggestions you
-              have accepted on the Budget and KPI screens.
+              Recommendations from your KPI records, plus every AI suggestion
+              you have accepted (budget, KPI, audit, competitor, and trend).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -5602,15 +5850,15 @@ function ReportsView({
                 {recommendation}
               </div>
             ))}
-            {acceptedAiRecommendations.map((rec) => (
-              <div className="rounded-lg border bg-muted/20 p-3 text-sm leading-6" key={rec.id}>
-                <span className="font-medium">{rec.subject}:</span> {rec.recommendation}
+            {acceptedActions.map((line) => (
+              <div className="rounded-lg border bg-muted/20 p-3 text-sm leading-6" key={line}>
+                {line}
               </div>
             ))}
-            {topRecommendations.length === 0 && acceptedAiRecommendations.length === 0 ? (
+            {topRecommendations.length === 0 && acceptedActions.length === 0 ? (
               <p className="text-sm leading-6 text-muted-foreground">
                 Nothing yet. Recommendations appear here from KPI records and
-                from AI suggestions you accept.
+                from any AI suggestion you accept.
               </p>
             ) : null}
           </CardContent>
@@ -6553,6 +6801,152 @@ function BackupHistoryPanel({
   );
 }
 
+function WorkspaceDataModePanel({
+  onRestoreWorkspace,
+  sync,
+  workspaceData,
+}: {
+  onRestoreWorkspace: (workspace: MarketingWorkspaceData) => void;
+  sync: WorkspaceSync;
+  workspaceData: MarketingWorkspaceData;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+
+  const isSample = (workspaceData.datasetMode ?? "sample") === "sample";
+
+  // Always keep a copy before a destructive replace: download a backup file
+  // (works with no cloud) and attempt a cloud snapshot when Supabase is
+  // connected. Never blocks the replace on the cloud call.
+  function backupFirst() {
+    try {
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      const blob = new Blob([JSON.stringify(workspaceData, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ucc-marketing-os-backup-${stamp}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch {
+      // A failed download must not stop the owner replacing the data; they
+      // were warned and can also use the Backup panel above.
+    }
+
+    if (sync.isConfigured) {
+      void sync.saveSnapshotNow();
+    }
+  }
+
+  async function loadSample() {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "Load sample data? This REPLACES everything currently in the workspace with the demo content. A backup file of the current workspace will be downloaded first.",
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setBusy(true);
+    backupFirst();
+    onRestoreWorkspace(createSeedWorkspaceData());
+    setBusy(false);
+    setMessage({
+      tone: "success",
+      text: "Sample data loaded. A backup of your previous workspace was downloaded.",
+    });
+  }
+
+  async function startEmpty() {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "Start empty? This REPLACES everything currently in the workspace with a blank one so you can enter real UCC data. Your OpenAI and Supabase settings and connections are kept. A backup file of the current workspace will be downloaded first.",
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setBusy(true);
+    backupFirst();
+
+    // A blank workspace, but keep configuration the owner has already set up
+    // (AI keys, platform connections, and their name) so they are not forced
+    // to reconnect after clearing content.
+    const blank = createEmptyWorkspaceData();
+    onRestoreWorkspace({
+      ...blank,
+      aiIntegration: workspaceData.aiIntegration,
+      connections: workspaceData.connections,
+      approverName: workspaceData.approverName,
+    });
+    setBusy(false);
+    setMessage({
+      tone: "success",
+      text: "Workspace cleared to a blank slate. A backup of your previous workspace was downloaded. Your settings and connections were kept.",
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={Database}
+          kicker="Workspace"
+          title="Sample data or your own data"
+          description="Explore with the built-in demo content, or clear to a blank workspace to enter real UCC data. Both replace what is here now and download a backup first."
+        />
+        <Badge variant={isSample ? "info" : "success"}>
+          {isSample ? "Sample data" : "Live data"}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={busy} onClick={() => void loadSample()} size="sm" type="button">
+            <Database className="h-4 w-4" />
+            Load sample data
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={() => void startEmpty()}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <FileText className="h-4 w-4" />
+            Start empty
+          </Button>
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">
+          The badge above shows which state you are in now.{" "}
+          {isSample
+            ? "You are looking at the demo content. Choose Start empty when you are ready to enter real data."
+            : "You are working with your own data."}
+        </p>
+        {message ? (
+          <p
+            className={cn(
+              "text-xs leading-5",
+              message.tone === "success"
+                ? "text-success-foreground"
+                : "text-warning-foreground",
+            )}
+          >
+            {message.text}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsWorkspaceView({
   aiIntegration,
   aiUsage,
@@ -6650,6 +7044,11 @@ function SettingsWorkspaceView({
   return (
     <section className="space-y-4">
       <AppearanceSettingsPanel />
+      <WorkspaceDataModePanel
+        sync={sync}
+        workspaceData={workspaceData}
+        onRestoreWorkspace={onRestoreWorkspace}
+      />
       <SupabaseDatabasePanel sync={sync} />
       <BackupHistoryPanel
         sync={sync}
@@ -10936,7 +11335,9 @@ function ContentProductionView({
                       generateCopy(selectedItem.id);
                       setGenMessage({
                         tone: "info",
-                        text: "Offline draft, AI not connected. Template copy written to this item.",
+                        text: liveAi
+                          ? "Offline template copy written to this item. Use the AI buttons above for a live draft."
+                          : "Offline draft, AI not connected. Template copy written to this item.",
                       });
                     }}
                     size="sm"
@@ -10959,9 +11360,16 @@ function ContentProductionView({
                     {aiBusy === "remix" ? "Remixing" : "Remix for other platforms"}
                   </Button>
                 </div>
-                {!liveAi ? (
+                {!brief.approved ? (
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Connect OpenAI in Settings to generate with AI.
+                    Approve the strategy brief first to enable copy and video
+                    generation for this item.
+                  </p>
+                ) : null}
+                {brief.approved && !liveAi ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Connect OpenAI in Settings to generate with AI. Offline
+                    template copy still works.
                   </p>
                 ) : null}
                 {liveAi && !canPublishCalendarItem(selectedItem) ? (
