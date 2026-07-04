@@ -550,6 +550,22 @@ export function createDefaultAiIntegration(): AiIntegrationSettings {
   };
 }
 
+// One AI audit recommendation per platform (Module A1). Draft until the
+// manager accepts or dismisses it; accepted insights feed the Dashboard.
+export type AuditInsight = {
+  id: string;
+  platform: Platform;
+  recommendation: string;
+  confidenceLevel: "high" | "medium" | "low";
+  confidenceReason: string;
+  nextActions: string[];
+  limitedData: boolean;
+  status: "draft" | "accepted" | "dismissed";
+  model: string;
+  generatedAt: string;
+  inputSummary: string;
+};
+
 // One recorded AI call for the usage meter. Token counts come from OpenAI's
 // own usage figures, never estimates.
 export type AiUsageEntry = {
@@ -685,6 +701,7 @@ export type MarketingWorkspaceData = {
   connections: PlatformConnection[];
   aiIntegration: AiIntegrationSettings;
   aiUsage: AiUsageEntry[];
+  auditInsights: AuditInsight[];
 };
 
 export const platformRules: Record<
@@ -2422,6 +2439,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     connections: [],
     aiIntegration: createDefaultAiIntegration(),
     aiUsage: [],
+    auditInsights: [],
   };
 }
 
