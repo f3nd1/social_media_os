@@ -502,6 +502,25 @@ export type CredentialFieldSpec = {
   secret: boolean;
 };
 
+// OpenAI connection for the app's AI features. Stored in workspace state so it
+// syncs to Supabase when configured. Named aiIntegration to avoid confusion
+// with the existing ucc.aiModules governance table.
+export type AiIntegrationSettings = {
+  enabled: boolean;
+  apiKey: string;
+  analysisModel: string;
+  utilityModel: string;
+};
+
+export function createDefaultAiIntegration(): AiIntegrationSettings {
+  return {
+    enabled: false,
+    apiKey: "",
+    analysisModel: "",
+    utilityModel: "",
+  };
+}
+
 export const CONNECTION_SOURCE_LABELS: Record<ConnectionSource, string> = {
   metricool: "Metricool",
   facebook: "Facebook",
@@ -621,6 +640,7 @@ export type MarketingWorkspaceData = {
   calendar: CalendarItem[];
   performanceResults: PerformanceResult[];
   connections: PlatformConnection[];
+  aiIntegration: AiIntegrationSettings;
 };
 
 export const platformRules: Record<
@@ -2356,6 +2376,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     calendar,
     performanceResults: buildSeedPerformance(calendar),
     connections: [],
+    aiIntegration: createDefaultAiIntegration(),
   };
 }
 
