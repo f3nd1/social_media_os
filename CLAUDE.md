@@ -10,9 +10,16 @@ Core principle: AI recommends, humans decide. AI never publishes or approves. Ne
 
 ## Stack
 
-Next.js 15, React 19, TypeScript, Tailwind CSS 3.4, pnpm, Supabase.
+Next.js 15, React 19, TypeScript, Tailwind CSS 3.4, npm, Supabase.
 
-No code has been committed yet. When the project is scaffolded, update this file with the actual commands to install dependencies, build, lint, and run tests (including a single test), plus a summary of the architecture.
+## Commands
+
+- Install dependencies: `npm install`
+- Run the dev server: `npm run dev` (http://localhost:3000)
+- Production build: `npm run build`
+- Lint: `npm run lint`
+
+Requires Node.js 18.18 or newer.
 
 ## Conventions
 
