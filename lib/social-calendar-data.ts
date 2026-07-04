@@ -460,6 +460,154 @@ export type PdfDataSourceSettings = {
   lastImportSummary: string;
 };
 
+export const connectionSources = [
+  "metricool",
+  "facebook",
+  "instagram",
+  "tiktok",
+  "linkedin",
+  "youtube",
+  "x",
+  "threads",
+  "xiaohongshu",
+  "wechat",
+] as const;
+
+export type ConnectionSource = (typeof connectionSources)[number];
+
+export type ConnectionMode = "direct API" | "CSV/PDF import";
+
+export type ConnectionStatus =
+  | "connected"
+  | "needs credentials"
+  | "error"
+  | "manual import";
+
+export type PlatformConnection = {
+  id: string;
+  source: ConnectionSource;
+  accountLabel: string;
+  mode: ConnectionMode;
+  status: ConnectionStatus;
+  credentials: Record<string, string>;
+  lastSyncAt: string;
+  lastError: string;
+  createdAt: string;
+};
+
+export type CredentialFieldSpec = {
+  key: string;
+  label: string;
+  helper: string;
+  secret: boolean;
+};
+
+export const CONNECTION_SOURCE_LABELS: Record<ConnectionSource, string> = {
+  metricool: "Metricool",
+  facebook: "Facebook",
+  instagram: "Instagram",
+  tiktok: "TikTok",
+  linkedin: "LinkedIn",
+  youtube: "YouTube",
+  x: "X / Twitter",
+  threads: "Threads",
+  xiaohongshu: "Xiaohongshu",
+  wechat: "WeChat",
+};
+
+// Aggregators sit apart from single platforms in the source picker.
+export const CONNECTION_AGGREGATOR_SOURCES: ConnectionSource[] = ["metricool"];
+
+// Only sources in this list have a real Test / Sync implementation.
+// Every other source stores credentials for later but is honest that the
+// sync engine and live test are not built yet.
+export const CONNECTION_IMPLEMENTED_SOURCES: ConnectionSource[] = ["metricool"];
+
+export const CONNECTION_AVAILABLE_MODES: Record<ConnectionSource, ConnectionMode[]> = {
+  metricool: ["direct API", "CSV/PDF import"],
+  facebook: ["direct API", "CSV/PDF import"],
+  instagram: ["direct API", "CSV/PDF import"],
+  tiktok: ["direct API", "CSV/PDF import"],
+  linkedin: ["direct API", "CSV/PDF import"],
+  youtube: ["direct API", "CSV/PDF import"],
+  x: ["direct API", "CSV/PDF import"],
+  threads: ["direct API", "CSV/PDF import"],
+  xiaohongshu: ["CSV/PDF import"],
+  wechat: ["CSV/PDF import"],
+};
+
+// Note kept for the two China-market channels, matching the guidance already
+// shown in Settings before this connection manager existed.
+export const CONNECTION_MANUAL_ONLY_NOTE: Partial<Record<ConnectionSource, string>> = {
+  xiaohongshu:
+    "Use exported analytics for PRC student and parent content until direct access is configured.",
+  wechat:
+    "Use WeChat export/import for Chinese parent and agent nurturing reports.",
+};
+
+export const CONNECTION_CREDENTIAL_FIELDS: Record<ConnectionSource, CredentialFieldSpec[]> = {
+  metricool: [
+    {
+      key: "apiToken",
+      label: "API token",
+      helper: "Metricool > Settings > API access. Copy the token shown there.",
+      secret: true,
+    },
+    {
+      key: "userId",
+      label: "User ID",
+      helper: "Shown next to your account name in Metricool > Settings > API access.",
+      secret: false,
+    },
+    {
+      key: "blogId",
+      label: "Blog ID",
+      helper: "Open the brand in Metricool. The number in the URL after /app/ is the blog ID.",
+      secret: false,
+    },
+  ],
+  facebook: [
+    { key: "appId", label: "App ID", helper: "Meta for Developers > your app > Settings > Basic.", secret: false },
+    { key: "appSecret", label: "App Secret", helper: "Meta for Developers > your app > Settings > Basic.", secret: true },
+    { key: "accountId", label: "Page or Account ID", helper: "Meta Business Suite > Page settings, or Graph API Explorer.", secret: false },
+    { key: "accessToken", label: "Access Token", helper: "Generated in Graph API Explorer or your app's token tool.", secret: true },
+  ],
+  instagram: [
+    { key: "appId", label: "App ID", helper: "Meta for Developers > your app > Settings > Basic.", secret: false },
+    { key: "appSecret", label: "App Secret", helper: "Meta for Developers > your app > Settings > Basic.", secret: true },
+    { key: "accountId", label: "Page or Account ID", helper: "The Instagram business account ID linked to your Facebook Page.", secret: false },
+    { key: "accessToken", label: "Access Token", helper: "Generated in Graph API Explorer with Instagram permissions.", secret: true },
+  ],
+  threads: [
+    { key: "appId", label: "App ID", helper: "Meta for Developers > your app > Settings > Basic.", secret: false },
+    { key: "appSecret", label: "App Secret", helper: "Meta for Developers > your app > Settings > Basic.", secret: true },
+    { key: "accountId", label: "Page or Account ID", helper: "The Threads account ID linked to your Meta app.", secret: false },
+    { key: "accessToken", label: "Access Token", helper: "Generated with Threads API permissions.", secret: true },
+  ],
+  youtube: [
+    { key: "apiKey", label: "API key", helper: "Google Cloud Console > APIs & Services > Credentials.", secret: true },
+    { key: "channelId", label: "Channel ID", helper: "YouTube Studio > Settings > Channel > Advanced settings.", secret: false },
+  ],
+  linkedin: [
+    { key: "clientId", label: "Client ID", helper: "LinkedIn Developer Portal > your app > Auth.", secret: false },
+    { key: "clientSecret", label: "Client Secret", helper: "LinkedIn Developer Portal > your app > Auth.", secret: true },
+    { key: "organisationId", label: "Organisation ID", helper: "LinkedIn Page admin view, in the page URL.", secret: false },
+    { key: "accessToken", label: "Access Token", helper: "Generated after OAuth using your app's client credentials.", secret: true },
+  ],
+  tiktok: [
+    { key: "clientKey", label: "Client Key", helper: "TikTok for Developers > your app > Basic Information.", secret: false },
+    { key: "clientSecret", label: "Client Secret", helper: "TikTok for Developers > your app > Basic Information.", secret: true },
+    { key: "accessToken", label: "Access Token", helper: "Generated after OAuth using your app's client credentials.", secret: true },
+  ],
+  x: [
+    { key: "apiKey", label: "API Key", helper: "X Developer Portal > your app > Keys and tokens.", secret: false },
+    { key: "apiSecret", label: "API Secret", helper: "X Developer Portal > your app > Keys and tokens.", secret: true },
+    { key: "bearerToken", label: "Bearer Token", helper: "X Developer Portal > your app > Keys and tokens.", secret: true },
+  ],
+  xiaohongshu: [],
+  wechat: [],
+};
+
 export type MarketingWorkspaceData = {
   version: number;
   generatedAt: string;
@@ -472,6 +620,7 @@ export type MarketingWorkspaceData = {
   brief: StrategyBrief;
   calendar: CalendarItem[];
   performanceResults: PerformanceResult[];
+  connections: PlatformConnection[];
 };
 
 export const platformRules: Record<
@@ -2206,6 +2355,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     brief: seedBrief,
     calendar,
     performanceResults: buildSeedPerformance(calendar),
+    connections: [],
   };
 }
 

@@ -118,6 +118,7 @@ function normalizeWorkspaceData(data: MarketingWorkspaceData) {
     },
     brief: { ...seed.brief, ...brief },
     audits: Array.isArray(data.audits) ? data.audits : seed.audits,
+    connections: Array.isArray(data.connections) ? data.connections : [],
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,
