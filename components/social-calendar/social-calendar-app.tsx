@@ -5897,10 +5897,25 @@ function SupabaseDatabasePanel({ sync }: { sync: WorkspaceSync }) {
           </p>
         ) : null}
 
-        {sync.lastError && testState !== "error" ? (
+        {sync.lastError && (sync.status === "offline" || sync.status === "error") ? (
+          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+            Cloud sync error: {sync.lastError}
+          </div>
+        ) : null}
+
+        {sync.lastError &&
+        sync.status !== "offline" &&
+        sync.status !== "error" &&
+        testState !== "error" ? (
           <p className="text-xs leading-5 text-muted-foreground">
             Last sync note: {sync.lastError}
           </p>
+        ) : null}
+
+        {sync.snapshotWarning ? (
+          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+            Version history is off: {sync.snapshotWarning}
+          </div>
         ) : null}
       </CardContent>
     </Card>
@@ -6426,6 +6441,11 @@ function BackupHistoryPanel({
         />
       </CardHeader>
       <CardContent className="space-y-4">
+        {sync.snapshotWarning ? (
+          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+            Version history is not saving: {sync.snapshotWarning}
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <Button onClick={downloadBackup} size="sm" type="button">
             <Download className="h-4 w-4" />
