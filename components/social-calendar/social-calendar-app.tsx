@@ -292,6 +292,12 @@ const scoreFields: Array<{ key: keyof AuditScores; label: string }> = [
   { key: "engagementPerformance", label: "Engagement performance" },
 ];
 
+// The header "Reset sample" button is hidden because Settings now offers
+// "Load sample data" and "Start empty", which do the same job with a confirm
+// and a backup. Flip this to true to bring the header button back; the
+// resetSampleData handler is kept below, just not rendered.
+const SHOW_HEADER_RESET = false;
+
 export function SocialCalendarApp() {
   const [data, setData] = useState<MarketingWorkspaceData>(() =>
     createSeedWorkspaceData(),
@@ -746,14 +752,16 @@ export function SocialCalendarApp() {
                   <p className="text-xs text-muted-foreground">{activeNav.label}</p>
                 </div>
               </div>
-              <Button
-                aria-label="Reset sample data"
-                onClick={resetSampleData}
-                size="icon"
-                variant="outline"
-              >
-                <RefreshCcw className="h-4 w-4" />
-              </Button>
+              {SHOW_HEADER_RESET ? (
+                <Button
+                  aria-label="Reset sample data"
+                  onClick={resetSampleData}
+                  size="icon"
+                  variant="outline"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                </Button>
+              ) : null}
             </div>
             <nav className="flex max-w-full gap-2 overflow-x-auto pb-1">
               {navItems.map((item) => {
@@ -820,10 +828,12 @@ export function SocialCalendarApp() {
                   <FileSpreadsheet className="h-4 w-4" />
                   Excel
                 </Button>
-                <Button onClick={resetSampleData} size="sm" variant="outline">
-                  <RefreshCcw className="h-4 w-4" />
-                  Reset sample
-                </Button>
+                {SHOW_HEADER_RESET ? (
+                  <Button onClick={resetSampleData} size="sm" variant="outline">
+                    <RefreshCcw className="h-4 w-4" />
+                    Reset sample
+                  </Button>
+                ) : null}
               </div>
             </header>
 
@@ -3876,6 +3886,12 @@ const SKILL_ENGINE_LINKS: Record<
   },
 };
 
+// The Skill Control Panel's Status, Reviewer, and Risk fields are metadata
+// that no real engine reads, so they are shown read-only to avoid implying
+// control they do not have. Flip this to true to restore the editable
+// selectors; the editing code is kept below, just not rendered.
+const SKILL_PANEL_EDITABLE = false;
+
 function AiSkillControlPanel({
   modules,
   onModulesChange,
@@ -3955,18 +3971,22 @@ function AiSkillControlPanel({
                     {module.name}
                   </td>
                   <td className="min-w-[150px] py-3 pr-4">
-                    <NativeSelect
-                      value={module.status}
-                      onChange={(event) =>
-                        updateModule(module.id, {
-                          status: event.target.value as UccAiModule["status"],
-                        })
-                      }
-                    >
-                      <option value="active">Active</option>
-                      <option value="disabled">Disabled</option>
-                      <option value="needs setup">Needs Setup</option>
-                    </NativeSelect>
+                    {SKILL_PANEL_EDITABLE ? (
+                      <NativeSelect
+                        value={module.status}
+                        onChange={(event) =>
+                          updateModule(module.id, {
+                            status: event.target.value as UccAiModule["status"],
+                          })
+                        }
+                      >
+                        <option value="active">Active</option>
+                        <option value="disabled">Disabled</option>
+                        <option value="needs setup">Needs Setup</option>
+                      </NativeSelect>
+                    ) : (
+                      <span className="text-xs capitalize">{module.status}</span>
+                    )}
                   </td>
                   <td className="min-w-[240px] py-3 pr-4 text-xs leading-5">
                     {module.inputSource}
@@ -3986,31 +4006,51 @@ function AiSkillControlPanel({
                     />
                   </td>
                   <td className="min-w-[130px] py-3 pr-4">
-                    <NativeSelect
-                      value={module.reviewerRequired ? "yes" : "no"}
-                      onChange={(event) =>
-                        updateModule(module.id, {
-                          reviewerRequired: event.target.value === "yes",
-                        })
-                      }
-                    >
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
-                    </NativeSelect>
+                    {SKILL_PANEL_EDITABLE ? (
+                      <NativeSelect
+                        value={module.reviewerRequired ? "yes" : "no"}
+                        onChange={(event) =>
+                          updateModule(module.id, {
+                            reviewerRequired: event.target.value === "yes",
+                          })
+                        }
+                      >
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </NativeSelect>
+                    ) : (
+                      <span className="text-xs">
+                        {module.reviewerRequired ? "Yes" : "No"}
+                      </span>
+                    )}
                   </td>
                   <td className="min-w-[130px] py-3 pr-4">
-                    <NativeSelect
-                      value={module.riskLevel}
-                      onChange={(event) =>
-                        updateModule(module.id, {
-                          riskLevel: event.target.value as UccAiModule["riskLevel"],
-                        })
-                      }
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </NativeSelect>
+                    {SKILL_PANEL_EDITABLE ? (
+                      <NativeSelect
+                        value={module.riskLevel}
+                        onChange={(event) =>
+                          updateModule(module.id, {
+                            riskLevel: event.target.value as UccAiModule["riskLevel"],
+                          })
+                        }
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </NativeSelect>
+                    ) : (
+                      <Badge
+                        variant={
+                          module.riskLevel === "high"
+                            ? "warning"
+                            : module.riskLevel === "medium"
+                              ? "info"
+                              : "success"
+                        }
+                      >
+                        {module.riskLevel}
+                      </Badge>
+                    )}
                   </td>
                   <td className="min-w-[170px] py-3 pr-4">
                     {(() => {
