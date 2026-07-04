@@ -31,6 +31,7 @@ import {
   SearchCheck,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Table2,
   Target,
   TrendingUp,
@@ -45,6 +46,7 @@ import {
   useWorkspaceSync,
   type WorkspaceSync,
 } from "@/components/social-calendar/use-workspace-sync";
+import { isLiveAiEnabled } from "@/lib/ai-settings";
 import { resolveSupabaseConfig } from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +79,7 @@ import {
   platforms,
   roles,
   statuses,
+  type AiIntegrationSettings,
   type AuditScores,
   type ApprovalStage,
   type BrandProfile,
@@ -825,6 +828,7 @@ export function SocialCalendarApp() {
               <SettingsWorkspaceView
                 sync={sync}
                 brand={data.brand}
+                aiIntegration={data.aiIntegration}
                 connections={data.connections}
                 importState={pdfImportState}
                 pdfDataSource={data.pdfDataSource}
@@ -832,6 +836,9 @@ export function SocialCalendarApp() {
                 competitors={data.competitors}
                 calendar={data.calendar}
                 onApplyMetrics={applyApprovedMetrics}
+                onAiIntegrationChange={(aiIntegration) =>
+                  updateWorkspace((current) => ({ ...current, aiIntegration }))
+                }
                 onConnectionsChange={(connections) =>
                   updateWorkspace((current) => ({ ...current, connections }))
                 }
@@ -2545,12 +2552,257 @@ function SupabaseDatabasePanel({ sync }: { sync: WorkspaceSync }) {
   );
 }
 
+function pickDefaultModels(models: string[]) {
+  const excluded = /embed|whisper|tts|audio|dall|image|moderation|search|realtime|transcribe|speech/i;
+  const candidates = models.filter(
+    (model) => /gpt|^o\d|reason|chat/i.test(model) && !excluded.test(model),
+  );
+  const pool = candidates.length > 0 ? candidates : models;
+  const cheapPattern = /mini|nano|small|lite|flash/i;
+  const utility = pool.find((model) => cheapPattern.test(model)) ?? pool[0] ?? "";
+  const analysis =
+    pool.find((model) => model !== utility && !cheapPattern.test(model)) ??
+    pool.find((model) => model !== utility) ??
+    pool[0] ??
+    "";
+
+  return { analysis, utility };
+}
+
+function AiIntegrationPanel({
+  aiIntegration,
+  onAiIntegrationChange,
+}: {
+  aiIntegration: AiIntegrationSettings;
+  onAiIntegrationChange: (aiIntegration: AiIntegrationSettings) => void;
+}) {
+  const [keyDraft, setKeyDraft] = useState(aiIntegration.apiKey);
+  const [models, setModels] = useState<string[]>([]);
+  const [fetchState, setFetchState] = useState<"idle" | "fetching" | "ok" | "error">(
+    "idle",
+  );
+  const [fetchMessage, setFetchMessage] = useState("");
+
+  const isLive = isLiveAiEnabled(aiIntegration);
+
+  // Always let the currently saved models be selectable, even before a fresh
+  // fetch, so a reload still shows the saved choice.
+  const analysisOptions = Array.from(
+    new Set([aiIntegration.analysisModel, ...models].filter(Boolean)),
+  );
+  const utilityOptions = Array.from(
+    new Set([aiIntegration.utilityModel, ...models].filter(Boolean)),
+  );
+
+  function update(patch: Partial<AiIntegrationSettings>) {
+    onAiIntegrationChange({ ...aiIntegration, ...patch });
+  }
+
+  async function fetchModels() {
+    if (!keyDraft.trim()) {
+      setFetchState("error");
+      setFetchMessage("Enter an OpenAI API key first.");
+      return;
+    }
+
+    setFetchState("fetching");
+    setFetchMessage("");
+
+    try {
+      const response = await fetch("/api/openai/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: keyDraft.trim() }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; models: string[] }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setFetchState("error");
+        setFetchMessage(result.error);
+        return;
+      }
+
+      setModels(result.models);
+      setFetchState("ok");
+
+      const defaults = pickDefaultModels(result.models);
+      const nextAnalysis = aiIntegration.analysisModel || defaults.analysis;
+      const nextUtility = aiIntegration.utilityModel || defaults.utility;
+      const autoPicked =
+        !aiIntegration.analysisModel || !aiIntegration.utilityModel;
+
+      if (nextAnalysis !== aiIntegration.analysisModel || nextUtility !== aiIntegration.utilityModel) {
+        update({ analysisModel: nextAnalysis, utilityModel: nextUtility });
+      }
+
+      setFetchMessage(
+        autoPicked
+          ? `Found ${result.models.length} models. Preselected "${nextAnalysis}" for analysis and "${nextUtility}" for utility. Change either below.`
+          : `Found ${result.models.length} models.`,
+      );
+    } catch (error) {
+      setFetchState("error");
+      setFetchMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <SectionTitle
+          icon={Sparkles}
+          kicker="AI"
+          title="AI integration (OpenAI)"
+          description="Connect an OpenAI key to run the AI features live. When it is off, the AI features use the offline rule-based drafts."
+        />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={isLive ? "success" : "secondary"}>
+            {isLive ? "Live AI active" : "Offline rules"}
+          </Badge>
+        </div>
+
+        <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+          Your API key is synced to Supabase so it follows you across devices.
+          Because the workspace table uses an open access policy, anyone with
+          your project&apos;s anon key can read it. Use a key scoped or limited
+          to this prototype, and do not connect a shared Supabase project you do
+          not control. Leave Supabase unconfigured to keep the key on this
+          browser only.
+        </div>
+
+        <label className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+          <span>
+            <span className="text-sm font-medium">Enable live AI calls</span>
+            <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+              Otherwise the AI features use the offline rule-based drafts.
+            </span>
+          </span>
+          <button
+            aria-checked={aiIntegration.enabled}
+            className={cn(
+              "relative h-6 w-11 shrink-0 rounded-full border transition-colors",
+              aiIntegration.enabled ? "bg-primary" : "bg-muted",
+            )}
+            onClick={() => update({ enabled: !aiIntegration.enabled })}
+            role="switch"
+            type="button"
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 h-4 w-4 rounded-full bg-background transition-all",
+                aiIntegration.enabled ? "left-6" : "left-1",
+              )}
+            />
+          </button>
+        </label>
+
+        <Field label="OpenAI API key">
+          <Input
+            onChange={(event) => setKeyDraft(event.target.value)}
+            placeholder="sk-..."
+            type="password"
+            value={keyDraft}
+          />
+        </Field>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={fetchState === "fetching"}
+            onClick={fetchModels}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {fetchState === "fetching" ? "Fetching" : "Fetch available models"}
+          </Button>
+          <Button onClick={() => update({ apiKey: keyDraft.trim() })} size="sm" type="button">
+            Save key
+          </Button>
+          <Button
+            onClick={() => {
+              setKeyDraft("");
+              setModels([]);
+              setFetchState("idle");
+              setFetchMessage("");
+              update({ apiKey: "", enabled: false });
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Clear key
+          </Button>
+        </div>
+
+        {fetchMessage ? (
+          <p
+            className={cn(
+              "text-xs leading-5",
+              fetchState === "error" ? "text-warning-foreground" : "text-muted-foreground",
+            )}
+          >
+            {fetchMessage}
+          </p>
+        ) : null}
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Analysis model">
+            <NativeSelect
+              onChange={(event) => update({ analysisModel: event.target.value })}
+              value={aiIntegration.analysisModel}
+            >
+              <option value="">Fetch models to choose</option>
+              {analysisOptions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </NativeSelect>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Used for strategy, campaign ideas, compliance review, copywriting,
+              and calendar drafting. Use a smarter model.
+            </p>
+          </Field>
+          <Field label="Utility model">
+            <NativeSelect
+              onChange={(event) => update({ utilityModel: event.target.value })}
+              value={aiIntegration.utilityModel}
+            >
+              <option value="">Fetch models to choose</option>
+              {utilityOptions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </NativeSelect>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Used for lighter tasks like reading images and condensing text. A
+              cheaper model is fine.
+            </p>
+          </Field>
+        </div>
+
+        <p className="text-xs leading-5 text-muted-foreground">
+          AI output is always a draft for your approval. The AI never approves
+          or publishes on its own.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsWorkspaceView({
+  aiIntegration,
   brand,
   calendar,
   competitors,
   connections,
   importState,
+  onAiIntegrationChange,
   onApplyMetrics,
   onBrandChange,
   onCalendarChange,
@@ -2566,11 +2818,13 @@ function SettingsWorkspaceView({
   sync,
   ucc,
 }: {
+  aiIntegration: AiIntegrationSettings;
   brand: BrandProfile;
   calendar: CalendarItem[];
   competitors: Competitor[];
   connections: PlatformConnection[];
   importState: PdfImportState;
+  onAiIntegrationChange: (aiIntegration: AiIntegrationSettings) => void;
   onApplyMetrics: (
     metrics: PlatformDataMetrics[],
     approvedBy: string,
@@ -2633,6 +2887,10 @@ function SettingsWorkspaceView({
     <section className="space-y-4">
       <AppearanceSettingsPanel />
       <SupabaseDatabasePanel sync={sync} />
+      <AiIntegrationPanel
+        aiIntegration={aiIntegration}
+        onAiIntegrationChange={onAiIntegrationChange}
+      />
       <BrandSetupView
         brand={brand}
         importState={importState}
