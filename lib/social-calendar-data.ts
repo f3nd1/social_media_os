@@ -615,6 +615,32 @@ export type AiUsageEntry = {
   estimatedCost: number | null;
 };
 
+// A generic AI recommendation draft used by the Budget and KPI modules
+// (Group C). Accepted entries also surface on the Dashboard.
+export type AiRecommendation = {
+  id: string;
+  module: "budget" | "kpi";
+  subject: string;
+  insight: string;
+  recommendation: string;
+  // Plain-language pointer to the workspace numbers the AI used, so the
+  // manager can verify the claim (D-REQ2 traceability).
+  dataUsed: string;
+  status: "draft" | "accepted" | "dismissed";
+  model: string;
+  generatedAt: string;
+};
+
+// The AI weekly narrative for Reports (Module C4). Draft until approved;
+// only an approved narrative joins the export pack.
+export type WeeklyReport = {
+  content: string;
+  status: "draft" | "approved";
+  generatedAt: string;
+  model: string;
+  approvedAt: string;
+};
+
 // One uploaded compliance guideline document (Module B3). The extracted text
 // is capped so the workspace document stays small; the AI reviewer quotes
 // rules from these texts alongside the built-in education rules.
@@ -765,6 +791,8 @@ export type MarketingWorkspaceData = {
   campaignSuggestions: CampaignSuggestion[];
   competitorInsights: CompetitorInsight[];
   complianceDocs: ComplianceDoc[];
+  aiRecommendations: AiRecommendation[];
+  weeklyReport: WeeklyReport | null;
 };
 
 export const platformRules: Record<
@@ -2506,6 +2534,8 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     campaignSuggestions: [],
     competitorInsights: [],
     complianceDocs: [],
+    aiRecommendations: [],
+    weeklyReport: null,
   };
 }
 

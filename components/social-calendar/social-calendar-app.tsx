@@ -95,6 +95,11 @@ import {
 } from "@/lib/copy-ai";
 import type { ComplianceAiContext, ComplianceFlag } from "@/lib/compliance-ai";
 import {
+  buildInsightsContext,
+  insightsDraftToRecommendations,
+  type InsightsAiDraft,
+} from "@/lib/insights-ai";
+import {
   deleteAssetFile,
   resolveSupabaseConfig,
   uploadAssetFile,
@@ -132,6 +137,7 @@ import {
   statuses,
   isCampaignApproved,
   type AiIntegrationSettings,
+  type AiRecommendation,
   type AiUsageEntry,
   type AuditInsight,
   type CampaignSuggestion,
@@ -912,7 +918,11 @@ export function SocialCalendarApp() {
 
             {activeView === "budget" ? (
               <BudgetResourcesView
-                ucc={data.ucc}
+                data={data}
+                onAiRecommendationsChange={(aiRecommendations) =>
+                  updateWorkspace((current) => ({ ...current, aiRecommendations }))
+                }
+                onRecordUsage={recordAiUsage}
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
                 }
@@ -922,12 +932,16 @@ export function SocialCalendarApp() {
             {activeView === "kpi" ? (
               <KpiTrackerView
                 data={data}
+                onAiRecommendationsChange={(aiRecommendations) =>
+                  updateWorkspace((current) => ({ ...current, aiRecommendations }))
+                }
                 onPerformanceChange={(performanceResults) =>
                   updateWorkspace((current) => ({
                     ...current,
                     performanceResults,
                   }))
                 }
+                onRecordUsage={recordAiUsage}
               />
             ) : null}
 
@@ -3282,44 +3296,318 @@ function AssetLibraryView({
   );
 }
 
-function BudgetResourcesView({
-  onUccChange,
-  ucc,
+function AiRecommendationPanel({
+  module,
+  buttonLabel,
+  usageLabel,
+  explainer,
+  data,
+  onAiRecommendationsChange,
+  onRecordUsage,
 }: {
-  onUccChange: (ucc: UccStrategyData) => void;
-  ucc: UccStrategyData;
+  module: "budget" | "kpi";
+  buttonLabel: string;
+  usageLabel: string;
+  explainer: string;
+  data: MarketingWorkspaceData;
+  onAiRecommendationsChange: (aiRecommendations: AiRecommendation[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
+  const [running, setRunning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const liveAi = isLiveAiEnabled(data.aiIntegration);
+  const rows = data.aiRecommendations.filter((rec) => rec.module === module);
+  const drafts = rows.filter((rec) => rec.status === "draft");
+  const accepted = rows.filter((rec) => rec.status === "accepted");
+  const dismissed = rows.filter((rec) => rec.status === "dismissed");
+
+  function setRecommendationStatus(
+    id: string,
+    status: AiRecommendation["status"],
+  ) {
+    onAiRecommendationsChange(
+      data.aiRecommendations.map((rec) =>
+        rec.id === id ? { ...rec, status } : rec,
+      ),
+    );
+  }
+
+  async function runReview() {
+    setRunning(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/ai/insights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: data.aiIntegration.apiKey,
+          model: resolveModelForTask(data.aiIntegration, "analysis"),
+          context: buildInsightsContext(module, data),
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; draft: InsightsAiDraft; usage?: OpenAiUsage; model?: string }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setErrorMessage(result.error);
+        return;
+      }
+
+      const fresh = insightsDraftToRecommendations(
+        result.draft,
+        module,
+        result.model ?? "unknown",
+      );
+
+      // New drafts replace the previous unreviewed and dismissed drafts for
+      // this module. Accepted decisions are kept; they are the manager's.
+      onAiRecommendationsChange([
+        ...data.aiRecommendations.filter(
+          (rec) => rec.module !== module || rec.status === "accepted",
+        ),
+        ...fresh,
+      ]);
+
+      if (result.usage) {
+        onRecordUsage(usageLabel, result.model ?? "unknown", result.usage);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  function recommendationCard(rec: AiRecommendation) {
+    return (
+      <div className="space-y-2 rounded-lg border p-3" key={rec.id}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <p className="text-sm font-semibold">{rec.subject}</p>
+          {rec.status === "accepted" ? (
+            <span className="rounded-md border border-success-border bg-success px-2 py-0.5 text-xs font-medium text-success-foreground">
+              Accepted
+            </span>
+          ) : (
+            <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-medium text-warning-foreground">
+              Draft, needs your decision
+            </span>
+          )}
+        </div>
+        <p className="text-sm leading-6">{rec.insight}</p>
+        <p className="text-sm leading-6">
+          <span className="font-medium">Suggestion:</span> {rec.recommendation}
+        </p>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Based on: {rec.dataUsed}
+        </p>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Generated by {rec.model} on {rec.generatedAt.slice(0, 16).replace("T", " ")}
+        </p>
+        {rec.status === "draft" ? (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              onClick={() => setRecommendationStatus(rec.id, "accepted")}
+              size="sm"
+              type="button"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Accept
+            </Button>
+            <Button
+              onClick={() => setRecommendationStatus(rec.id, "dismissed")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <X className="h-4 w-4" />
+              Dismiss
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              onClick={() => setRecommendationStatus(rec.id, "dismissed")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <X className="h-4 w-4" />
+              Withdraw acceptance
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={Sparkles}
+          kicker="AI review"
+          title={module === "budget" ? "AI Budget Review" : "AI Performance Insights"}
+          description={explainer}
+        />
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <Button
+            disabled={!liveAi || running}
+            onClick={runReview}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Sparkles className="h-4 w-4" />
+            {running ? "Reviewing" : buttonLabel}
+          </Button>
+          {!liveAi ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Connect OpenAI in Settings to run this review.
+            </p>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {errorMessage ? (
+          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        {drafts.length === 0 && accepted.length === 0 ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            No AI suggestions yet. Run the review to get draft suggestions based
+            on your real workspace numbers. Suggestions never change any figures;
+            you decide what to accept.
+          </p>
+        ) : null}
+
+        {drafts.map((rec) => recommendationCard(rec))}
+
+        {accepted.length > 0 ? (
+          <>
+            <p className="pt-1 text-xs font-medium uppercase text-muted-foreground">
+              Accepted suggestions
+            </p>
+            {accepted.map((rec) => recommendationCard(rec))}
+          </>
+        ) : null}
+
+        {dismissed.length > 0 ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            {dismissed.length} dismissed suggestion{dismissed.length === 1 ? "" : "s"} hidden.
+            They are cleared the next time you run the review.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BudgetResourcesView({
+  data,
+  onAiRecommendationsChange,
+  onRecordUsage,
+  onUccChange,
+}: {
+  data: MarketingWorkspaceData;
+  onAiRecommendationsChange: (aiRecommendations: AiRecommendation[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
+  onUccChange: (ucc: UccStrategyData) => void;
+}) {
+  const ucc = data.ucc;
+  const [newCampaignId, setNewCampaignId] = useState("");
+
   function updateBudget(id: string, patch: Partial<UccBudgetPlan>) {
     onUccChange({
       ...ucc,
       budgetPlans: ucc.budgetPlans.map((budget) =>
-        budget.id === id
-          ? {
-              ...budget,
-              ...patch,
-              totalCost:
-                patch.totalCost ??
-                budget.totalCost,
-            }
-          : budget,
+        budget.id === id ? { ...budget, ...patch } : budget,
       ),
+    });
+  }
+
+  function addBudgetLine() {
+    if (!newCampaignId) {
+      return;
+    }
+
+    const line: UccBudgetPlan = {
+      id: `budget-${Date.now()}`,
+      campaignId: newCampaignId,
+      adBudget: 0,
+      designerHours: 0,
+      videoEditorHours: 0,
+      copywriterHours: 0,
+      staffAssigned: [],
+      equipmentNeeded: [],
+      venue: "",
+      printingCost: 0,
+      eventCost: 0,
+      agentCost: 0,
+      totalCost: 0,
+    };
+
+    onUccChange({ ...ucc, budgetPlans: [...ucc.budgetPlans, line] });
+    setNewCampaignId("");
+  }
+
+  function deleteBudgetLine(budget: UccBudgetPlan) {
+    const campaignName = findCampaign(ucc, budget.campaignId)?.name ?? "this campaign";
+    const confirmed = window.confirm(
+      `Delete the budget line for ${campaignName}? This cannot be undone from this screen.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    onUccChange({
+      ...ucc,
+      budgetPlans: ucc.budgetPlans.filter((row) => row.id !== budget.id),
     });
   }
 
   return (
     <section className="space-y-4">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <SectionTitle
             icon={FileSpreadsheet}
             kicker="Resources"
             title="Budget & Resource Planning"
-            description="Ad budget, designer/video/copywriter time, staff, equipment, venue, printing, event, agent, and total campaign cost."
+            description="Ad budget, designer/video/copywriter time, staff, equipment, venue, printing, event, agent, and total campaign cost. Total is the full campaign cost including team time, so edit it directly."
           />
+          <div className="flex flex-col items-stretch gap-2 sm:w-[300px]">
+            <NativeSelect
+              aria-label="Campaign for new budget line"
+              onChange={(event) => setNewCampaignId(event.target.value)}
+              value={newCampaignId}
+            >
+              <option value="">Choose a campaign</option>
+              {ucc.campaigns.map((campaign) => (
+                <option key={campaign.id} value={campaign.id}>
+                  {campaign.name}
+                </option>
+              ))}
+            </NativeSelect>
+            <Button
+              disabled={!newCampaignId}
+              onClick={addBudgetLine}
+              size="sm"
+              type="button"
+            >
+              <Plus className="h-4 w-4" />
+              Add budget line
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] text-left text-sm">
+            <table className="w-full min-w-[1320px] text-left text-sm">
               <thead className="border-b text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="py-3 pr-4 font-medium">Campaign</th>
@@ -3328,17 +3616,20 @@ function BudgetResourcesView({
                   <th className="py-3 pr-4 font-medium">Staff</th>
                   <th className="py-3 pr-4 font-medium">Equipment</th>
                   <th className="py-3 pr-4 font-medium">Venue</th>
-                  <th className="py-3 pr-4 font-medium">Offline costs</th>
+                  <th className="py-3 pr-4 font-medium">Printing</th>
+                  <th className="py-3 pr-4 font-medium">Event</th>
+                  <th className="py-3 pr-4 font-medium">Agent</th>
                   <th className="py-3 pr-4 font-medium">Total</th>
+                  <th className="py-3 pr-4 font-medium">Remove</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {ucc.budgetPlans.map((budget) => (
                   <tr key={budget.id}>
                     <td className="min-w-[210px] py-3 pr-4">
-                      {findCampaign(ucc, budget.campaignId)?.name}
+                      {findCampaign(ucc, budget.campaignId)?.name ?? "Campaign removed"}
                     </td>
-                    <td className="min-w-[130px] py-3 pr-4">
+                    <td className="min-w-[120px] py-3 pr-4">
                       <Input
                         type="number"
                         value={budget.adBudget}
@@ -3347,16 +3638,66 @@ function BudgetResourcesView({
                         }
                       />
                     </td>
-                    <td className="min-w-[230px] py-3 pr-4 text-xs leading-5">
+                    <td className="min-w-[220px] py-3 pr-4 text-xs leading-5">
                       Designer {budget.designerHours}h / Video {budget.videoEditorHours}h / Copy {budget.copywriterHours}h
                     </td>
-                    <td className="min-w-[210px] py-3 pr-4">{budget.staffAssigned.join(", ")}</td>
-                    <td className="min-w-[210px] py-3 pr-4">{budget.equipmentNeeded.join(", ")}</td>
-                    <td className="min-w-[160px] py-3 pr-4">{budget.venue}</td>
-                    <td className="min-w-[210px] py-3 pr-4 text-xs leading-5">
-                      Printing {formatNumber(budget.printingCost)} / Event {formatNumber(budget.eventCost)} / Agent {formatNumber(budget.agentCost)}
+                    <td className="min-w-[200px] py-3 pr-4">{budget.staffAssigned.join(", ")}</td>
+                    <td className="min-w-[200px] py-3 pr-4">{budget.equipmentNeeded.join(", ")}</td>
+                    <td className="min-w-[150px] py-3 pr-4">
+                      <Input
+                        value={budget.venue}
+                        onChange={(event) =>
+                          updateBudget(budget.id, { venue: event.target.value })
+                        }
+                      />
                     </td>
-                    <td className="min-w-[130px] py-3 pr-4 font-semibold">{formatNumber(budget.totalCost)}</td>
+                    <td className="min-w-[110px] py-3 pr-4">
+                      <Input
+                        type="number"
+                        value={budget.printingCost}
+                        onChange={(event) =>
+                          updateBudget(budget.id, { printingCost: toNumber(event.target.value) })
+                        }
+                      />
+                    </td>
+                    <td className="min-w-[110px] py-3 pr-4">
+                      <Input
+                        type="number"
+                        value={budget.eventCost}
+                        onChange={(event) =>
+                          updateBudget(budget.id, { eventCost: toNumber(event.target.value) })
+                        }
+                      />
+                    </td>
+                    <td className="min-w-[110px] py-3 pr-4">
+                      <Input
+                        type="number"
+                        value={budget.agentCost}
+                        onChange={(event) =>
+                          updateBudget(budget.id, { agentCost: toNumber(event.target.value) })
+                        }
+                      />
+                    </td>
+                    <td className="min-w-[120px] py-3 pr-4">
+                      <Input
+                        type="number"
+                        value={budget.totalCost}
+                        onChange={(event) =>
+                          updateBudget(budget.id, { totalCost: toNumber(event.target.value) })
+                        }
+                      />
+                    </td>
+                    <td className="py-3 pr-4">
+                      <Button
+                        aria-label={`Delete budget line for ${findCampaign(ucc, budget.campaignId)?.name ?? "campaign"}`}
+                        onClick={() => deleteBudgetLine(budget)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -3364,16 +3705,30 @@ function BudgetResourcesView({
           </div>
         </CardContent>
       </Card>
+
+      <AiRecommendationPanel
+        buttonLabel="Run AI budget review"
+        data={data}
+        explainer="The AI reads your real budgets, spend, and results, and suggests reallocations as drafts. It never changes your numbers; you accept or dismiss each suggestion."
+        module="budget"
+        onAiRecommendationsChange={onAiRecommendationsChange}
+        onRecordUsage={onRecordUsage}
+        usageLabel="Budget review"
+      />
     </section>
   );
 }
 
 function KpiTrackerView({
   data,
+  onAiRecommendationsChange,
   onPerformanceChange,
+  onRecordUsage,
 }: {
   data: MarketingWorkspaceData;
+  onAiRecommendationsChange: (aiRecommendations: AiRecommendation[]) => void;
   onPerformanceChange: (performanceResults: PerformanceResult[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
   return (
     <section className="space-y-4">
@@ -3431,6 +3786,15 @@ function KpiTrackerView({
           </div>
         </CardContent>
       </Card>
+      <AiRecommendationPanel
+        buttonLabel="Generate insights with AI"
+        data={data}
+        explainer="The AI compares plan against actual results, cost per lead, and platform analytics, then drafts recommendations. Every one stays a draft until you accept or dismiss it."
+        module="kpi"
+        onAiRecommendationsChange={onAiRecommendationsChange}
+        onRecordUsage={onRecordUsage}
+        usageLabel="KPI insights"
+      />
       <PerformanceLearningView data={data} onPerformanceChange={onPerformanceChange} />
     </section>
   );

@@ -137,6 +137,13 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
       ? data.competitorInsights
       : [],
     complianceDocs: Array.isArray(data.complianceDocs) ? data.complianceDocs : [],
+    aiRecommendations: Array.isArray(data.aiRecommendations)
+      ? data.aiRecommendations
+      : [],
+    weeklyReport:
+      data.weeklyReport && typeof data.weeklyReport === "object"
+        ? data.weeklyReport
+        : null,
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,
