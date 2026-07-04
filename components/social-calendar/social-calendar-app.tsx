@@ -30,14 +30,18 @@ import {
   RefreshCcw,
   SearchCheck,
   Settings2,
+  Archive,
+  ArchiveRestore,
   ShieldCheck,
   Sparkles,
   Table2,
   Target,
+  Trash2,
   TrendingUp,
   Palette,
   UsersRound,
   Wand2,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -103,9 +107,11 @@ import {
   type UccAsset,
   type UccAiModule,
   type UccAiOutputRecord,
+  type UccAudience,
   type UccBudgetPlan,
   type UccCampaign,
   type UccCourse,
+  type UccCourseCategory,
   type UccKpiRecord,
   type UccMarketingChannel,
   type UccStrategyData,
@@ -1091,6 +1097,66 @@ function ManagementDashboardView({ data }: { data: MarketingWorkspaceData }) {
   );
 }
 
+const COURSE_CATEGORY_OPTIONS: UccCourseCategory[] = [
+  "Full-time courses",
+  "Short courses",
+  "English courses",
+  "AI courses",
+  "Business courses",
+  "Hospitality courses",
+  "Future Master pathway",
+  "ATO-related courses",
+];
+
+const AUDIENCE_CHANNEL_OPTIONS: UccMarketingChannel[] = [
+  "Instagram",
+  "TikTok",
+  "YouTube Shorts",
+  "LinkedIn",
+  "Facebook",
+  "X/Twitter",
+  "Threads",
+  "Xiaohongshu",
+  "WeChat",
+];
+
+function makeNewCourse(): UccCourse {
+  return {
+    id: `course-${Date.now()}`,
+    name: "",
+    category: "Full-time courses",
+    audienceIds: [],
+    courseProof: [],
+    complianceNotes: "",
+    status: "active",
+    description: "",
+    usp: "",
+    duration: "",
+    entryRequirements: "",
+    fees: "",
+    sellingPoints: [],
+  };
+}
+
+function makeNewAudience(): UccAudience {
+  return {
+    id: `audience-${Date.now()}`,
+    name: "",
+    languages: [],
+    motivations: [],
+    concerns: [],
+    recommendedChannels: [],
+    nurtureAngle: "",
+    interests: [],
+    buyingJourney: "",
+    decisionMakers: "",
+  };
+}
+
+function courseStatusLabel(status: UccCourse["status"]) {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 function CoursesAudiencesView({
   onUccChange,
   ucc,
@@ -1098,6 +1164,10 @@ function CoursesAudiencesView({
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
+  const [showArchived, setShowArchived] = useState(false);
+  const [courseEditor, setCourseEditor] = useState<UccCourse | null>(null);
+  const [audienceEditor, setAudienceEditor] = useState<UccAudience | null>(null);
+
   function updateCourse(id: string, patch: Partial<UccCourse>) {
     onUccChange({
       ...ucc,
@@ -1107,6 +1177,65 @@ function CoursesAudiencesView({
     });
   }
 
+  function saveCourse(course: UccCourse) {
+    const exists = ucc.courses.some((row) => row.id === course.id);
+    onUccChange({
+      ...ucc,
+      courses: exists
+        ? ucc.courses.map((row) => (row.id === course.id ? course : row))
+        : [...ucc.courses, course],
+    });
+    setCourseEditor(null);
+  }
+
+  function deleteCourse(course: UccCourse) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Delete the course "${course.name || "Untitled"}"? This cannot be undone.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    onUccChange({
+      ...ucc,
+      courses: ucc.courses.filter((row) => row.id !== course.id),
+    });
+  }
+
+  function saveAudience(audience: UccAudience) {
+    const exists = ucc.audiences.some((row) => row.id === audience.id);
+    onUccChange({
+      ...ucc,
+      audiences: exists
+        ? ucc.audiences.map((row) => (row.id === audience.id ? audience : row))
+        : [...ucc.audiences, audience],
+    });
+    setAudienceEditor(null);
+  }
+
+  function deleteAudience(audience: UccAudience) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Delete the audience "${audience.name || "Untitled"}"? This cannot be undone.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    onUccChange({
+      ...ucc,
+      audiences: ucc.audiences.filter((row) => row.id !== audience.id),
+    });
+  }
+
+  const liveCourses = ucc.courses.filter((course) => course.status !== "archived");
+  const visibleCourses = showArchived ? ucc.courses : liveCourses;
+
   return (
     <section className="space-y-4">
       <Card>
@@ -1115,55 +1244,75 @@ function CoursesAudiencesView({
             icon={GraduationCap}
             kicker="Database"
             title="UCC Courses & Audiences"
-            description="Course categories and audience segments used by campaigns, channel recommendations, content planning, and KPI reporting."
+            description="Manage the courses and audience segments used by campaigns, channel recommendations, content planning, and KPI reporting."
           />
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            "Full-time courses",
-            "Short courses",
-            "English courses",
-            "AI courses",
-            "Business courses",
-            "Hospitality courses",
-            "Future Master pathway",
-            "ATO-related courses",
-          ].map((category) => (
-            <div className="rounded-lg border bg-muted/20 p-3" key={category}>
-              <p className="text-sm font-semibold">{category}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {ucc.courses.filter((course) => course.category === category).length} record
-                {ucc.courses.filter((course) => course.category === category).length === 1 ? "" : "s"}
-              </p>
-            </div>
-          ))}
+          {COURSE_CATEGORY_OPTIONS.map((category) => {
+            const count = liveCourses.filter((course) => course.category === category).length;
+
+            return (
+              <div className="rounded-lg border bg-muted/20 p-3" key={category}>
+                <p className="text-sm font-semibold">{category}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {count} active course{count === 1 ? "" : "s"}
+                </p>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Course Planning Table</CardTitle>
-            <CardDescription>
-              Edit proof points and compliance notes for course-level marketing.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Courses</CardTitle>
+              <CardDescription>
+                Add, edit, archive, or delete courses. Quick edits to proof and
+                compliance can be made inline in the table.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <input
+                  checked={showArchived}
+                  onChange={(event) => setShowArchived(event.target.checked)}
+                  type="checkbox"
+                />
+                Show archived
+              </label>
+              <Button onClick={() => setCourseEditor(makeNewCourse())} size="sm" type="button">
+                <Plus className="h-4 w-4" />
+                Add course
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {visibleCourses.length === 0 ? (
+            <EmptyState
+              action="No courses to show. Use Add course to create one, or turn on Show archived."
+              icon={GraduationCap}
+              title="No courses yet"
+            />
+          ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left text-sm">
+              <table className="w-full min-w-[1040px] text-left text-sm">
                 <thead className="border-b text-xs uppercase text-muted-foreground">
                   <tr>
                     <th className="py-3 pr-4 font-medium">Course</th>
                     <th className="py-3 pr-4 font-medium">Category</th>
-                    <th className="py-3 pr-4 font-medium">Proof</th>
+                    <th className="py-3 pr-4 font-medium">Supporting evidence</th>
                     <th className="py-3 pr-4 font-medium">Compliance</th>
                     <th className="py-3 pr-4 font-medium">Status</th>
+                    <th className="py-3 pr-4 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {ucc.courses.map((course) => (
+                  {visibleCourses.map((course) => (
                     <tr key={course.id}>
-                      <td className="min-w-[240px] py-3 pr-4">
+                      <td className="min-w-[220px] py-3 pr-4">
                         <Input
                           value={course.name}
                           onChange={(event) =>
@@ -1171,8 +1320,8 @@ function CoursesAudiencesView({
                           }
                         />
                       </td>
-                      <td className="min-w-[190px] py-3 pr-4">{course.category}</td>
-                      <td className="min-w-[260px] py-3 pr-4">
+                      <td className="min-w-[170px] py-3 pr-4">{course.category}</td>
+                      <td className="min-w-[240px] py-3 pr-4">
                         <Textarea
                           value={course.courseProof.join("\n")}
                           onChange={(event) =>
@@ -1182,7 +1331,7 @@ function CoursesAudiencesView({
                           }
                         />
                       </td>
-                      <td className="min-w-[280px] py-3 pr-4">
+                      <td className="min-w-[240px] py-3 pr-4">
                         <Textarea
                           value={course.complianceNotes}
                           onChange={(event) =>
@@ -1193,57 +1342,406 @@ function CoursesAudiencesView({
                         />
                       </td>
                       <td className="min-w-[130px] py-3 pr-4">
-                        <NativeSelect
-                          value={course.status}
-                          onChange={(event) =>
-                            updateCourse(course.id, {
-                              status: event.target.value as UccCourse["status"],
-                            })
-                          }
-                        >
-                          <option value="active">Active</option>
-                          <option value="future">Future</option>
-                          <option value="paused">Paused</option>
-                        </NativeSelect>
+                        {course.status === "archived" ? (
+                          <Badge variant="secondary">Archived</Badge>
+                        ) : (
+                          <NativeSelect
+                            value={course.status}
+                            onChange={(event) =>
+                              updateCourse(course.id, {
+                                status: event.target.value as UccCourse["status"],
+                              })
+                            }
+                          >
+                            <option value="active">Active</option>
+                            <option value="future">Future</option>
+                            <option value="paused">Paused</option>
+                          </NativeSelect>
+                        )}
+                      </td>
+                      <td className="min-w-[240px] py-3 pr-4">
+                        <div className="flex flex-wrap gap-1.5">
+                          <Button
+                            onClick={() => setCourseEditor(course)}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            Edit
+                          </Button>
+                          {course.status === "archived" ? (
+                            <Button
+                              onClick={() => updateCourse(course.id, { status: "active" })}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              <ArchiveRestore className="h-4 w-4" />
+                              Unarchive
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={() => updateCourse(course.id, { status: "archived" })}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              <Archive className="h-4 w-4" />
+                              Archive
+                            </Button>
+                          )}
+                          <Button
+                            onClick={() => deleteCourse(course)}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Audience To Platform Match</CardTitle>
-            <CardDescription>
-              Recommended channels based on audience behavior and intent.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {ucc.audiences.map((audience) => (
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Audiences</CardTitle>
+              <CardDescription>
+                Add, edit, or delete audience profiles used across campaigns and
+                content planning.
+              </CardDescription>
+            </div>
+            <Button onClick={() => setAudienceEditor(makeNewAudience())} size="sm" type="button">
+              <Plus className="h-4 w-4" />
+              Add audience
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {ucc.audiences.length === 0 ? (
+            <EmptyState
+              action="No audiences yet. Use Add audience to create one."
+              icon={UsersRound}
+              title="No audiences yet"
+            />
+          ) : (
+            ucc.audiences.map((audience) => (
               <div className="rounded-lg border bg-muted/20 p-3" key={audience.id}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Badge variant="secondary">{audience.name}</Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {audience.languages.join(" / ")}
-                  </span>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Badge variant="secondary">{audience.name || "Untitled audience"}</Badge>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {audience.languages.join(" / ")}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button
+                      onClick={() => setAudienceEditor(audience)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      onClick={() => deleteAudience(audience)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                  </div>
                 </div>
-                <p className="mt-2 text-sm leading-6">{audience.nurtureAngle}</p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {audience.recommendedChannels.map((channel) => (
-                    <Badge key={channel} variant="outline">
-                      {channel}
-                    </Badge>
-                  ))}
-                </div>
+                {audience.nurtureAngle ? (
+                  <p className="mt-2 text-sm leading-6">{audience.nurtureAngle}</p>
+                ) : null}
+                {audience.recommendedChannels.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {audience.recommendedChannels.map((channel) => (
+                      <Badge key={channel} variant="outline">
+                        {channel}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {courseEditor ? (
+        <CourseEditorSlideOver
+          audiences={ucc.audiences}
+          course={courseEditor}
+          onCancel={() => setCourseEditor(null)}
+          onSave={saveCourse}
+        />
+      ) : null}
+
+      {audienceEditor ? (
+        <AudienceEditorSlideOver
+          audience={audienceEditor}
+          onCancel={() => setAudienceEditor(null)}
+          onSave={saveAudience}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function SlideOver({
+  children,
+  onCancel,
+  title,
+}: {
+  children: ReactNode;
+  onCancel: () => void;
+  title: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-background/60 backdrop-blur-sm">
+      <div className="flex h-full w-full max-w-lg flex-col overflow-y-auto border-l bg-card p-5 shadow-soft">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="text-base font-semibold">{title}</h3>
+          <Button aria-label="Close" onClick={onCancel} size="icon" type="button" variant="outline">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function CourseEditorSlideOver({
+  audiences,
+  course,
+  onCancel,
+  onSave,
+}: {
+  audiences: UccAudience[];
+  course: UccCourse;
+  onCancel: () => void;
+  onSave: (course: UccCourse) => void;
+}) {
+  const [draft, setDraft] = useState<UccCourse>(course);
+
+  function set<K extends keyof UccCourse>(field: K, value: UccCourse[K]) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function toggleAudience(id: string) {
+    setDraft((current) => ({
+      ...current,
+      audienceIds: current.audienceIds.includes(id)
+        ? current.audienceIds.filter((value) => value !== id)
+        : [...current.audienceIds, id],
+    }));
+  }
+
+  const isNew = course.name === "" && course.courseProof.length === 0;
+
+  return (
+    <SlideOver onCancel={onCancel} title={isNew ? "Add course" : "Edit course"}>
+      <div className="space-y-4">
+        <Field label="Course name">
+          <Input onChange={(event) => set("name", event.target.value)} value={draft.name} />
+        </Field>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Category">
+            <NativeSelect
+              onChange={(event) => set("category", event.target.value as UccCourseCategory)}
+              value={draft.category}
+            >
+              {COURSE_CATEGORY_OPTIONS.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Status">
+            <NativeSelect
+              onChange={(event) => set("status", event.target.value as UccCourse["status"])}
+              value={draft.status}
+            >
+              <option value="active">Active</option>
+              <option value="future">Future</option>
+              <option value="paused">Paused</option>
+              <option value="archived">Archived</option>
+            </NativeSelect>
+          </Field>
+        </div>
+        <Field label="Description">
+          <Textarea onChange={(event) => set("description", event.target.value)} value={draft.description ?? ""} />
+        </Field>
+        <Field label="Unique selling point">
+          <Textarea onChange={(event) => set("usp", event.target.value)} value={draft.usp ?? ""} />
+        </Field>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Duration">
+            <Input onChange={(event) => set("duration", event.target.value)} value={draft.duration ?? ""} />
+          </Field>
+          <Field label="Fees">
+            <Input onChange={(event) => set("fees", event.target.value)} value={draft.fees ?? ""} />
+          </Field>
+        </div>
+        <Field label="Entry requirements">
+          <Textarea
+            onChange={(event) => set("entryRequirements", event.target.value)}
+            value={draft.entryRequirements ?? ""}
+          />
+        </Field>
+        <div>
+          <p className="mb-2 text-sm font-medium text-foreground">Audience</p>
+          {audiences.length === 0 ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              No audiences yet. Add audiences below to link them here.
+            </p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {audiences.map((audience) => (
+                <label
+                  className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
+                  key={audience.id}
+                >
+                  <input
+                    checked={draft.audienceIds.includes(audience.id)}
+                    onChange={() => toggleAudience(audience.id)}
+                    type="checkbox"
+                  />
+                  {audience.name || "Untitled audience"}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        <TextListField
+          label="Selling points"
+          onChange={(value) => set("sellingPoints", value)}
+          value={draft.sellingPoints ?? []}
+        />
+        <TextListField
+          label="Supporting evidence"
+          onChange={(value) => set("courseProof", value)}
+          value={draft.courseProof}
+        />
+        <Field label="Compliance notes">
+          <Textarea
+            onChange={(event) => set("complianceNotes", event.target.value)}
+            value={draft.complianceNotes}
+          />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={!draft.name.trim()} onClick={() => onSave(draft)} type="button">
+            Save course
+          </Button>
+          <Button onClick={onCancel} size="sm" type="button" variant="outline">
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </SlideOver>
+  );
+}
+
+function AudienceEditorSlideOver({
+  audience,
+  onCancel,
+  onSave,
+}: {
+  audience: UccAudience;
+  onCancel: () => void;
+  onSave: (audience: UccAudience) => void;
+}) {
+  const [draft, setDraft] = useState<UccAudience>(audience);
+
+  function set<K extends keyof UccAudience>(field: K, value: UccAudience[K]) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function toggleChannel(channel: UccMarketingChannel) {
+    setDraft((current) => ({
+      ...current,
+      recommendedChannels: current.recommendedChannels.includes(channel)
+        ? current.recommendedChannels.filter((value) => value !== channel)
+        : [...current.recommendedChannels, channel],
+    }));
+  }
+
+  return (
+    <SlideOver onCancel={onCancel} title={audience.name ? "Edit audience" : "Add audience"}>
+      <div className="space-y-4">
+        <Field label="Audience name">
+          <Input onChange={(event) => set("name", event.target.value)} value={draft.name} />
+        </Field>
+        <TextListField label="Goals" onChange={(value) => set("motivations", value)} value={draft.motivations} />
+        <TextListField label="Pain points" onChange={(value) => set("concerns", value)} value={draft.concerns} />
+        <TextListField
+          label="Interests"
+          onChange={(value) => set("interests", value)}
+          value={draft.interests ?? []}
+        />
+        <div>
+          <p className="mb-2 text-sm font-medium text-foreground">Preferred platforms</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {AUDIENCE_CHANNEL_OPTIONS.map((channel) => (
+              <label
+                className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
+                key={channel}
+              >
+                <input
+                  checked={draft.recommendedChannels.includes(channel)}
+                  onChange={() => toggleChannel(channel)}
+                  type="checkbox"
+                />
+                {channel}
+              </label>
+            ))}
+          </div>
+        </div>
+        <TextListField
+          label="Preferred language"
+          onChange={(value) => set("languages", value)}
+          value={draft.languages}
+        />
+        <Field label="Buying journey">
+          <Textarea
+            onChange={(event) => set("buyingJourney", event.target.value)}
+            value={draft.buyingJourney ?? ""}
+          />
+        </Field>
+        <Field label="Decision makers">
+          <Textarea
+            onChange={(event) => set("decisionMakers", event.target.value)}
+            value={draft.decisionMakers ?? ""}
+          />
+        </Field>
+        <Field label="Nurture angle">
+          <Textarea onChange={(event) => set("nurtureAngle", event.target.value)} value={draft.nurtureAngle} />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={!draft.name.trim()} onClick={() => onSave(draft)} type="button">
+            Save audience
+          </Button>
+          <Button onClick={onCancel} size="sm" type="button" variant="outline">
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </SlideOver>
   );
 }
 
