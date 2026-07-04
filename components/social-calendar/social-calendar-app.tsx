@@ -1085,7 +1085,6 @@ export function SocialCalendarApp() {
                 acceptedTrends={acceptedTrendLines(data.trendInsights)}
                 onOfferUndo={offerUndo}
                 aiIntegration={data.aiIntegration}
-                audits={data.audits}
                 brand={data.brand}
                 brief={data.brief}
                 calendar={data.calendar}
@@ -2391,9 +2390,6 @@ function makeNewAudience(): UccAudience {
   };
 }
 
-function courseStatusLabel(status: UccCourse["status"]) {
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
 
 function CoursesAudiencesView({
   onOfferUndo,
@@ -10155,7 +10151,6 @@ function GoalImpactStrip({
 function CalendarBuilderView({
   acceptedTrends,
   aiIntegration,
-  audits,
   brand,
   brief,
   calendar,
@@ -10169,7 +10164,6 @@ function CalendarBuilderView({
 }: {
   acceptedTrends: string[];
   aiIntegration: AiIntegrationSettings;
-  audits: SocialAudit[];
   brand: BrandProfile;
   brief: StrategyBrief;
   calendar: CalendarItem[];

@@ -32,7 +32,6 @@ A responsive Next.js web app for United Ceres College marketing operations. The 
 app/
   layout.tsx                         Page metadata and root shell
   page.tsx                           App entry point
-  api/content-engine/generate/route.ts Strategy-aware copy generation endpoint
   api/pdf-data/extract/route.ts       Local PDF extraction and metric parsing endpoint
 components/
   social-calendar/
