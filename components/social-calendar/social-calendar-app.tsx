@@ -93,6 +93,7 @@ import {
   type CopyAiContext,
   type CopyAiDraft,
 } from "@/lib/copy-ai";
+import type { ComplianceAiContext, ComplianceFlag } from "@/lib/compliance-ai";
 import {
   deleteAssetFile,
   resolveSupabaseConfig,
@@ -135,6 +136,7 @@ import {
   type AuditInsight,
   type CampaignSuggestion,
   type CompetitorInsight,
+  type ComplianceDoc,
   type AuditScores,
   type ApprovalStage,
   type BrandProfile,
@@ -930,7 +932,13 @@ export function SocialCalendarApp() {
             ) : null}
 
             {activeView === "compliance" ? (
-              <ComplianceCheckerView data={data} />
+              <ComplianceCheckerView
+                data={data}
+                onComplianceDocsChange={(complianceDocs) =>
+                  updateWorkspace((current) => ({ ...current, complianceDocs }))
+                }
+                onRecordUsage={recordAiUsage}
+              />
             ) : null}
 
             {activeView === "reports" ? <ReportsView data={data} /> : null}
@@ -3428,8 +3436,33 @@ function KpiTrackerView({
   );
 }
 
-function ComplianceCheckerView({ data }: { data: MarketingWorkspaceData }) {
+function ComplianceCheckerView({
+  data,
+  onComplianceDocsChange,
+  onRecordUsage,
+}: {
+  data: MarketingWorkspaceData;
+  onComplianceDocsChange: (complianceDocs: ComplianceDoc[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
+}) {
   const [draftCopy, setDraftCopy] = useState(data.calendar[0]?.caption ?? "");
+  const [docMessage, setDocMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [reviewing, setReviewing] = useState<"" | "single" | "calendar">("");
+  const [reviewError, setReviewError] = useState("");
+  const [review, setReview] = useState<{
+    score: number;
+    riskLevel: "low" | "medium" | "high";
+    summary: string;
+    flags: ComplianceFlag[];
+  } | null>(null);
+  const [rejectedFlags, setRejectedFlags] = useState<string[]>([]);
+  const [calendarReview, setCalendarReview] = useState<{
+    summary: string;
+    findings: Array<{ id: string; topic: string; riskLevel: string; issues: string[] }>;
+  } | null>(null);
+
+  const liveAi = isLiveAiEnabled(data.aiIntegration);
   const flags = checkComplianceText(draftCopy);
   const calendarFlags = data.calendar
     .map((item) => ({
@@ -3439,40 +3472,422 @@ function ComplianceCheckerView({ data }: { data: MarketingWorkspaceData }) {
       ),
     }))
     .filter((row) => row.flags.length > 0);
+  const unapprovedItems = data.calendar.filter(
+    (item) => !canPublishCalendarItem(item) && item.status !== "posted",
+  );
+
+  function guidelineExcerpts() {
+    return data.complianceDocs.slice(0, 4).map((doc) => ({
+      name: doc.name,
+      excerpt: doc.text.slice(0, 6000),
+    }));
+  }
+
+  async function uploadGuidelineDoc(file: File) {
+    setUploadingDoc(true);
+    setDocMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/compliance/extract", {
+        method: "POST",
+        body: formData,
+      });
+      const result = (await response.json()) as
+        | {
+            ok: true;
+            name: string;
+            source: "pdf" | "docx" | "text";
+            characters: number;
+            truncated: boolean;
+            text: string;
+          }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setDocMessage({ tone: "error", text: result.error });
+        return;
+      }
+
+      onComplianceDocsChange([
+        {
+          id: `compliance-doc-${Date.now()}`,
+          name: result.name,
+          uploadedAt: new Date().toISOString(),
+          source: result.source,
+          characters: result.characters,
+          text: result.text,
+        },
+        ...data.complianceDocs,
+      ]);
+      setDocMessage({
+        tone: "success",
+        text: `Stored ${result.name} (${formatNumber(result.characters)} characters${
+          result.truncated ? ", long document stored in shortened form" : ""
+        }). The AI reviewer will use it.`,
+      });
+    } catch (error) {
+      setDocMessage({
+        tone: "error",
+        text: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setUploadingDoc(false);
+    }
+  }
+
+  function deleteGuidelineDoc(doc: ComplianceDoc) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Remove the guideline document "${doc.name}"?`);
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    onComplianceDocsChange(data.complianceDocs.filter((row) => row.id !== doc.id));
+  }
+
+  async function runAiReview(mode: "single" | "calendar") {
+    setReviewing(mode);
+    setReviewError("");
+
+    try {
+      const response = await fetch("/api/ai/compliance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: data.aiIntegration.apiKey,
+          model: resolveModelForTask(data.aiIntegration, "analysis"),
+          context: {
+            mode,
+            content: mode === "single" ? draftCopy : "",
+            calendarItems:
+              mode === "calendar"
+                ? unapprovedItems.map((item) => ({
+                    id: item.id,
+                    topic: item.contentTopic,
+                    platform: item.platform,
+                    text: `${item.hook}\n${item.caption}`,
+                  }))
+                : [],
+            guidelineDocs: guidelineExcerpts(),
+          } satisfies ComplianceAiContext,
+        }),
+      });
+      const result = (await response.json()) as
+        | {
+            ok: true;
+            review: {
+              score: number;
+              riskLevel: "low" | "medium" | "high";
+              summary: string;
+              flags: ComplianceFlag[];
+              calendarFindings: Array<{
+                id: string;
+                topic: string;
+                riskLevel: string;
+                issues: string[];
+              }>;
+            };
+            usage?: OpenAiUsage;
+            model?: string;
+          }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setReviewError(result.error);
+        return;
+      }
+
+      if (mode === "single") {
+        setReview({
+          score: result.review.score,
+          riskLevel: result.review.riskLevel,
+          summary: result.review.summary,
+          flags: result.review.flags,
+        });
+        setRejectedFlags([]);
+      } else {
+        setCalendarReview({
+          summary: result.review.summary,
+          findings: result.review.calendarFindings,
+        });
+      }
+
+      if (result.usage) {
+        onRecordUsage(
+          mode === "single" ? "Compliance review" : "Compliance calendar review",
+          result.model ?? "unknown",
+          result.usage,
+        );
+      }
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReviewing("");
+    }
+  }
+
+  function applyRevision(flag: ComplianceFlag) {
+    if (draftCopy.includes(flag.sentence)) {
+      setDraftCopy(draftCopy.replace(flag.sentence, flag.suggestedRevision));
+      setRejectedFlags((current) => [...current, flag.sentence]);
+    } else {
+      setReviewError(
+        "That exact sentence is no longer in the text above, so the revision was not applied automatically. Edit the text by hand if you still want the change.",
+      );
+    }
+  }
+
+  function rejectRevision(flag: ComplianceFlag) {
+    setRejectedFlags((current) => [...current, flag.sentence]);
+  }
+
+  const visibleFlags = review
+    ? review.flags.filter((flag) => !rejectedFlags.includes(flag.sentence))
+    : [];
 
   return (
     <section className="space-y-4">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <SectionTitle
             icon={ShieldCheck}
             kicker="Compliance"
             title="Education Marketing Compliance Checker"
-            description="Flags risky employment, salary, visa, admission, course outcome, ranking, testimonial, and career-result claims before content goes live."
+            description="Instant rule check first, then a full AI review against the built-in education rules and your uploaded guideline documents."
           />
-        </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-          <Field label="Paste copy, caption, script, testimonial, or landing page text">
-            <Textarea
-              className="min-h-72"
-              value={draftCopy}
-              onChange={(event) => setDraftCopy(event.target.value)}
-            />
-          </Field>
-          <div className="space-y-3">
-            <Badge variant={flags.length === 0 ? "success" : "warning"}>
-              {flags.length === 0 ? "No obvious risk found" : `${flags.length} risk flag${flags.length === 1 ? "" : "s"}`}
-            </Badge>
-            <InsightList
-              items={
-                flags.length > 0
-                  ? flags
-                  : ["Keep proof factual, avoid guarantees, and cite verifiable course details."]
-              }
-              title="Compliance output"
-              variant={flags.length > 0 ? "warning" : "success"}
-            />
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button
+                disabled={!liveAi || reviewing !== "" || !draftCopy.trim()}
+                onClick={() => void runAiReview("single")}
+                size="sm"
+                type="button"
+              >
+                <Sparkles className="h-4 w-4" />
+                {reviewing === "single" ? "Reviewing" : "Review with AI"}
+              </Button>
+              <Button
+                disabled={!liveAi || reviewing !== "" || unapprovedItems.length === 0}
+                onClick={() => void runAiReview("calendar")}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Sparkles className="h-4 w-4" />
+                {reviewing === "calendar"
+                  ? "Reviewing calendar"
+                  : `Review entire calendar (${unapprovedItems.length} unapproved)`}
+              </Button>
+            </div>
+            {!liveAi ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Connect OpenAI in Settings to review with AI. The instant rule
+                check below works offline.
+              </p>
+            ) : null}
           </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {reviewError ? (
+            <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              {reviewError}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+            <Field label="Paste copy, caption, script, testimonial, or landing page text">
+              <Textarea
+                className="min-h-72"
+                value={draftCopy}
+                onChange={(event) => setDraftCopy(event.target.value)}
+              />
+            </Field>
+            <div className="space-y-3">
+              <Badge variant={flags.length === 0 ? "success" : "warning"}>
+                {flags.length === 0
+                  ? "Instant check: no obvious risk found"
+                  : `Instant check: ${flags.length} risk flag${flags.length === 1 ? "" : "s"}`}
+              </Badge>
+              <InsightList
+                items={
+                  flags.length > 0
+                    ? flags
+                    : ["Keep proof factual, avoid guarantees, and cite verifiable course details."]
+                }
+                title="Instant rule check"
+                variant={flags.length > 0 ? "warning" : "success"}
+              />
+            </div>
+          </div>
+
+          {review ? (
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold">AI compliance review</p>
+                <Badge
+                  variant={
+                    review.riskLevel === "low"
+                      ? "success"
+                      : review.riskLevel === "medium"
+                        ? "warning"
+                        : "warning"
+                  }
+                >
+                  {review.riskLevel} risk
+                </Badge>
+                <Badge variant="outline">Score {review.score}/100</Badge>
+              </div>
+              <p className="text-sm leading-6">{review.summary}</p>
+              {visibleFlags.length === 0 ? (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  No open flags. Any applied or rejected revisions are recorded
+                  above in the text itself.
+                </p>
+              ) : (
+                visibleFlags.map((flag) => (
+                  <div className="rounded-md border bg-background p-3" key={flag.sentence}>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
+                      Flagged sentence
+                    </p>
+                    <p className="mt-1 text-sm leading-6">&ldquo;{flag.sentence}&rdquo;</p>
+                    <p className="mt-2 text-xs leading-5 text-warning-foreground">
+                      Rule broken: {flag.rule}
+                    </p>
+                    <p className="mt-2 text-xs font-medium uppercase text-muted-foreground">
+                      Suggested revision
+                    </p>
+                    <p className="mt-1 text-sm leading-6">{flag.suggestedRevision}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button onClick={() => applyRevision(flag)} size="sm" type="button">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Apply revision
+                      </Button>
+                      <Button
+                        onClick={() => rejectRevision(flag)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : null}
+
+          {calendarReview ? (
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+              <p className="text-sm font-semibold">Calendar review results</p>
+              <p className="text-sm leading-6">{calendarReview.summary}</p>
+              {calendarReview.findings.length === 0 ? (
+                <p className="text-xs leading-5 text-success-foreground">
+                  The AI found no items needing attention among the unapproved
+                  captions.
+                </p>
+              ) : (
+                calendarReview.findings.map((finding) => (
+                  <div className="rounded-md border bg-background p-3" key={finding.id}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold">{finding.topic}</p>
+                      <Badge variant="warning">{finding.riskLevel} risk</Badge>
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-5 text-muted-foreground">
+                      {finding.issues.map((issue) => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>Guideline Documents</CardTitle>
+            <CardDescription>
+              Upload PDF, Word (.docx), or text policy documents. The AI
+              reviewer reads them alongside the built-in education rules.
+            </CardDescription>
+          </div>
+          <label
+            className={cn(
+              "inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-muted",
+              uploadingDoc && "pointer-events-none opacity-50",
+            )}
+          >
+            <FileUp className="h-4 w-4" />
+            {uploadingDoc ? "Reading" : "Upload guideline document"}
+            <input
+              accept=".pdf,.docx,.txt,.md,application/pdf,text/plain"
+              className="sr-only"
+              disabled={uploadingDoc}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+
+                if (file) {
+                  void uploadGuidelineDoc(file);
+                }
+
+                event.target.value = "";
+              }}
+              type="file"
+            />
+          </label>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {docMessage ? (
+            <div
+              className={cn(
+                "rounded-md border p-3 text-xs leading-5",
+                docMessage.tone === "error"
+                  ? "border-warning-border bg-warning text-warning-foreground"
+                  : "border-success-border bg-success text-success-foreground",
+              )}
+            >
+              {docMessage.text}
+            </div>
+          ) : null}
+
+          {data.complianceDocs.length === 0 ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              No guideline documents yet. The AI reviewer will use the built-in
+              education marketing rules only.
+            </p>
+          ) : (
+            data.complianceDocs.map((doc) => (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2"
+                key={doc.id}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{doc.name}</p>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {doc.source.toUpperCase()}, {formatNumber(doc.characters)}{" "}
+                    characters, uploaded {formatDateTime(doc.uploadedAt)}
+                  </p>
+                </div>
+                <Button
+                  onClick={() => deleteGuidelineDoc(doc)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remove
+                </Button>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
 
