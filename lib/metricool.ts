@@ -98,11 +98,6 @@ function describeUpstream(status: number, statusText: string, body: string, path
   }.${planHint}`;
 }
 
-async function describeError(response: Response, url: string) {
-  const body = await readBody(response);
-  return describeUpstream(response.status, response.statusText, body, endpointPath(url));
-}
-
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
