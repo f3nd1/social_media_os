@@ -83,6 +83,11 @@ import {
   type CampaignAiSuggestionDraft,
 } from "@/lib/campaign-ai";
 import { upcomingSgMoments } from "@/lib/sg-marketing-moments";
+import {
+  competitorDraftToInsights,
+  type CompetitorAiContext,
+  type CompetitorAiDraft,
+} from "@/lib/competitor-ai";
 import { resolveSupabaseConfig } from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
@@ -120,6 +125,7 @@ import {
   type AiUsageEntry,
   type AuditInsight,
   type CampaignSuggestion,
+  type CompetitorInsight,
   type AuditScores,
   type ApprovalStage,
   type BrandProfile,
@@ -785,6 +791,7 @@ export function SocialCalendarApp() {
                 auditInsights={data.auditInsights}
                 brief={data.brief}
                 campaignSuggestions={data.campaignSuggestions}
+                competitorInsights={data.competitorInsights}
                 ucc={data.ucc}
                 onCampaignSuggestionsChange={(campaignSuggestions) =>
                   updateWorkspace((current) => ({ ...current, campaignSuggestions }))
@@ -807,10 +814,18 @@ export function SocialCalendarApp() {
 
             {activeView === "competitors" ? (
               <CompetitorIntelligenceView
+                aiIntegration={data.aiIntegration}
+                brand={data.brand}
+                brief={data.brief}
+                competitorInsights={data.competitorInsights}
                 competitors={data.competitors}
+                onCompetitorInsightsChange={(competitorInsights) =>
+                  updateWorkspace((current) => ({ ...current, competitorInsights }))
+                }
                 onCompetitorsChange={(competitors) =>
                   updateWorkspace((current) => ({ ...current, competitors }))
                 }
+                onRecordUsage={recordAiUsage}
               />
             ) : null}
 
@@ -820,6 +835,7 @@ export function SocialCalendarApp() {
                 audits={data.audits}
                 brand={data.brand}
                 brief={data.brief}
+                competitorInsights={data.competitorInsights}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onBriefChange={(brief) =>
@@ -1985,6 +2001,7 @@ function CampaignPlanningView({
   auditInsights,
   brief,
   campaignSuggestions,
+  competitorInsights,
   onCampaignSuggestionsChange,
   onRecordUsage,
   onUccChange,
@@ -1994,6 +2011,7 @@ function CampaignPlanningView({
   auditInsights: AuditInsight[];
   brief: StrategyBrief;
   campaignSuggestions: CampaignSuggestion[];
+  competitorInsights: CompetitorInsight[];
   onCampaignSuggestionsChange: (campaignSuggestions: CampaignSuggestion[]) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onUccChange: (ucc: UccStrategyData) => void;
@@ -2028,7 +2046,12 @@ function CampaignPlanningView({
             acceptedAuditInsights: auditInsights
               .filter((insight) => insight.status === "accepted")
               .map((insight) => `${insight.platform}: ${insight.recommendation}`),
-            acceptedCompetitorInsights: [],
+            acceptedCompetitorInsights: competitorInsights
+              .filter((insight) => insight.status === "accepted")
+              .map(
+                (insight) =>
+                  `${insight.competitorName} (${insight.kind}): ${insight.insight}`,
+              ),
             courses: ucc.courses
               .filter((course) => course.status !== "archived")
               .map((course) => ({
@@ -5920,12 +5943,112 @@ function buildGoalAwareAuditRecommendations(
 }
 
 function CompetitorIntelligenceView({
+  aiIntegration,
+  brand,
+  brief,
+  competitorInsights,
   competitors,
+  onCompetitorInsightsChange,
   onCompetitorsChange,
+  onRecordUsage,
 }: {
+  aiIntegration: AiIntegrationSettings;
+  brand: BrandProfile;
+  brief: StrategyBrief;
+  competitorInsights: CompetitorInsight[];
   competitors: Competitor[];
+  onCompetitorInsightsChange: (competitorInsights: CompetitorInsight[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
+  const [analysing, setAnalysing] = useState(false);
+  const [analyseError, setAnalyseError] = useState("");
+
+  const liveAi = isLiveAiEnabled(aiIntegration);
+
+  async function analyseWithAi() {
+    setAnalysing(true);
+    setAnalyseError("");
+
+    try {
+      const response = await fetch("/api/ai/competitors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          model: resolveModelForTask(aiIntegration, "analysis"),
+          context: {
+            ownPositioning: {
+              brandName: brand.brandName,
+              industry: brand.industry,
+              toneOfVoice: brand.toneOfVoice,
+              offers: brand.offers,
+              goals: brand.goals,
+            },
+            briefSummary: {
+              monthlyCampaignGoal: brief.monthlyCampaignGoal,
+              contentPillars: brief.contentPillars,
+              keyAnglesToOwn: brief.keyAnglesToOwn,
+            },
+            competitors: competitors.map((competitor) => ({
+              id: competitor.id,
+              name: competitor.name,
+              website: competitor.website,
+              platforms: competitor.platforms,
+              contentFormats: competitor.contentFormats,
+              tone: competitor.tone,
+              postingFrequency: competitor.postingFrequency,
+              observedStrengths: competitor.observedStrengths,
+              contentGaps: competitor.contentGaps,
+              whitespaceOpportunities: competitor.whitespaceOpportunities,
+            })),
+          } satisfies CompetitorAiContext,
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; draft: CompetitorAiDraft; usage?: OpenAiUsage; model?: string }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setAnalyseError(result.error);
+        return;
+      }
+
+      const insights = competitorDraftToInsights(result.draft, {
+        competitors,
+        model: result.model ?? "unknown",
+      });
+
+      // Replace previous drafts but keep everything already accepted.
+      onCompetitorInsightsChange([
+        ...competitorInsights.filter((insight) => insight.status === "accepted"),
+        ...insights,
+      ]);
+
+      if (result.usage) {
+        onRecordUsage("Competitor analysis", result.model ?? "unknown", result.usage);
+      }
+    } catch (error) {
+      setAnalyseError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAnalysing(false);
+    }
+  }
+
+  function acceptInsight(id: string) {
+    onCompetitorInsightsChange(
+      competitorInsights.map((insight) =>
+        insight.id === id ? { ...insight, status: "accepted" } : insight,
+      ),
+    );
+  }
+
+  function dismissInsight(id: string) {
+    onCompetitorInsightsChange(
+      competitorInsights.filter((insight) => insight.id !== id),
+    );
+  }
+
   function updateCompetitor<K extends keyof Competitor>(
     id: string,
     field: K,
@@ -5977,17 +6100,112 @@ function CompetitorIntelligenceView({
             title="Competitor Intelligence"
             description="Track 3 to 6 competitors, their platform behavior, format choices, tone, frequency, strengths, and gaps."
           />
-          <Button
-            disabled={competitors.length >= 6}
-            onClick={addCompetitor}
-            size="sm"
-            variant="outline"
-          >
-            <Plus className="h-4 w-4" />
-            Add competitor
-          </Button>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button
+                disabled={!liveAi || analysing || competitors.length === 0}
+                onClick={() => void analyseWithAi()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Sparkles className="h-4 w-4" />
+                {analysing ? "Analysing" : "Analyse with AI"}
+              </Button>
+              <Button
+                disabled={competitors.length >= 6}
+                onClick={addCompetitor}
+                size="sm"
+                variant="outline"
+              >
+                <Plus className="h-4 w-4" />
+                Add competitor
+              </Button>
+            </div>
+            {!liveAi ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Connect OpenAI in Settings to generate with AI.
+              </p>
+            ) : competitors.length === 0 ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Add at least one competitor record first.
+              </p>
+            ) : null}
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {analyseError ? (
+            <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              {analyseError}
+            </div>
+          ) : null}
+
+          {competitorInsights.length > 0 ? (
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+              <p className="text-sm font-semibold">
+                AI competitor insights. Accepted insights feed the Strategy
+                Brief and campaign suggestions.
+              </p>
+              {competitors
+                .filter((competitor) =>
+                  competitorInsights.some(
+                    (insight) => insight.competitorId === competitor.id,
+                  ),
+                )
+                .map((competitor) => (
+                  <div className="space-y-2" key={competitor.id}>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
+                      {competitor.name}
+                    </p>
+                    {competitorInsights
+                      .filter((insight) => insight.competitorId === competitor.id)
+                      .map((insight) => (
+                        <div
+                          className="flex flex-wrap items-start justify-between gap-2 rounded-md border bg-background p-3"
+                          key={insight.id}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge variant="outline">{insight.kind}</Badge>
+                              <Badge
+                                variant={insight.status === "accepted" ? "success" : "warning"}
+                              >
+                                {insight.status === "accepted"
+                                  ? "Accepted"
+                                  : "AI draft"}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 text-sm leading-6">{insight.insight}</p>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {formatDateTime(insight.generatedAt)}, {insight.model}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {insight.status === "draft" ? (
+                              <Button
+                                onClick={() => acceptInsight(insight.id)}
+                                size="sm"
+                                type="button"
+                              >
+                                Accept
+                              </Button>
+                            ) : null}
+                            <Button
+                              onClick={() => dismissInsight(insight.id)}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              {insight.status === "accepted" ? "Remove" : "Dismiss"}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                ))}
+            </div>
+          ) : null}
+
           {competitors.length === 0 ? (
             <EmptyState
               action="Add 3 to 6 competitors"
@@ -6144,6 +6362,7 @@ function StrategyBriefView({
   audits,
   brand,
   brief,
+  competitorInsights,
   socialGoals,
   ucc,
   onBriefChange,
@@ -6153,6 +6372,7 @@ function StrategyBriefView({
   audits: SocialAudit[];
   brand: BrandProfile;
   brief: StrategyBrief;
+  competitorInsights: CompetitorInsight[];
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onBriefChange: (brief: StrategyBrief) => void;
@@ -6219,6 +6439,12 @@ function StrategyBriefView({
         averageReach: audit.averageReach,
         engagementRate: audit.engagementRate,
       })),
+      acceptedCompetitorInsights: competitorInsights
+        .filter((insight) => insight.status === "accepted")
+        .map(
+          (insight) =>
+            `${insight.competitorName} (${insight.kind}): ${insight.insight}`,
+        ),
       platforms: [...platforms],
     };
   }

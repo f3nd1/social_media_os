@@ -39,6 +39,8 @@ export type BriefAiContext = {
     averageReach: number;
     engagementRate: number;
   }>;
+  // Accepted competitor insights (Module A3), phrased "Name (kind): insight".
+  acceptedCompetitorInsights: string[];
   platforms: Platform[];
 };
 
