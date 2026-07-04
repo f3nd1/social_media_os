@@ -93,7 +93,11 @@ import {
   type CopyAiContext,
   type CopyAiDraft,
 } from "@/lib/copy-ai";
-import { resolveSupabaseConfig } from "@/lib/supabase-client";
+import {
+  deleteAssetFile,
+  resolveSupabaseConfig,
+  uploadAssetFile,
+} from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -896,6 +900,7 @@ export function SocialCalendarApp() {
 
             {activeView === "assets" ? (
               <AssetLibraryView
+                calendar={data.calendar}
                 ucc={data.ucc}
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
@@ -2932,12 +2937,22 @@ function AiSkillControlPanel({
 }
 
 function AssetLibraryView({
+  calendar,
   onUccChange,
   ucc,
 }: {
+  calendar: CalendarItem[];
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
+  const [assetMessage, setAssetMessage] = useState<{
+    tone: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const supabaseConfigured = Boolean(resolveSupabaseConfig().config);
+
   function updateAsset(id: string, patch: Partial<UccAsset>) {
     onUccChange({
       ...ucc,
@@ -2947,34 +2962,227 @@ function AssetLibraryView({
     });
   }
 
+  function guessAssetType(file: File): UccAsset["type"] {
+    if (file.type.startsWith("image/")) {
+      return "photo";
+    }
+
+    if (file.type.startsWith("video/")) {
+      return "video";
+    }
+
+    return "campaign asset";
+  }
+
+  async function uploadFile(file: File) {
+    const resolved = resolveSupabaseConfig();
+
+    if (!resolved.config) {
+      setAssetMessage({
+        tone: "error",
+        text: "Connect Supabase in Settings to upload files. You can still add link-only entries below.",
+      });
+      return;
+    }
+
+    setUploading(true);
+    setAssetMessage(null);
+
+    try {
+      const { publicUrl, storagePath } = await uploadAssetFile(resolved.config, file);
+      onUccChange({
+        ...ucc,
+        assets: [
+          {
+            id: `asset-${Date.now()}`,
+            name: file.name,
+            type: guessAssetType(file),
+            courseId: "",
+            campaignId: "",
+            language: "English",
+            status: "draft",
+            url: publicUrl,
+            usageNotes: "",
+            storagePath,
+            calendarItemId: "",
+          },
+          ...ucc.assets,
+        ],
+      });
+      setAssetMessage({ tone: "success", text: `Uploaded ${file.name}.` });
+    } catch (error) {
+      setAssetMessage({
+        tone: "error",
+        text: `Upload failed: ${error instanceof Error ? error.message : String(error)}. If the bucket does not exist yet, create a public bucket named "assets" in Supabase Storage.`,
+      });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function addLinkEntry() {
+    onUccChange({
+      ...ucc,
+      assets: [
+        {
+          id: `asset-${Date.now()}`,
+          name: "New link asset",
+          type: "campaign asset",
+          courseId: "",
+          campaignId: "",
+          language: "English",
+          status: "draft",
+          url: "",
+          usageNotes: "",
+          storagePath: "",
+          calendarItemId: "",
+        },
+        ...ucc.assets,
+      ],
+    });
+  }
+
+  async function deleteAsset(asset: UccAsset) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Delete the asset "${asset.name}"?${asset.storagePath ? " The stored file will also be removed from Supabase Storage." : ""} This cannot be undone.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    if (asset.storagePath) {
+      const resolved = resolveSupabaseConfig();
+
+      if (resolved.config) {
+        try {
+          await deleteAssetFile(resolved.config, asset.storagePath);
+        } catch (error) {
+          setAssetMessage({
+            tone: "error",
+            text: `The entry was removed, but deleting the stored file failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          });
+        }
+      }
+    }
+
+    onUccChange({
+      ...ucc,
+      assets: ucc.assets.filter((row) => row.id !== asset.id),
+    });
+  }
+
+  function isImageAsset(asset: UccAsset) {
+    return (
+      asset.type === "photo" ||
+      asset.type === "logo" ||
+      asset.type === "course image" ||
+      /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(asset.url)
+    );
+  }
+
   return (
     <section className="space-y-4">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <SectionTitle
             icon={FileText}
             kicker="Assets"
             title="Content Asset Library"
             description="Photos, videos, testimonials, course images, logos, templates, approved captions, and campaign assets."
           />
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <label
+                className={cn(
+                  "inline-flex h-9 cursor-pointer items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+                  (!supabaseConfigured || uploading) && "pointer-events-none opacity-50",
+                )}
+              >
+                <FileUp className="h-4 w-4" />
+                {uploading ? "Uploading" : "Upload file"}
+                <input
+                  className="sr-only"
+                  disabled={!supabaseConfigured || uploading}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+
+                    if (file) {
+                      void uploadFile(file);
+                    }
+
+                    event.target.value = "";
+                  }}
+                  type="file"
+                />
+              </label>
+              <Button onClick={addLinkEntry} size="sm" type="button" variant="outline">
+                <Plus className="h-4 w-4" />
+                Add link entry
+              </Button>
+            </div>
+            {!supabaseConfigured ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                File upload needs Supabase connected in Settings. Link-only
+                entries still work.
+              </p>
+            ) : null}
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {assetMessage ? (
+            <div
+              className={cn(
+                "rounded-md border p-3 text-xs leading-5",
+                assetMessage.tone === "error"
+                  ? "border-warning-border bg-warning text-warning-foreground"
+                  : assetMessage.tone === "success"
+                    ? "border-success-border bg-success text-success-foreground"
+                    : "bg-muted/30 text-muted-foreground",
+              )}
+            >
+              {assetMessage.text}
+            </div>
+          ) : null}
+
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px] text-left text-sm">
+            <table className="w-full min-w-[1420px] text-left text-sm">
               <thead className="border-b text-xs uppercase text-muted-foreground">
                 <tr>
+                  <th className="py-3 pr-4 font-medium">Preview</th>
                   <th className="py-3 pr-4 font-medium">Asset</th>
                   <th className="py-3 pr-4 font-medium">Type</th>
                   <th className="py-3 pr-4 font-medium">Language</th>
                   <th className="py-3 pr-4 font-medium">Status</th>
+                  <th className="py-3 pr-4 font-medium">Campaign</th>
+                  <th className="py-3 pr-4 font-medium">Calendar item</th>
                   <th className="py-3 pr-4 font-medium">Link</th>
                   <th className="py-3 pr-4 font-medium">Usage notes</th>
+                  <th className="py-3 pr-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {ucc.assets.map((asset) => (
                   <tr key={asset.id}>
-                    <td className="min-w-[240px] py-3 pr-4">
+                    <td className="min-w-[90px] py-3 pr-4">
+                      {isImageAsset(asset) && asset.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          alt={asset.name}
+                          className="h-14 w-14 rounded-md border object-cover"
+                          src={asset.url}
+                        />
+                      ) : (
+                        <div className="flex h-14 w-14 items-center justify-center rounded-md border bg-muted/30">
+                          <FileText className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                      )}
+                    </td>
+                    <td className="min-w-[220px] py-3 pr-4">
                       <Input
                         value={asset.name}
                         onChange={(event) =>
@@ -2998,7 +3206,37 @@ function AssetLibraryView({
                         <option value="needs update">Needs update</option>
                       </NativeSelect>
                     </td>
-                    <td className="min-w-[220px] py-3 pr-4">
+                    <td className="min-w-[190px] py-3 pr-4">
+                      <NativeSelect
+                        value={asset.campaignId}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { campaignId: event.target.value })
+                        }
+                      >
+                        <option value="">Not linked</option>
+                        {ucc.campaigns.map((campaign) => (
+                          <option key={campaign.id} value={campaign.id}>
+                            {campaign.name}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </td>
+                    <td className="min-w-[210px] py-3 pr-4">
+                      <NativeSelect
+                        value={asset.calendarItemId ?? ""}
+                        onChange={(event) =>
+                          updateAsset(asset.id, { calendarItemId: event.target.value })
+                        }
+                      >
+                        <option value="">Not linked</option>
+                        {calendar.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.date} {item.platform}: {item.contentTopic.slice(0, 30)}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </td>
+                    <td className="min-w-[200px] py-3 pr-4">
                       <Input
                         value={asset.url}
                         onChange={(event) =>
@@ -3006,13 +3244,24 @@ function AssetLibraryView({
                         }
                       />
                     </td>
-                    <td className="min-w-[280px] py-3 pr-4">
+                    <td className="min-w-[240px] py-3 pr-4">
                       <Textarea
                         value={asset.usageNotes}
                         onChange={(event) =>
                           updateAsset(asset.id, { usageNotes: event.target.value })
                         }
                       />
+                    </td>
+                    <td className="min-w-[110px] py-3 pr-4">
+                      <Button
+                        onClick={() => void deleteAsset(asset)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </Button>
                     </td>
                   </tr>
                 ))}

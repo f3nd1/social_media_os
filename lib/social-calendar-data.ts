@@ -277,6 +277,11 @@ export type UccAsset = {
   status: "draft" | "approved" | "needs update";
   url: string;
   usageNotes: string;
+  // Set when the file lives in Supabase Storage (Module B2), so deleting the
+  // asset can also remove the stored file. URL-only entries leave this empty.
+  storagePath?: string;
+  // Optional link to a calendar item, in addition to the campaign link.
+  calendarItemId?: string;
 };
 
 export type UccMarketingEvent = {

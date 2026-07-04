@@ -255,6 +255,60 @@ export async function pruneWorkspaceSnapshots(config: SupabaseConfig): Promise<v
   }
 }
 
+// Supabase Storage for the Asset Library (Module B2). Uses a public bucket
+// named "assets" that the owner creates once in the Supabase dashboard.
+
+export const ASSET_BUCKET = "assets";
+
+function sanitizeStorageName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120) || "file";
+}
+
+export async function uploadAssetFile(
+  config: SupabaseConfig,
+  file: File,
+): Promise<{ publicUrl: string; storagePath: string }> {
+  const storagePath = `${Date.now()}-${sanitizeStorageName(file.name)}`;
+  const endpoint = `${config.url.replace(/\/+$/, "")}/storage/v1/object/${ASSET_BUCKET}/${storagePath}`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${config.anonKey}`,
+      "Content-Type": file.type || "application/octet-stream",
+      "x-upsert": "false",
+    },
+    body: file,
+  });
+
+  if (!response.ok) {
+    throw new Error(await describeError(response));
+  }
+
+  return {
+    publicUrl: `${config.url.replace(/\/+$/, "")}/storage/v1/object/public/${ASSET_BUCKET}/${storagePath}`,
+    storagePath,
+  };
+}
+
+export async function deleteAssetFile(
+  config: SupabaseConfig,
+  storagePath: string,
+): Promise<void> {
+  const endpoint = `${config.url.replace(/\/+$/, "")}/storage/v1/object/${ASSET_BUCKET}/${storagePath}`;
+  const response = await fetch(endpoint, {
+    method: "DELETE",
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${config.anonKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await describeError(response));
+  }
+}
+
 export async function testWorkspaceConnection(
   config: SupabaseConfig,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
