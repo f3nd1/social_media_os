@@ -132,3 +132,64 @@ export function upcomingSgMoments(
     months.some((month) => monthInWindow(month, moment)),
   );
 }
+
+export type SgMomentNudge = {
+  moment: SgMarketingMoment;
+  // "open" when today's month falls inside the window, "upcoming" otherwise.
+  status: "open" | "upcoming";
+  // Whole days from today to the first day of the window's start month.
+  // 0 while the window is open. Derived from the calendar, never invented.
+  daysUntilOpen: number;
+  message: string;
+};
+
+// Whole days from `from` (at local midnight) to the first day of the next
+// occurrence of `startMonth`. Pure calendar arithmetic, no invented dates.
+function daysUntilMonthStart(from: Date, startMonth: number): number {
+  const fromMidnight = new Date(
+    from.getFullYear(),
+    from.getMonth(),
+    from.getDate(),
+  );
+  let target = new Date(from.getFullYear(), startMonth - 1, 1);
+  if (target.getTime() < fromMidnight.getTime()) {
+    target = new Date(from.getFullYear() + 1, startMonth - 1, 1);
+  }
+  const dayMs = 1000 * 60 * 60 * 24;
+  return Math.round((target.getTime() - fromMidnight.getTime()) / dayMs);
+}
+
+// Dashboard nudges for real Singapore moments that are open now or open
+// within `maxDaysAhead` days. Every figure is computed from `from`, so no
+// dates are invented; windows already open report "open now".
+export function sgMomentNudges(
+  from: Date,
+  maxDaysAhead = 120,
+): SgMomentNudge[] {
+  const month = from.getMonth() + 1;
+  const nudges: SgMomentNudge[] = [];
+
+  for (const moment of SG_MARKETING_MOMENTS) {
+    if (monthInWindow(month, moment)) {
+      nudges.push({
+        moment,
+        status: "open",
+        daysUntilOpen: 0,
+        message: `${moment.name} window is open now.`,
+      });
+      continue;
+    }
+
+    const days = daysUntilMonthStart(from, moment.startMonth);
+    if (days > 0 && days <= maxDaysAhead) {
+      nudges.push({
+        moment,
+        status: "upcoming",
+        daysUntilOpen: days,
+        message: `${moment.name} window opens in ${days} day${days === 1 ? "" : "s"}.`,
+      });
+    }
+  }
+
+  return nudges.sort((a, b) => a.daysUntilOpen - b.daysUntilOpen);
+}

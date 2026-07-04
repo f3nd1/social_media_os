@@ -82,7 +82,7 @@ import {
   type CampaignAiContext,
   type CampaignAiSuggestionDraft,
 } from "@/lib/campaign-ai";
-import { upcomingSgMoments } from "@/lib/sg-marketing-moments";
+import { sgMomentNudges, upcomingSgMoments } from "@/lib/sg-marketing-moments";
 import {
   competitorDraftToInsights,
   type CompetitorAiContext,
@@ -2151,6 +2151,56 @@ function SetupStatusPanel({
   );
 }
 
+function SgMomentNudgePanel({
+  onNavigate,
+}: {
+  onNavigate: (view: ViewId) => void;
+}) {
+  // Only real, upcoming Singapore moments from the built-in calendar. Every
+  // day count is derived from today's date, so nothing here is invented.
+  const nudges = sgMomentNudges(new Date()).slice(0, 3);
+
+  if (nudges.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <SectionTitle
+          icon={CalendarDays}
+          kicker="Singapore moments"
+          title="Timely campaign prompts"
+          description="Upcoming Singapore marketing moments from the built-in calendar. These are suggestions only; you decide whether to act."
+        />
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {nudges.map((nudge) => (
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3"
+            key={nudge.moment.id}
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{nudge.message}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {nudge.moment.relevance}
+              </p>
+            </div>
+            <Button
+              onClick={() => onNavigate("campaigns")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Draft a campaign
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ManagementDashboardView({
   data,
   onNavigate,
@@ -2182,6 +2232,7 @@ function ManagementDashboardView({
   return (
     <section className="space-y-4">
       <SetupStatusPanel data={data} onNavigate={onNavigate} />
+      <SgMomentNudgePanel onNavigate={onNavigate} />
       <Card>
         <CardHeader>
           <SectionTitle
@@ -10920,6 +10971,7 @@ function CalendarMonthGrid({
                             <PlatformBadge platform={item.platform} />
                             <ItemKindBadge itemKind={item.itemKind ?? "post"} />
                             <StatusBadge status={item.status} />
+                            <ComplianceBadge item={item} />
                           </div>
                           <p className="mt-2 line-clamp-2 text-xs font-medium leading-4">
                             {item.contentTopic}
@@ -12082,6 +12134,7 @@ function ContentProductionView({
                     <PlatformBadge platform={item.platform} />
                     <ItemKindBadge itemKind={item.itemKind ?? "post"} />
                     <StatusBadge status={item.status} />
+                    <ComplianceBadge item={item} />
                   </div>
                 </div>
               </CardHeader>
@@ -13326,6 +13379,46 @@ function findCourse(ucc: UccStrategyData, id: string) {
 
 function findAudience(ucc: UccStrategyData, id: string) {
   return ucc.audiences.find((audience) => audience.id === id);
+}
+
+// All the wording on a calendar item that a manager would publish, joined so
+// the rule checker can scan it as one block.
+function complianceTextForItem(item: CalendarItem): string {
+  return [item.contentTopic, item.hook, item.caption, item.cta, item.finalCaption]
+    .filter((part) => typeof part === "string" && part.trim().length > 0)
+    .join("\n");
+}
+
+// Small green/amber dot showing whether the rule-based compliance checker
+// found risky wording on a card, so a manager sees it before opening the item.
+// This never blocks or approves; it only surfaces what the checker already
+// reports elsewhere in the app.
+function ComplianceBadge({ item }: { item: CalendarItem }) {
+  const flags = checkComplianceText(complianceTextForItem(item));
+  const clear = flags.length === 0;
+  const label = clear
+    ? "Compliance check: no risky wording found."
+    : `Compliance check: ${flags.length} thing${flags.length === 1 ? "" : "s"} to review before approval. ${flags.join(" / ")}`;
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+        clear
+          ? "border-success-border bg-success text-success-foreground"
+          : "border-warning-border bg-warning text-warning-foreground",
+      )}
+      title={label}
+    >
+      <span
+        className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          clear ? "bg-success-foreground" : "bg-warning-foreground",
+        )}
+      />
+      {clear ? "Compliance clear" : "Compliance check"}
+    </span>
+  );
 }
 
 function checkComplianceText(text: string) {
