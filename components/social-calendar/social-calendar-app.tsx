@@ -91,6 +91,7 @@ import {
   type PdfReportUpload,
   type PerformanceResult,
   type Platform,
+  type PlatformConnection,
   type Role,
   type SocialAudit,
   type SocialGoalSettings,
@@ -104,13 +105,25 @@ import {
   type UccCourse,
   type UccKpiRecord,
   type UccMarketingChannel,
-  type UccPlatformConnector,
   type UccStrategyData,
 } from "@/lib/social-calendar-data";
 import {
+  buildPdfMetricReviewRows,
+  countDetectedPdfMetrics,
+  getPdfConfidenceLevel,
+  metricLabel,
   parsePdfReportMetrics,
+  pdfReviewMetricFields,
+  reviewRowsToPlatformMetrics,
+  type PendingMetricReview,
   type PlatformDataMetrics,
 } from "@/lib/pdf-data-import";
+import { parseMetricoolCsv } from "@/lib/metricool-csv";
+import {
+  ConnectionManagerPanel,
+  MetricReviewPanel,
+  reviewRowsToApprovedMetrics,
+} from "@/components/social-calendar/connection-manager";
 import {
   buildExportSheets,
   downloadCsvPack,
@@ -237,6 +250,22 @@ export function SocialCalendarApp() {
 
   function resetSampleData() {
     setData(localSocialCalendarRepository.reset());
+  }
+
+  function applyApprovedMetrics(
+    metrics: PlatformDataMetrics[],
+    approvedBy: string,
+    source: { label: string; noteLabel: string; rangeLabel: string; editedCount: number },
+  ) {
+    updateWorkspace((current) =>
+      applyPlatformMetricsImport(
+        current,
+        metrics,
+        new Date().toISOString(),
+        approvedBy,
+        source,
+      ),
+    );
   }
 
   async function addPdfReports(files: FileList | null) {
@@ -447,12 +476,17 @@ export function SocialCalendarApp() {
     const approvedMetrics = reviewRowsToPlatformMetrics(approvedRows);
 
     updateWorkspace((current) =>
-      applyPdfReportImport(
+      applyPlatformMetricsImport(
         current,
-        selectedUpload.id,
         approvedMetrics,
         importedAt,
         selectedUpload.approvedBy ?? "Marketing Manager",
+        {
+          label: selectedUpload.fileName,
+          noteLabel: "PDF data import",
+          rangeLabel: `${selectedUpload.startDate} to ${selectedUpload.endDate}`,
+          uploadId: selectedUpload.id,
+        },
       ),
     );
 
@@ -791,11 +825,16 @@ export function SocialCalendarApp() {
               <SettingsWorkspaceView
                 sync={sync}
                 brand={data.brand}
+                connections={data.connections}
                 importState={pdfImportState}
                 pdfDataSource={data.pdfDataSource}
                 ucc={data.ucc}
                 competitors={data.competitors}
                 calendar={data.calendar}
+                onApplyMetrics={applyApprovedMetrics}
+                onConnectionsChange={(connections) =>
+                  updateWorkspace((current) => ({ ...current, connections }))
+                }
                 onBrandChange={(field, value) =>
                   updateWorkspace((current) => ({
                     ...current,
@@ -2510,10 +2549,13 @@ function SettingsWorkspaceView({
   brand,
   calendar,
   competitors,
+  connections,
   importState,
+  onApplyMetrics,
   onBrandChange,
   onCalendarChange,
   onCompetitorsChange,
+  onConnectionsChange,
   onPdfDataSourceChange,
   onPdfReportApply,
   onPdfReportChange,
@@ -2527,13 +2569,20 @@ function SettingsWorkspaceView({
   brand: BrandProfile;
   calendar: CalendarItem[];
   competitors: Competitor[];
+  connections: PlatformConnection[];
   importState: PdfImportState;
+  onApplyMetrics: (
+    metrics: PlatformDataMetrics[],
+    approvedBy: string,
+    source: { label: string; noteLabel: string; rangeLabel: string; editedCount: number },
+  ) => void;
   onBrandChange: <K extends keyof BrandProfile>(
     field: K,
     value: BrandProfile[K],
   ) => void;
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
+  onConnectionsChange: (connections: PlatformConnection[]) => void;
   onPdfDataSourceChange: <K extends keyof PdfDataSourceSettings>(
     field: K,
     value: PdfDataSourceSettings[K],
@@ -2547,6 +2596,39 @@ function SettingsWorkspaceView({
   sync: WorkspaceSync;
   ucc: UccStrategyData;
 }) {
+  const [pendingReview, setPendingReview] = useState<PendingMetricReview | null>(null);
+  const [approverName, setApproverName] = useState("");
+  const [csvMessage, setCsvMessage] = useState("");
+
+  function handleRowChange(rowId: string, patch: Partial<PdfMetricReview>) {
+    setPendingReview((current) =>
+      current
+        ? {
+            ...current,
+            rows: current.rows.map((row) =>
+              row.id === rowId ? { ...row, ...patch, edited: true } : row,
+            ),
+          }
+        : current,
+    );
+  }
+
+  function handleApply() {
+    if (!pendingReview) {
+      return;
+    }
+
+    const approvedRows = pendingReview.rows.filter((row) => row.approved);
+
+    onApplyMetrics(reviewRowsToApprovedMetrics(pendingReview.rows), approverName.trim(), {
+      label: pendingReview.sourceLabel,
+      noteLabel: pendingReview.noteLabel,
+      rangeLabel: pendingReview.rangeLabel,
+      editedCount: approvedRows.filter((row) => row.edited).length,
+    });
+    setPendingReview(null);
+  }
+
   return (
     <section className="space-y-4">
       <AppearanceSettingsPanel />
@@ -2562,122 +2644,53 @@ function SettingsWorkspaceView({
         onPdfReportDelete={onPdfReportDelete}
         onPdfReportUpload={onPdfReportUpload}
       />
-      <ConnectorSettingsPanel
-        connectors={ucc.connectors}
-        onConnectorsChange={(connectors) => onUccChange({ ...ucc, connectors })}
+      <ConnectionManagerPanel
+        connections={connections}
+        onConnectionsChange={onConnectionsChange}
+        onSyncReview={setPendingReview}
       />
+      {pendingReview ? (
+        <MetricReviewPanel
+          approverName={approverName}
+          onApply={handleApply}
+          onApproverNameChange={setApproverName}
+          onDiscard={() => setPendingReview(null)}
+          onRowChange={handleRowChange}
+          pending={pendingReview}
+        />
+      ) : null}
       <CsvImportPanel
         calendar={calendar}
         competitors={competitors}
         onCalendarChange={onCalendarChange}
         onCompetitorsChange={onCompetitorsChange}
+        onMetricoolCsvParsed={(result) => {
+          if (result.ok) {
+            setPendingReview(result.pending);
+            setCsvMessage("");
+          } else {
+            setCsvMessage(result.message);
+          }
+        }}
         onUccChange={onUccChange}
         ucc={ucc}
       />
+      {csvMessage ? (
+        <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+          {csvMessage}
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function ConnectorSettingsPanel({
-  connectors,
-  onConnectorsChange,
-}: {
-  connectors: UccPlatformConnector[];
-  onConnectorsChange: (connectors: UccPlatformConnector[]) => void;
-}) {
-  function updateConnector(id: string, patch: Partial<UccPlatformConnector>) {
-    onConnectorsChange(
-      connectors.map((connector) =>
-        connector.id === id ? { ...connector, ...patch } : connector,
-      ),
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Live Platform Data Connections</CardTitle>
-        <CardDescription>
-          Direct APIs can be configured when credentials are available. CSV/PDF
-          import remains available for restricted or manual platforms.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
-            <thead className="border-b text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="py-3 pr-4 font-medium">Platform</th>
-                <th className="py-3 pr-4 font-medium">Mode</th>
-                <th className="py-3 pr-4 font-medium">Status</th>
-                <th className="py-3 pr-4 font-medium">Last sync</th>
-                <th className="py-3 pr-4 font-medium">Notes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {connectors.map((connector) => (
-                <tr key={connector.id}>
-                  <td className="py-3 pr-4 font-medium">{connector.platform}</td>
-                  <td className="min-w-[160px] py-3 pr-4">
-                    <NativeSelect
-                      value={connector.mode}
-                      onChange={(event) =>
-                        updateConnector(connector.id, {
-                          mode: event.target.value as UccPlatformConnector["mode"],
-                        })
-                      }
-                    >
-                      <option value="direct API">Direct API</option>
-                      <option value="CSV/PDF import">CSV/PDF import</option>
-                      <option value="manual">Manual</option>
-                    </NativeSelect>
-                  </td>
-                  <td className="min-w-[180px] py-3 pr-4">
-                    <NativeSelect
-                      value={connector.status}
-                      onChange={(event) =>
-                        updateConnector(connector.id, {
-                          status: event.target.value as UccPlatformConnector["status"],
-                        })
-                      }
-                    >
-                      <option value="ready">Ready</option>
-                      <option value="needs credentials">Needs credentials</option>
-                      <option value="manual import only">Manual import only</option>
-                    </NativeSelect>
-                  </td>
-                  <td className="min-w-[160px] py-3 pr-4">
-                    <Input
-                      placeholder="YYYY-MM-DD"
-                      value={connector.lastSync}
-                      onChange={(event) =>
-                        updateConnector(connector.id, { lastSync: event.target.value })
-                      }
-                    />
-                  </td>
-                  <td className="min-w-[320px] py-3 pr-4">
-                    <Textarea
-                      value={connector.notes}
-                      onChange={(event) =>
-                        updateConnector(connector.id, { notes: event.target.value })
-                      }
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 function CsvImportPanel({
   calendar,
   competitors,
   onCalendarChange,
   onCompetitorsChange,
+  onMetricoolCsvParsed,
   onUccChange,
   ucc,
 }: {
@@ -2685,9 +2698,36 @@ function CsvImportPanel({
   competitors: Competitor[];
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
+  onMetricoolCsvParsed: (
+    result: { ok: true; pending: PendingMetricReview } | { ok: false; message: string },
+  ) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
+  async function importMetricoolCsv(file: File) {
+    const result = parseMetricoolCsv(await file.text());
+
+    if (!result.ok) {
+      onMetricoolCsvParsed({
+        ok: false,
+        message: `${result.error} Headers found in the file: ${
+          result.foundHeaders.length > 0 ? result.foundHeaders.join(", ") : "none"
+        }.`,
+      });
+      return;
+    }
+
+    onMetricoolCsvParsed({
+      ok: true,
+      pending: {
+        rows: buildPdfMetricReviewRows(result.metrics, "metricool-csv"),
+        sourceLabel: `Metricool CSV import (${file.name})`,
+        noteLabel: "Metricool CSV import",
+        rangeLabel: "the date range in the CSV export",
+      },
+    });
+  }
+
   async function importCsv(
     target:
       | "courses"
@@ -2784,6 +2824,27 @@ function CsvImportPanel({
             />
           </label>
         ))}
+        <label
+          className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+          key="metricool"
+        >
+          <FileUp className="h-4 w-4" />
+          Import Metricool CSV
+          <input
+            accept=".csv,text/csv"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+
+              if (file) {
+                void importMetricoolCsv(file);
+              }
+
+              event.target.value = "";
+            }}
+            type="file"
+          />
+        </label>
       </CardContent>
     </Card>
   );
@@ -7086,106 +7147,6 @@ function csvToAsset(row: Record<string, string>, ucc: UccStrategyData): UccAsset
   };
 }
 
-const pdfReviewMetricFields: Array<
-  keyof Omit<
-    PdfMetricReview,
-    "id" | "platform" | "confidence" | "approved" | "edited" | "notes"
-  >
-> = [
-  "followers",
-  "impressions",
-  "reach",
-  "engagement",
-  "comments",
-  "shares",
-  "saves",
-  "watchTime",
-  "clicks",
-  "followsGained",
-  "leads",
-  "posts",
-];
-
-function buildPdfMetricReviewRows(
-  platformMetrics: PlatformDataMetrics[],
-): PdfMetricReview[] {
-  return platformMetrics.map((metrics, index) => ({
-    id: `metric-${metrics.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}-${index}`,
-    platform: metrics.platform,
-    followers: metrics.followers,
-    impressions: metrics.impressions,
-    reach: metrics.reach,
-    engagement: metrics.engagement,
-    comments: metrics.comments,
-    shares: metrics.shares,
-    saves: metrics.saves,
-    watchTime: metrics.watchTime,
-    clicks: metrics.clicks,
-    followsGained: metrics.followsGained,
-    leads: metrics.leads,
-    posts: metrics.posts,
-    confidence: calculatePdfMetricConfidence(metrics),
-    approved: true,
-    edited: false,
-    notes:
-      metrics.leads > 0
-        ? "Lead metric detected; approve before applying to KPI Tracker."
-        : "Review platform metric mapping before applying.",
-  }));
-}
-
-function calculatePdfMetricConfidence(metrics: PlatformDataMetrics) {
-  const detectedCount = pdfReviewMetricFields.filter((field) => metrics[field] > 0)
-    .length;
-
-  return Math.min(95, Math.max(35, 35 + detectedCount * 8));
-}
-
-function getPdfConfidenceLevel(rows: PdfMetricReview[]) {
-  if (rows.length === 0) {
-    return "low" as const;
-  }
-
-  const averageConfidence =
-    rows.reduce((sum, row) => sum + row.confidence, 0) / rows.length;
-
-  if (averageConfidence >= 75) {
-    return "high" as const;
-  }
-
-  if (averageConfidence >= 55) {
-    return "medium" as const;
-  }
-
-  return "low" as const;
-}
-
-function countDetectedPdfMetrics(rows: PdfMetricReview[]) {
-  return rows.reduce(
-    (sum, row) =>
-      sum + pdfReviewMetricFields.filter((field) => row[field] > 0).length,
-    0,
-  );
-}
-
-function reviewRowsToPlatformMetrics(rows: PdfMetricReview[]): PlatformDataMetrics[] {
-  return rows.map((row) => ({
-    platform: row.platform,
-    followers: row.followers,
-    impressions: row.impressions,
-    reach: row.reach,
-    engagement: row.engagement,
-    comments: row.comments,
-    shares: row.shares,
-    saves: row.saves,
-    watchTime: row.watchTime,
-    clicks: row.clicks,
-    followsGained: row.followsGained,
-    leads: row.leads,
-    posts: row.posts,
-  }));
-}
-
 function canPublishCalendarItem(item: CalendarItem) {
   return item.approvalStage === "published" || item.approvalStage === "reported";
 }
@@ -7253,16 +7214,35 @@ function appendAiOutputHistory(
   };
 }
 
-function applyPdfReportImport(
+type PlatformMetricsImportSource = {
+  // Shown as the origin of the data, for example a PDF file name, a
+  // Metricool CSV file name, or "Metricool API sync".
+  label: string;
+  // Short phrase used in audit and performance notes, for example
+  // "PDF data import", "Metricool sync", or "Metricool CSV import".
+  noteLabel: string;
+  // Human-readable date range shown when there is no PDF upload record to
+  // read a precise range from, for example "last 30 days".
+  rangeLabel: string;
+  // Only set for the PDF path, so the matching pdfDataSource.uploads record
+  // can be looked up and marked as applied.
+  uploadId?: string;
+  // Count of approved rows the reviewer manually edited before applying,
+  // for sources that are not a tracked PDF upload.
+  editedCount?: number;
+};
+
+function applyPlatformMetricsImport(
   current: MarketingWorkspaceData,
-  uploadId: string,
   platformMetrics: PlatformDataMetrics[],
   importedAt: string,
   approvedBy: string,
+  source: PlatformMetricsImportSource,
 ): MarketingWorkspaceData {
-  const selectedUpload = current.pdfDataSource.uploads.find(
-    (upload) => upload.id === uploadId,
-  );
+  const selectedUpload = source.uploadId
+    ? current.pdfDataSource.uploads.find((upload) => upload.id === source.uploadId)
+    : undefined;
+  const sourceFileLabel = selectedUpload?.fileName ?? source.label;
   const metricsByPlatform = new Map(
     platformMetrics.map((metrics) => [metrics.platform, metrics]),
   );
@@ -7307,11 +7287,11 @@ function applyPdfReportImport(
       },
       notes: mergeImportNote(
         audit.notes,
-        `PDF data import ${formatDateTime(importedAt)}: ${formatNumber(
+        `${source.noteLabel} ${formatDateTime(importedAt)}: ${formatNumber(
           metrics.impressions,
         )} impressions, ${formatNumber(metrics.reach)} reach, ${formatNumber(
           engagementActions,
-        )} engagement actions from ${selectedUpload?.fileName ?? "uploaded report"}.`,
+        )} engagement actions from ${sourceFileLabel}.`,
       ),
     };
   });
@@ -7320,11 +7300,16 @@ function applyPdfReportImport(
   );
   const nextKpiRecords = [...current.ucc.kpiRecords];
 
+  const rangeLabel = selectedUpload
+    ? `${selectedUpload.startDate} to ${selectedUpload.endDate}`
+    : source.rangeLabel;
+
   platformMetrics.forEach((metrics) => {
     const item = selectPdfReportCalendarItem(
       current,
       metrics.platform,
-      selectedUpload,
+      selectedUpload?.startDate,
+      selectedUpload?.endDate,
     );
     const campaign =
       findCampaign(current.ucc, item?.campaignId ?? "") ??
@@ -7347,11 +7332,9 @@ function applyPdfReportImport(
         watchTime: metrics.watchTime,
         clicks: metrics.clicks,
         followsGained: metrics.followsGained,
-        notes: `Approved PDF report aggregate for ${metrics.platform} from ${
-          selectedUpload?.fileName ?? "uploaded report"
-        } covering ${selectedUpload?.startDate ?? "unknown"} to ${
-          selectedUpload?.endDate ?? "unknown"
-        }.`,
+        notes: `Approved ${source.noteLabel.toLowerCase()} aggregate for ${
+          metrics.platform
+        } from ${sourceFileLabel} covering ${rangeLabel}.`,
       });
     }
 
@@ -7391,9 +7374,13 @@ function applyPdfReportImport(
     platformMetrics.length > 0
       ? `Applied ${platformMetrics.length} approved platform metric row${
           platformMetrics.length === 1 ? "" : "s"
-        } from ${selectedUpload?.fileName ?? "the selected PDF report"} to audit, KPI Tracker, and performance learning.`
-      : "No recognized platform metrics were found in the selected PDF report.";
-  const approvedRows = selectedUpload?.reviewMetrics?.filter((row) => row.approved) ?? [];
+        } from ${sourceFileLabel} to audit, KPI Tracker, and performance learning.`
+      : `No recognised platform metrics were found from ${sourceFileLabel}.`;
+  const approvedUploadRows =
+    selectedUpload?.reviewMetrics?.filter((row) => row.approved) ?? [];
+  const editedMetricCount = source.uploadId
+    ? approvedUploadRows.filter((row) => row.edited).length
+    : (source.editedCount ?? 0);
 
   return {
     ...current,
@@ -7407,33 +7394,35 @@ function applyPdfReportImport(
       ...current.pdfDataSource,
       importLog: [
         {
-          id: `pdf-log-${Date.now()}`,
-          uploadId,
-          fileName: selectedUpload?.fileName ?? "PDF report",
+          id: `import-log-${Date.now()}`,
+          uploadId: source.uploadId ?? "",
+          fileName: sourceFileLabel,
           uploadedAt: selectedUpload?.uploadedAt ?? importedAt,
           appliedAt: importedAt,
           approvedBy,
           extractedMetricCount: selectedUpload?.reviewMetrics?.length ?? platformMetrics.length,
           appliedMetricCount: platformMetrics.length,
-          editedMetricCount: approvedRows.filter((row) => row.edited).length,
+          editedMetricCount,
           platforms: platformMetrics.map((metrics) => metrics.platform),
           summary,
         },
         ...(current.pdfDataSource.importLog ?? []),
       ],
-      uploads: current.pdfDataSource.uploads.map((upload) =>
-        upload.id === uploadId
-          ? {
-              ...upload,
-              detectedMetricCount: platformMetrics.length,
-              detectedPlatforms: platformMetrics.map((metrics) => metrics.platform),
-              confidenceLevel: getPdfConfidenceLevel(upload.reviewMetrics ?? []),
-              approvalStatus: "applied",
-              approvedBy,
-              extractionMessage: summary,
-            }
-          : upload,
-      ),
+      uploads: source.uploadId
+        ? current.pdfDataSource.uploads.map((upload) =>
+            upload.id === source.uploadId
+              ? {
+                  ...upload,
+                  detectedMetricCount: platformMetrics.length,
+                  detectedPlatforms: platformMetrics.map((metrics) => metrics.platform),
+                  confidenceLevel: getPdfConfidenceLevel(upload.reviewMetrics ?? []),
+                  approvalStatus: "applied",
+                  approvedBy,
+                  extractionMessage: summary,
+                }
+              : upload,
+          )
+        : current.pdfDataSource.uploads,
       lastImportedAt: importedAt,
       lastImportSummary: summary,
     },
@@ -7443,15 +7432,12 @@ function applyPdfReportImport(
 function selectPdfReportCalendarItem(
   data: MarketingWorkspaceData,
   platform: Platform,
-  selectedUpload?: PdfReportUpload,
+  startDate?: string,
+  endDate?: string,
 ) {
   const platformItems = data.calendar.filter((item) => item.platform === platform);
   const inRange = platformItems.filter((item) =>
-    isDateInRange(
-      item.date,
-      selectedUpload?.startDate ?? "",
-      selectedUpload?.endDate ?? "",
-    ),
+    isDateInRange(item.date, startDate ?? "", endDate ?? ""),
   );
 
   return (
@@ -7649,12 +7635,6 @@ function formatEfficiency(value?: number) {
   }
 
   return `${Math.round(value * 1000) / 10}% action density`;
-}
-
-function metricLabel(value: string) {
-  return value
-    .replace(/([A-Z])/g, " $1")
-    .replace(/^./, (letter) => letter.toUpperCase());
 }
 
 function roleLabel(role: Role) {
