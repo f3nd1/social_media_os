@@ -2,19 +2,20 @@
 // so the API token never reaches the browser network tab, and so the calls
 // avoid the CORS restrictions a browser would hit calling Metricool directly.
 //
-// Authentication follows Metricool's published API: the access token in the
-// "X-Mc-Auth" request header, with userId and blogId as query parameters on
-// every call (confirmed against Metricool's API documentation). Where a v2
-// path is not available on an account, this client falls back to the older
-// documented path. If Metricool changes a path, this is the one file to
-// update.
+// Request format verified against the working open-source Metricool CLI
+// (github.com/Purple-Horizons/metricool-cli, which has full API coverage):
+//   - Base:  https://app.metricool.com/api
+//   - Auth:  userToken, userId and blogId are QUERY PARAMETERS, not headers.
+//   - Brands: GET /brands
+//   - Metric timeline: GET /stats/timeline/{metric}?start=...&end=...
+//   - Dates: ISO 8601 datetimes (start T00:00:00, end T23:59:59), no timezone.
+// Earlier code called /v2/settings/brands and /v2/analytics/timelines with an
+// X-Mc-Auth header, which is why Metricool served its website HTML with a 404:
+// the request never reached the API router.
 //
 // Nothing here ever reports success on a failed call. Every failure is
-// returned to the UI as the exact upstream status code, the raw response
-// body, and the endpoint path that produced it, so the owner can tell auth
-// (401) from plan/permission (402/403) from a wrong endpoint (404) from a
-// malformed request (400). The CSV import remains the fallback when the API
-// is gated by the account's plan.
+// returned to the UI as the exact status, the raw body, and the URL called
+// (with the token masked) so the owner can compare it against the docs.
 
 import { type Platform } from "@/lib/social-calendar-data";
 import type { PlatformDataMetrics } from "@/lib/pdf-data-import";
@@ -48,30 +49,40 @@ export const METRICOOL_NETWORK_TO_PLATFORM: Record<string, Platform> = {
 
 export const METRICOOL_SYNC_NETWORKS = Object.keys(METRICOOL_NETWORK_TO_PLATFORM);
 
-// v2 analytics/timelines metric ids. Confirmed against Metricool's public
-// documentation for the metric names that exist on every network; some
-// networks may not report every metric, which the sync loop treats as "no
-// data for this metric" rather than an error.
+// Timeline metric ids, matching the metric names the verified CLI documents
+// for `analytics timeline` (followers, impressions, engagement, reach,
+// clicks). Some networks may not report every metric.
 const METRICOOL_METRIC_IDS = {
   followers: "followers",
   impressions: "impressions",
   reach: "reach",
-  engagement: "interactions",
+  engagement: "engagement",
   clicks: "clicks",
 } as const;
 
-function authHeaders(apiToken: string) {
-  return { "X-Mc-Auth": apiToken };
+// Appends the auth query parameters exactly as the working CLI does:
+// userToken (the API token), userId, and blogId.
+function withAuth(url: string, credentials: MetricoolCredentials) {
+  const parsed = new URL(url);
+  parsed.searchParams.set("userToken", credentials.apiToken);
+  parsed.searchParams.set("userId", credentials.userId);
+  parsed.searchParams.set("blogId", credentials.blogId);
+  return parsed.toString();
 }
 
-// The path (and query, minus the secret token which only ever travels in the
-// header) so an error can name exactly which endpoint Metricool rejected.
+// The URL with the token value replaced, safe to show the owner so they can
+// compare the exact call against Metricool's documentation.
+export function maskUrl(url: string) {
+  return url.replace(/userToken=[^&]*/i, "userToken=***");
+}
+
+// The path and query with the token masked, for short error lines.
 function endpointPath(url: string) {
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(maskUrl(url));
     return parsed.pathname + parsed.search;
   } catch {
-    return url;
+    return maskUrl(url);
   }
 }
 
@@ -81,6 +92,13 @@ async function readBody(response: Response) {
   } catch {
     return "";
   }
+}
+
+// Metricool serves its website (an HTML page) when a request does not hit an
+// API route, so an HTML body is the tell-tale sign of a wrong path or host.
+function looksLikeHtml(body: string) {
+  const head = body.slice(0, 200).toLowerCase();
+  return head.includes("<!doctype html") || head.includes("<html") || head.includes("<title>metricool");
 }
 
 // Always reports the exact upstream status and raw body so the owner can tell
@@ -231,18 +249,25 @@ async function readBrandEndpoint(
   | { kind: "found"; label: string; row: MetricoolBrandRow }
   | { kind: "empty-list" }
   | { kind: "wrong-brand"; ids: string }
-  | { kind: "unrecognised"; raw: string }
+  | { kind: "unrecognised"; raw: string; html: boolean; maskedUrl: string }
   | { kind: "http-error"; error: string; status: number }
   | { kind: "network-error"; error: string }
 > {
+  const authedUrl = withAuth(url, credentials);
+
   try {
-    const response = await fetch(url, { headers: authHeaders(credentials.apiToken) });
+    const response = await fetch(authedUrl);
     const raw = await readBody(response);
 
     if (!response.ok) {
+      const htmlNote = looksLikeHtml(raw)
+        ? " Metricool returned an HTML web page, not API data, which means this URL did not reach the API (wrong path or host)."
+        : "";
       return {
         kind: "http-error",
-        error: describeUpstream(response.status, response.statusText, raw, endpointPath(url)),
+        error:
+          describeUpstream(response.status, response.statusText, raw, endpointPath(authedUrl)) +
+          htmlNote,
         status: response.status,
       };
     }
@@ -258,7 +283,7 @@ async function readBrandEndpoint(
     const brands = extractBrandList(payload);
 
     if (!brands) {
-      return { kind: "unrecognised", raw };
+      return { kind: "unrecognised", raw, html: looksLikeHtml(raw), maskedUrl: maskUrl(authedUrl) };
     }
 
     if (brands.length === 0) {
@@ -290,12 +315,13 @@ async function readBrandEndpoint(
 async function fetchBrandInfo(
   credentials: MetricoolCredentials,
 ): Promise<MetricoolResult<{ label: string; row: MetricoolBrandRow }>> {
-  const v2Url = `${METRICOOL_BASE_URL}/v2/settings/brands?userId=${encodeURIComponent(credentials.userId)}`;
-  // The endpoint Metricool's own help pages document for listing brands and
-  // their blogIds.
-  const legacyUrl = `${METRICOOL_BASE_URL}/admin/simpleProfiles?userId=${encodeURIComponent(credentials.userId)}`;
+  // Verified against the working CLI: brands are listed at /brands with auth
+  // as query parameters. admin/simpleProfiles is kept as a documented
+  // secondary listing.
+  const primaryUrl = `${METRICOOL_BASE_URL}/brands`;
+  const legacyUrl = `${METRICOOL_BASE_URL}/admin/simpleProfiles`;
 
-  const v2 = await readBrandEndpoint(credentials, v2Url);
+  const v2 = await readBrandEndpoint(credentials, primaryUrl);
 
   if (v2.kind === "found") {
     return { ok: true, value: { label: v2.label, row: v2.row } };
@@ -312,8 +338,8 @@ async function fetchBrandInfo(
     return { ok: false, error: v2.error, status: v2.status };
   }
 
-  // v2 was a 404, an empty list, an unrecognised body, or unreachable: try
-  // the documented legacy listing before reporting anything.
+  // The primary listing was a 404, an empty list, an unrecognised body, or
+  // unreachable: try the secondary listing before reporting anything.
   const legacy = await readBrandEndpoint(credentials, legacyUrl);
 
   if (legacy.kind === "found") {
@@ -340,14 +366,22 @@ async function fetchBrandInfo(
   }
 
   if (legacy.kind === "unrecognised" || v2.kind === "unrecognised") {
-    const raw = legacy.kind === "unrecognised" ? legacy.raw : (v2 as { raw: string }).raw;
+    const source = legacy.kind === "unrecognised" ? legacy : (v2 as Extract<typeof v2, { kind: "unrecognised" }>);
+
+    if (source.html) {
+      return {
+        ok: false,
+        error:
+          `Metricool returned an HTML web page instead of brand data, so this URL did not reach the API. URL called (token masked): ${source.maskedUrl}. Compare this against Metricool's API docs. Use the CSV import meanwhile.`,
+      };
+    }
 
     return {
       ok: false,
       error:
-        `Metricool answered with HTTP 200 (so the token and User ID are accepted) but the response was not a recognisable list of brands. Raw response from Metricool: ${
-          raw ? raw.slice(0, 400) : "(empty body)"
-        }. If this keeps happening, use the CSV import as the fallback and send this raw response so the endpoint can be adjusted.`,
+        `Metricool answered HTTP 200 but the body was not a recognisable list of brands. URL called (token masked): ${source.maskedUrl}. Raw response: ${
+          source.raw ? source.raw.slice(0, 400) : "(empty body)"
+        }. Use the CSV import as the fallback and send this so the endpoint can be adjusted.`,
     };
   }
 
@@ -436,30 +470,40 @@ function timelinePointValue(point: unknown): number {
 }
 
 type TimelineOutcome =
-  | { ok: true; total: number; latest: number; points: number }
+  | { ok: true; total: number; latest: number; points: number; maskedUrl: string }
   | {
       ok: false;
       status: number;
       notFound: boolean;
       unrecognised: boolean;
+      html: boolean;
       error: string;
       raw: string;
+      maskedUrl: string;
     };
+
+// Metricool timeline dates are ISO 8601 datetimes with no timezone (verified
+// CLI passes user dates as-is): start at 00:00:00, end at 23:59:59.
+function timelineUrl(credentials: MetricoolCredentials, metric: string, start: string, end: string) {
+  const url = `${METRICOOL_BASE_URL}/stats/timeline/${encodeURIComponent(metric)}?start=${encodeURIComponent(
+    start,
+  )}&end=${encodeURIComponent(end)}`;
+  return withAuth(url, credentials);
+}
 
 async function fetchTimelineMetric(
   credentials: MetricoolCredentials,
-  network: string,
   metric: string,
-  from: string,
-  to: string,
+  start: string,
+  end: string,
 ): Promise<TimelineOutcome> {
-  const url = `${METRICOOL_BASE_URL}/v2/analytics/timelines/${metric}?from=${from}&to=${to}&blogId=${encodeURIComponent(
-    credentials.blogId,
-  )}&userId=${encodeURIComponent(credentials.userId)}&network=${encodeURIComponent(network)}`;
+  const authedUrl = timelineUrl(credentials, metric, start, end);
+  const masked = maskUrl(authedUrl);
 
   try {
-    const response = await fetch(url, { headers: authHeaders(credentials.apiToken) });
+    const response = await fetch(authedUrl);
     const raw = await readBody(response);
+    const html = looksLikeHtml(raw);
 
     if (!response.ok) {
       return {
@@ -467,8 +511,10 @@ async function fetchTimelineMetric(
         status: response.status,
         notFound: response.status === 404,
         unrecognised: false,
-        error: describeUpstream(response.status, response.statusText, raw, endpointPath(url)),
+        html,
+        error: describeUpstream(response.status, response.statusText, html ? "(HTML web page)" : raw, endpointPath(authedUrl)),
         raw: raw.slice(0, 200),
+        maskedUrl: masked,
       };
     }
 
@@ -488,8 +534,10 @@ async function fetchTimelineMetric(
         status: 200,
         notFound: false,
         unrecognised: true,
-        error: `Metricool answered HTTP 200 for ${endpointPath(url)} but the body held no recognisable list of data points.`,
+        html,
+        error: `Metricool answered HTTP 200 but the body held no recognisable list of data points.`,
         raw: raw.slice(0, 200),
+        maskedUrl: masked,
       };
     }
 
@@ -497,37 +545,47 @@ async function fetchTimelineMetric(
     const total = values.reduce((sum, value) => sum + value, 0);
     const latest = values.length > 0 ? values[values.length - 1] : 0;
 
-    return { ok: true, total, latest, points: values.length };
+    return { ok: true, total, latest, points: values.length, maskedUrl: masked };
   } catch (error) {
     return {
       ok: false,
       status: 0,
       notFound: false,
       unrecognised: false,
+      html: false,
       error: error instanceof Error ? error.message : String(error),
       raw: "",
+      maskedUrl: masked,
     };
   }
 }
 
 async function fetchPostCount(
   credentials: MetricoolCredentials,
-  network: string,
-  from: string,
-  to: string,
+  start: string,
+  end: string,
 ): Promise<number> {
   try {
-    const url = `${METRICOOL_BASE_URL}/v2/analytics/posts/${network}?from=${from}&to=${to}&blogId=${encodeURIComponent(
-      credentials.blogId,
-    )}&userId=${encodeURIComponent(credentials.userId)}`;
-    const response = await fetch(url, { headers: authHeaders(credentials.apiToken) });
+    const url = withAuth(
+      `${METRICOOL_BASE_URL}/posts?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+      credentials,
+    );
+    const response = await fetch(url);
 
     if (!response.ok) {
       return 0;
     }
 
-    const payload = (await response.json()) as unknown;
-    return Array.isArray(payload) ? payload.length : 0;
+    const raw = await readBody(response);
+    let payload: unknown = null;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return 0;
+    }
+
+    const list = extractTimelinePoints(payload);
+    return list ? list.length : 0;
   } catch {
     return 0;
   }
@@ -537,6 +595,10 @@ async function fetchPostCount(
 function describeTimelineOutcome(outcome: TimelineOutcome): string {
   if (outcome.ok) {
     return `${outcome.points} data point${outcome.points === 1 ? "" : "s"}`;
+  }
+
+  if (outcome.html) {
+    return "HTML web page (wrong endpoint)";
   }
 
   if (outcome.unrecognised) {
@@ -549,15 +611,14 @@ function describeTimelineOutcome(outcome: TimelineOutcome): string {
 export async function syncMetricoolMetrics(
   credentials: MetricoolCredentials,
   rangeDays = 30,
-  networks: string[] = METRICOOL_SYNC_NETWORKS,
 ): Promise<
   MetricoolResult<{
     metrics: PlatformDataMetrics[];
     skippedNetworks: string[];
     // A plain-English account of exactly what Metricool returned: the range
-    // asked for, the brand record's connected networks, and per-network
-    // per-metric statuses with raw samples where relevant. Shown in the UI
-    // so an empty sync is never a mystery.
+    // asked for, the brand and its connected networks, and per-metric
+    // statuses with the exact URL called (token masked). Shown in the UI so
+    // an empty sync is never a mystery.
     report: string[];
   }>
 > {
@@ -573,104 +634,101 @@ export async function syncMetricoolMetrics(
     ? rangeDays
     : 30;
   const { from, to } = lastNDayRange(days);
+  // Metricool timeline dates are datetimes; cover the whole day at each end.
+  const start = `${from}T00:00:00`;
+  const end = `${to}T23:59:59`;
+
   const report: string[] = [];
   const brandRow = brandCheck.value.row as Record<string, unknown>;
   const connectedNetworks = extractConnectedNetworks(brandRow);
 
-  report.push(`Date range requested: ${from} to ${to} (last ${days} days).`);
+  report.push(`Date range requested: ${start} to ${end} (last ${days} days).`);
   report.push(`Brand found: "${brandCheck.value.label}" (Blog ID ${credentials.blogId}).`);
 
   if (connectedNetworks.length > 0) {
     report.push(
-      `Networks the Metricool brand record appears to have connected: ${connectedNetworks.join(", ")}.`,
+      `Networks the Metricool brand record shows connected: ${connectedNetworks.join(", ")}.`,
     );
   } else {
     report.push(
-      `The brand record did not clearly list any connected networks. Raw brand record (truncated): ${JSON.stringify(brandRow).slice(0, 300)}`,
+      `The brand record did not clearly list any connected networks. Raw brand record (truncated): ${JSON.stringify(brandRow).slice(0, 400)}`,
     );
+  }
+
+  // Metricool's timeline API is keyed by brand (blogId), not per network, so
+  // each metric is fetched once for the brand.
+  const metricNames = Object.values(METRICOOL_METRIC_IDS);
+  const outcomes = await Promise.all(
+    metricNames.map((metric) => fetchTimelineMetric(credentials, metric, start, end)),
+  );
+  const [followers, impressions, reach, engagement, clicks] = outcomes;
+
+  metricNames.forEach((metric, index) => {
+    const outcome = outcomes[index];
+    const rawNote = !outcome.ok && outcome.raw.trim() ? ` Raw reply: ${outcome.raw}` : "";
+    report.push(
+      `${metric}: ${describeTimelineOutcome(outcome)}. URL called: ${outcome.maskedUrl}.${rawNote}`,
+    );
+  });
+
+  const failures = outcomes.filter(
+    (outcome): outcome is Extract<TimelineOutcome, { ok: false }> => !outcome.ok,
+  );
+  const anyHtml = failures.some((failure) => failure.html);
+  const allFailed = failures.length === outcomes.length;
+
+  // Every call served the website HTML: the endpoint/host is wrong for this
+  // account. Report it plainly with the masked URL to compare against docs.
+  if (allFailed && anyHtml) {
+    return {
+      ok: false,
+      error: `Every metric request returned Metricool's website HTML rather than API data, so the timeline endpoint did not reach the API for this account. Example URL called (token masked): ${outcomes[0].maskedUrl}. Compare this against Metricool's API docs; use the CSV import meanwhile.`,
+    };
+  }
+
+  if (allFailed) {
+    const planGated = failures.every((failure) => [401, 402, 403].includes(failure.status));
+
+    if (planGated) {
+      return {
+        ok: false,
+        error:
+          "Metricool returned 401/402/403 for every metric, which means API access is not enabled on your plan (it needs at least the Advanced plan). Use the CSV import instead.",
+        status: 403,
+      };
+    }
+
+    const allNotFound = failures.every((failure) => failure.notFound);
+
+    if (!allNotFound) {
+      const first = failures.find((f) => f.unrecognised) ?? failures[0];
+      return { ok: false, error: first.error, status: first.status };
+    }
+    // All clean 404s: no data for this brand in this range. Fall through to a
+    // successful-but-empty result so the report is shown; no numbers invented.
   }
 
   const metrics: PlatformDataMetrics[] = [];
   const skippedNetworks: string[] = [];
-  let planGatedCount = 0;
-  // The first genuine (non plan-gated) upstream failure, kept verbatim so a
-  // 400 or 5xx is reported exactly instead of being flattened into "skipped".
-  let firstRealError: { error: string; status: number } | null = null;
+  const gotData = outcomes.some((outcome) => outcome.ok && outcome.points > 0);
 
-  for (const network of networks) {
-    const platform = METRICOOL_NETWORK_TO_PLATFORM[network];
-
-    if (!platform) {
-      continue;
-    }
-
-    const metricNames = Object.values(METRICOOL_METRIC_IDS);
-    const [followers, impressions, reach, engagement, clicks] = await Promise.all(
-      metricNames.map((metric) =>
-        fetchTimelineMetric(credentials, network, metric, from, to),
-      ),
+  if (gotData) {
+    // The timeline is brand-level, so this is one row for the brand, labelled
+    // with the first connected network that maps to a platform. Reviewed and
+    // approved before it is applied; never auto-written.
+    const primaryNetwork = connectedNetworks.find(
+      (network) => METRICOOL_NETWORK_TO_PLATFORM[network],
     );
+    const platform: Platform = primaryNetwork
+      ? METRICOOL_NETWORK_TO_PLATFORM[primaryNetwork]
+      : "Facebook";
+    const posts = await fetchPostCount(credentials, start, end);
 
-    const results = [followers, impressions, reach, engagement, clicks];
-    const outcomes = metricNames.map(
-      (metric, index) => `${metric} ${describeTimelineOutcome(results[index])}`,
+    report.push(
+      `Producing one brand-level row for review, labelled ${platform}${
+        primaryNetwork ? "" : " (no network mapped, using a default label)"
+      }. Metricool's timeline API returns brand totals, not a per-network split; for per-network figures use the CSV export.`,
     );
-    const distinct = new Set(results.map((result) => describeTimelineOutcome(result)));
-    const rawSample = results.find(
-      (result) => !result.ok && result.raw.trim().length > 0,
-    );
-
-    if (distinct.size === 1) {
-      report.push(
-        `${network}: all five metrics returned ${[...distinct][0]}${
-          rawSample && !rawSample.ok ? `. Raw reply: ${rawSample.raw}` : "."
-        }`,
-      );
-    } else {
-      report.push(
-        `${network}: ${outcomes.join(", ")}${
-          rawSample && !rawSample.ok ? `. Raw reply sample: ${rawSample.raw}` : "."
-        }`,
-      );
-    }
-
-    const allFailed = results.every((result) => !result.ok);
-
-    if (allFailed) {
-      const failures = results.filter(
-        (result): result is Exclude<TimelineOutcome, { ok: true }> => !result.ok,
-      );
-      // 401/402/403 mean the plan does not include API access; those are the
-      // only failures we treat as "gated" and roll up into the plan message.
-      const planGated = failures.every((result) =>
-        [401, 402, 403].includes(result.status),
-      );
-
-      if (planGated) {
-        planGatedCount += 1;
-        continue;
-      }
-
-      // A 404 across every metric means Metricool holds no data at these
-      // endpoints for this network: a genuine skip, not an error.
-      const allNotFound = failures.every((result) => result.notFound);
-
-      if (allNotFound) {
-        skippedNetworks.push(network);
-        continue;
-      }
-
-      // Anything else (a 400, a 5xx, an unreadable 200) is a real problem we
-      // must surface exactly, not hide.
-      if (!firstRealError) {
-        const first = failures.find((f) => f.unrecognised) ?? failures[0];
-        firstRealError = { error: `${network}: ${first.error}`, status: first.status };
-      }
-
-      continue;
-    }
-
-    const posts = await fetchPostCount(credentials, network, from, to);
 
     metrics.push({
       platform,
@@ -687,25 +745,6 @@ export async function syncMetricoolMetrics(
       leads: 0,
       posts,
     });
-  }
-
-  // No metrics came back. Surface the most informative reason, exactly.
-  if (metrics.length === 0) {
-    if (firstRealError) {
-      return { ok: false, error: firstRealError.error, status: firstRealError.status };
-    }
-
-    if (planGatedCount > 0) {
-      return {
-        ok: false,
-        error:
-          "Metricool returned 401/402/403 for every network, which means API access is not enabled on your plan (it needs at least the Advanced plan). Use the CSV import instead.",
-        status: 403,
-      };
-    }
-    // Everything was a clean 404: Metricool holds no timeline data at these
-    // endpoints for any network in this range. The report says so per
-    // network; the UI shows it rather than inventing numbers.
   }
 
   return { ok: true, value: { metrics, skippedNetworks, report } };
