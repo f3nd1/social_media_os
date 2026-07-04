@@ -34,6 +34,9 @@ export type CalendarAiContext = {
     contentTopic: string;
     currentCaption: string;
   };
+  // Trend Radar cards the manager accepted (Module D1). Optional so older
+  // callers keep working.
+  acceptedTrends?: string[];
 };
 
 // The JSON shape the model must return per item. Status and approval are set
@@ -99,6 +102,7 @@ export function buildCalendarUserPrompt(context: CalendarAiContext): string {
         campaigns: context.campaigns,
         courses: context.courses,
         audiences: context.audiences,
+        acceptedTrends: context.acceptedTrends ?? [],
       },
       null,
       2,

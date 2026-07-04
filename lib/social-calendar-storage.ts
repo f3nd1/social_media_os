@@ -144,6 +144,18 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
       data.weeklyReport && typeof data.weeklyReport === "object"
         ? data.weeklyReport
         : null,
+    trendInsights: Array.isArray(data.trendInsights)
+      ? data.trendInsights.map((trend) => ({
+          ...trend,
+          sources: Array.isArray(trend.sources) ? trend.sources : [],
+        }))
+      : [],
+    listeningResults: Array.isArray(data.listeningResults)
+      ? data.listeningResults.map((result) => ({
+          ...result,
+          quotes: Array.isArray(result.quotes) ? result.quotes : [],
+        }))
+      : [],
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,

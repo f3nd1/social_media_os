@@ -573,6 +573,9 @@ export type AiIntegrationSettings = {
   // million tokens. Optional; when a model has no prices the meter shows
   // token counts only, never an invented cost.
   modelPrices?: Record<string, { inPerMillion: number; outPerMillion: number }>;
+  // Optional xAI key for social listening on X. Without it, listening runs
+  // on Reddit only and the UI says so honestly (Module D3).
+  xaiApiKey?: string;
 };
 
 export function createDefaultAiIntegration(): AiIntegrationSettings {
@@ -627,6 +630,42 @@ export type AiRecommendation = {
   // manager can verify the claim (D-REQ2 traceability).
   dataUsed: string;
   status: "draft" | "accepted" | "dismissed";
+  model: string;
+  generatedAt: string;
+};
+
+// One cited source behind a trend card (Module D1). Every trend must point
+// at the real pages the web search found; no source, no trend.
+export type TrendSource = {
+  title: string;
+  url: string;
+};
+
+// One trend card from the Trend Radar (Module D1). Draft until the manager
+// accepts it; accepted trends become context for campaign suggestions and
+// calendar generation.
+export type TrendInsight = {
+  id: string;
+  title: string;
+  whyItMatters: string;
+  contentAngle: string;
+  sources: TrendSource[];
+  status: "draft" | "accepted" | "dismissed";
+  model: string;
+  generatedAt: string;
+};
+
+// One social listening run from the Trend Radar's listening tab (Module D3).
+// Quotes are research evidence for internal planning only, never marketing
+// copy. Built on the MIT-licensed sc-research package.
+export type ListeningResult = {
+  id: string;
+  topic: string;
+  analysisType: "quick" | "ranking" | "sentiment" | "timeline" | "controversy";
+  insight: string;
+  quotes: Array<{ text: string; source: string; url: string }>;
+  sourcesCovered: string;
+  dateRange: string;
   model: string;
   generatedAt: string;
 };
@@ -793,6 +832,8 @@ export type MarketingWorkspaceData = {
   complianceDocs: ComplianceDoc[];
   aiRecommendations: AiRecommendation[];
   weeklyReport: WeeklyReport | null;
+  trendInsights: TrendInsight[];
+  listeningResults: ListeningResult[];
 };
 
 export const platformRules: Record<
@@ -2536,6 +2577,8 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     complianceDocs: [],
     aiRecommendations: [],
     weeklyReport: null,
+    trendInsights: [],
+    listeningResults: [],
   };
 }
 

@@ -100,6 +100,7 @@ import {
   type InsightsAiDraft,
 } from "@/lib/insights-ai";
 import { buildReportContext } from "@/lib/report-ai";
+import { buildTrendContext } from "@/lib/trend-ai";
 import {
   deleteAssetFile,
   resolveSupabaseConfig,
@@ -140,6 +141,7 @@ import {
   type AiIntegrationSettings,
   type AiRecommendation,
   type AiUsageEntry,
+  type TrendInsight,
   type WeeklyReport,
   type AuditInsight,
   type CampaignSuggestion,
@@ -806,6 +808,7 @@ export function SocialCalendarApp() {
 
             {activeView === "campaigns" ? (
               <CampaignPlanningView
+                acceptedTrends={acceptedTrendLines(data.trendInsights)}
                 aiIntegration={data.aiIntegration}
                 auditInsights={data.auditInsights}
                 brief={data.brief}
@@ -824,8 +827,13 @@ export function SocialCalendarApp() {
 
             {activeView === "platform" ? (
               <PlatformStrategyView
+                data={data}
                 ucc={data.ucc}
                 onNavigate={setActiveView}
+                onRecordUsage={recordAiUsage}
+                onTrendInsightsChange={(trendInsights) =>
+                  updateWorkspace((current) => ({ ...current, trendInsights }))
+                }
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
                 }
@@ -867,6 +875,7 @@ export function SocialCalendarApp() {
 
             {activeView === "calendar" ? (
               <CalendarBuilderView
+                acceptedTrends={acceptedTrendLines(data.trendInsights)}
                 aiIntegration={data.aiIntegration}
                 audits={data.audits}
                 brand={data.brand}
@@ -2135,6 +2144,7 @@ function CampaignEditorSlideOver({
 }
 
 function CampaignPlanningView({
+  acceptedTrends,
   aiIntegration,
   auditInsights,
   brief,
@@ -2145,6 +2155,7 @@ function CampaignPlanningView({
   onUccChange,
   ucc,
 }: {
+  acceptedTrends: string[];
   aiIntegration: AiIntegrationSettings;
   auditInsights: AuditInsight[];
   brief: StrategyBrief;
@@ -2204,6 +2215,7 @@ function CampaignPlanningView({
             })),
             existingCampaignNames: ucc.campaigns.map((campaign) => campaign.name),
             sgMoments: formatMomentsForPrompt(upcomingSgMoments(new Date())),
+            acceptedTrends,
           } satisfies CampaignAiContext,
         }),
       });
@@ -2673,12 +2685,250 @@ function CampaignPlanningView({
   );
 }
 
+// Lines handed to the campaign and calendar AI as extra context (Module D1).
+function acceptedTrendLines(trendInsights: TrendInsight[]): string[] {
+  return trendInsights
+    .filter((trend) => trend.status === "accepted")
+    .map((trend) => `${trend.title}. Suggested angle: ${trend.contentAngle}`);
+}
+
+function TrendRadarPanel({
+  data,
+  onRecordUsage,
+  onTrendInsightsChange,
+}: {
+  data: MarketingWorkspaceData;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
+  onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
+}) {
+  const [scanning, setScanning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const liveAi = isLiveAiEnabled(data.aiIntegration);
+  const drafts = data.trendInsights.filter((trend) => trend.status === "draft");
+  const accepted = data.trendInsights.filter((trend) => trend.status === "accepted");
+  const dismissed = data.trendInsights.filter((trend) => trend.status === "dismissed");
+
+  function setTrendStatus(id: string, status: TrendInsight["status"]) {
+    onTrendInsightsChange(
+      data.trendInsights.map((trend) =>
+        trend.id === id ? { ...trend, status } : trend,
+      ),
+    );
+  }
+
+  async function scanTrends() {
+    setScanning(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/ai/trends", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: data.aiIntegration.apiKey,
+          searchModel: resolveModelForTask(data.aiIntegration, "utility"),
+          synthesisModel: resolveModelForTask(data.aiIntegration, "analysis"),
+          context: buildTrendContext(data),
+        }),
+      });
+      const result = (await response.json()) as
+        | {
+            ok: true;
+            trends: TrendInsight[];
+            searchUsage?: OpenAiUsage;
+            searchModel?: string;
+            synthesisUsage?: OpenAiUsage;
+            synthesisModel?: string;
+          }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setErrorMessage(result.error);
+        return;
+      }
+
+      // Fresh drafts replace old drafts and dismissed cards; accepted cards
+      // are the manager's decisions and stay.
+      onTrendInsightsChange([
+        ...data.trendInsights.filter((trend) => trend.status === "accepted"),
+        ...result.trends,
+      ]);
+
+      if (result.searchUsage) {
+        onRecordUsage(
+          "Trend Radar search",
+          result.searchModel ?? "unknown",
+          result.searchUsage,
+        );
+      }
+
+      if (result.synthesisUsage) {
+        onRecordUsage(
+          "Trend Radar synthesis",
+          result.synthesisModel ?? "unknown",
+          result.synthesisUsage,
+        );
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function trendCard(trend: TrendInsight) {
+    return (
+      <div className="space-y-2 rounded-lg border p-3" key={trend.id}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <p className="text-sm font-semibold">{trend.title}</p>
+          {trend.status === "accepted" ? (
+            <span className="rounded-md border border-success-border bg-success px-2 py-0.5 text-xs font-medium text-success-foreground">
+              Accepted
+            </span>
+          ) : (
+            <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-medium text-warning-foreground">
+              Draft, needs your decision
+            </span>
+          )}
+        </div>
+        <p className="text-sm leading-6">
+          <span className="font-medium">Why it matters:</span> {trend.whyItMatters}
+        </p>
+        <p className="text-sm leading-6">
+          <span className="font-medium">Content angle:</span> {trend.contentAngle}
+        </p>
+        <div className="text-xs leading-5 text-muted-foreground">
+          Sources:{" "}
+          {trend.sources.map((source, index) => (
+            <span key={source.url}>
+              {index > 0 ? " / " : ""}
+              <a
+                className="underline underline-offset-2"
+                href={source.url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {source.title}
+              </a>
+            </span>
+          ))}
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Found by {trend.model} on {trend.generatedAt.slice(0, 16).replace("T", " ")}
+        </p>
+        {trend.status === "draft" ? (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              onClick={() => setTrendStatus(trend.id, "accepted")}
+              size="sm"
+              type="button"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Accept
+            </Button>
+            <Button
+              onClick={() => setTrendStatus(trend.id, "dismissed")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <X className="h-4 w-4" />
+              Dismiss
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              onClick={() => setTrendStatus(trend.id, "dismissed")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <X className="h-4 w-4" />
+              Withdraw acceptance
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={TrendingUp}
+          kicker="Trends"
+          title="Trend Radar"
+          description="A real web search for current Singapore private education, recruitment, and content trends. Every card cites the pages it came from; accepted trends feed campaign ideas and calendar generation."
+        />
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <Button
+            disabled={!liveAi || scanning}
+            onClick={scanTrends}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Sparkles className="h-4 w-4" />
+            {scanning ? "Scanning the web" : "Scan trends"}
+          </Button>
+          {!liveAi ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Connect OpenAI in Settings to scan trends.
+            </p>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {errorMessage ? (
+          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        {drafts.length === 0 && accepted.length === 0 ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            No trends scanned yet. Scan trends runs a live web search; if the
+            search finds nothing solid, it says so instead of inventing trends.
+          </p>
+        ) : null}
+
+        {drafts.map((trend) => trendCard(trend))}
+
+        {accepted.length > 0 ? (
+          <>
+            <p className="pt-1 text-xs font-medium uppercase text-muted-foreground">
+              Accepted trends (used by campaign and calendar AI)
+            </p>
+            {accepted.map((trend) => trendCard(trend))}
+          </>
+        ) : null}
+
+        {dismissed.length > 0 ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            {dismissed.length} dismissed trend{dismissed.length === 1 ? "" : "s"} hidden.
+            They are cleared on the next scan.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function PlatformStrategyView({
+  data,
   onNavigate,
+  onRecordUsage,
+  onTrendInsightsChange,
   onUccChange,
   ucc,
 }: {
+  data: MarketingWorkspaceData;
   onNavigate: (view: ViewId) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
+  onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
@@ -2788,6 +3038,12 @@ function PlatformStrategyView({
           </CardContent>
         </Card>
       </div>
+
+      <TrendRadarPanel
+        data={data}
+        onRecordUsage={onRecordUsage}
+        onTrendInsightsChange={onTrendInsightsChange}
+      />
 
       <AiSkillControlPanel
         modules={ucc.aiModules}
@@ -8246,6 +8502,7 @@ function GoalImpactStrip({
 }
 
 function CalendarBuilderView({
+  acceptedTrends,
   aiIntegration,
   audits,
   brand,
@@ -8258,6 +8515,7 @@ function CalendarBuilderView({
   onRecordUsage,
   onReplaceCalendar,
 }: {
+  acceptedTrends: string[];
   aiIntegration: AiIntegrationSettings;
   audits: SocialAudit[];
   brand: BrandProfile;
@@ -8325,6 +8583,7 @@ function CalendarBuilderView({
       platforms: [...platforms],
       count,
       focus,
+      acceptedTrends,
     };
   }
 

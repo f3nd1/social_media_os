@@ -25,6 +25,10 @@ export type CampaignAiContext = {
   audiences: Array<{ name: string; goals: string[]; painPoints: string[] }>;
   existingCampaignNames: string[];
   sgMoments: Array<{ name: string; window: string; relevance: string }>;
+  // Trend Radar cards the manager accepted (Module D1). Optional so older
+  // callers keep working. Included automatically because the whole context
+  // is serialised into the prompt.
+  acceptedTrends?: string[];
 };
 
 export type CampaignAiSuggestionDraft = {
