@@ -534,6 +534,10 @@ export type AiIntegrationSettings = {
   apiKey: string;
   analysisModel: string;
   utilityModel: string;
+  // Editable price table for the usage meter, keyed by model id, in USD per
+  // million tokens. Optional; when a model has no prices the meter shows
+  // token counts only, never an invented cost.
+  modelPrices?: Record<string, { inPerMillion: number; outPerMillion: number }>;
 };
 
 export function createDefaultAiIntegration(): AiIntegrationSettings {
@@ -542,8 +546,23 @@ export function createDefaultAiIntegration(): AiIntegrationSettings {
     apiKey: "",
     analysisModel: "",
     utilityModel: "",
+    modelPrices: {},
   };
 }
+
+// One recorded AI call for the usage meter. Token counts come from OpenAI's
+// own usage figures, never estimates.
+export type AiUsageEntry = {
+  id: string;
+  date: string;
+  module: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  // USD, derived from the editable price table at the time of the call.
+  // Null when no price was set for the model, shown as "tokens only".
+  estimatedCost: number | null;
+};
 
 export const CONNECTION_SOURCE_LABELS: Record<ConnectionSource, string> = {
   metricool: "Metricool",
@@ -665,6 +684,7 @@ export type MarketingWorkspaceData = {
   performanceResults: PerformanceResult[];
   connections: PlatformConnection[];
   aiIntegration: AiIntegrationSettings;
+  aiUsage: AiUsageEntry[];
 };
 
 export const platformRules: Record<
@@ -2401,6 +2421,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     performanceResults: buildSeedPerformance(calendar),
     connections: [],
     aiIntegration: createDefaultAiIntegration(),
+    aiUsage: [],
   };
 }
 

@@ -52,6 +52,12 @@ import {
 } from "@/components/social-calendar/use-workspace-sync";
 import { isLiveAiEnabled, resolveModelForTask } from "@/lib/ai-settings";
 import {
+  appendAiUsage,
+  buildAiUsageEntry,
+  monthlyAiUsageTotals,
+} from "@/lib/ai-usage";
+import type { OpenAiUsage } from "@/lib/openai-shared";
+import {
   briefDraftToPatch,
   type BriefAiContext,
   type BriefAiDraft,
@@ -95,6 +101,7 @@ import {
   roles,
   statuses,
   type AiIntegrationSettings,
+  type AiUsageEntry,
   type AuditScores,
   type ApprovalStage,
   type BrandProfile,
@@ -270,6 +277,23 @@ export function SocialCalendarApp() {
 
   function resetSampleData() {
     setData(localSocialCalendarRepository.reset());
+  }
+
+  // Records one AI call into the usage meter. Called by every AI feature
+  // after a successful response, using OpenAI's own token figures.
+  function recordAiUsage(module: string, model: string, usage: OpenAiUsage) {
+    updateWorkspace((current) => ({
+      ...current,
+      aiUsage: appendAiUsage(
+        current.aiUsage,
+        buildAiUsageEntry({
+          module,
+          model,
+          usage,
+          aiIntegration: current.aiIntegration,
+        }),
+      ),
+    }));
   }
 
   function applyApprovedMetrics(
@@ -765,6 +789,7 @@ export function SocialCalendarApp() {
                 onBriefChange={(brief) =>
                   updateWorkspace((current) => ({ ...current, brief }))
                 }
+                onRecordUsage={recordAiUsage}
               />
             ) : null}
 
@@ -781,6 +806,7 @@ export function SocialCalendarApp() {
                 onCalendarChange={(calendar) =>
                   updateWorkspace((current) => ({ ...current, calendar }))
                 }
+                onRecordUsage={recordAiUsage}
                 onReplaceCalendar={(calendar, clearPerformance) =>
                   updateWorkspace((current) => ({
                     ...current,
@@ -848,8 +874,9 @@ export function SocialCalendarApp() {
             {activeView === "settings" ? (
               <SettingsWorkspaceView
                 sync={sync}
-                brand={data.brand}
                 aiIntegration={data.aiIntegration}
+                aiUsage={data.aiUsage}
+                brand={data.brand}
                 connections={data.connections}
                 importState={pdfImportState}
                 pdfDataSource={data.pdfDataSource}
@@ -3084,9 +3111,11 @@ function pickDefaultModels(models: string[]) {
 
 function AiIntegrationPanel({
   aiIntegration,
+  aiUsage,
   onAiIntegrationChange,
 }: {
   aiIntegration: AiIntegrationSettings;
+  aiUsage: AiUsageEntry[];
   onAiIntegrationChange: (aiIntegration: AiIntegrationSettings) => void;
 }) {
   const [keyDraft, setKeyDraft] = useState(aiIntegration.apiKey);
@@ -3303,13 +3332,147 @@ function AiIntegrationPanel({
           AI output is always a draft for your approval. The AI never approves
           or publishes on its own.
         </p>
+
+        <AiUsageMeter
+          aiIntegration={aiIntegration}
+          aiUsage={aiUsage}
+          onAiIntegrationChange={onAiIntegrationChange}
+        />
       </CardContent>
     </Card>
   );
 }
 
+function AiUsageMeter({
+  aiIntegration,
+  aiUsage,
+  onAiIntegrationChange,
+}: {
+  aiIntegration: AiIntegrationSettings;
+  aiUsage: AiUsageEntry[];
+  onAiIntegrationChange: (aiIntegration: AiIntegrationSettings) => void;
+}) {
+  const totals = monthlyAiUsageTotals(aiUsage);
+  const meteredModels = Array.from(
+    new Set(
+      [aiIntegration.analysisModel, aiIntegration.utilityModel].filter(Boolean),
+    ),
+  );
+
+  function updatePrice(
+    model: string,
+    field: "inPerMillion" | "outPerMillion",
+    value: number,
+  ) {
+    const existing = aiIntegration.modelPrices?.[model] ?? {
+      inPerMillion: 0,
+      outPerMillion: 0,
+    };
+
+    onAiIntegrationChange({
+      ...aiIntegration,
+      modelPrices: {
+        ...(aiIntegration.modelPrices ?? {}),
+        [model]: { ...existing, [field]: value },
+      },
+    });
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold">AI usage this month</p>
+        <Badge variant="outline">{totals.calls} call{totals.calls === 1 ? "" : "s"}</Badge>
+      </div>
+
+      <div className="grid gap-2 text-xs leading-5 sm:grid-cols-3">
+        <p>
+          <span className="font-medium">Input tokens:</span>{" "}
+          {formatNumber(totals.promptTokens)}
+        </p>
+        <p>
+          <span className="font-medium">Output tokens:</span>{" "}
+          {formatNumber(totals.completionTokens)}
+        </p>
+        <p>
+          <span className="font-medium">Estimated cost:</span>{" "}
+          {totals.estimatedCost !== null
+            ? `US$${totals.estimatedCost.toFixed(2)}${
+                totals.uncostedCalls > 0
+                  ? ` plus ${totals.uncostedCalls} unpriced call${totals.uncostedCalls === 1 ? "" : "s"}`
+                  : ""
+              }`
+            : totals.calls > 0
+              ? "Set model prices below to estimate cost"
+              : "No calls yet"}
+        </p>
+      </div>
+
+      {meteredModels.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase text-muted-foreground">
+            Model prices, US$ per million tokens
+          </p>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Check these against OpenAI&apos;s pricing page. Costs shown are
+            estimates based on the numbers you enter here.
+          </p>
+          {meteredModels.map((model) => (
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px_120px]" key={model}>
+              <p className="self-center break-all text-xs font-medium">{model}</p>
+              <Input
+                className="h-8"
+                placeholder="Input"
+                step="0.01"
+                type="number"
+                value={aiIntegration.modelPrices?.[model]?.inPerMillion ?? ""}
+                onChange={(event) =>
+                  updatePrice(model, "inPerMillion", toNumber(event.target.value))
+                }
+              />
+              <Input
+                className="h-8"
+                placeholder="Output"
+                step="0.01"
+                type="number"
+                value={aiIntegration.modelPrices?.[model]?.outPerMillion ?? ""}
+                onChange={(event) =>
+                  updatePrice(model, "outPerMillion", toNumber(event.target.value))
+                }
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {aiUsage.length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-xs font-medium uppercase text-muted-foreground">
+            Recent calls
+          </p>
+          {aiUsage.slice(0, 10).map((entry) => (
+            <p className="text-xs leading-5 text-muted-foreground" key={entry.id}>
+              {formatDateTime(entry.date)}: {entry.module}, {entry.model},{" "}
+              {formatNumber(entry.promptTokens + entry.completionTokens)} tokens
+              {entry.estimatedCost !== null
+                ? `, about US$${entry.estimatedCost.toFixed(3)}`
+                : ""}
+            </p>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs leading-5 text-muted-foreground">
+          No AI calls recorded yet. Every generation across the app will appear
+          here with its real token count.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SettingsWorkspaceView({
   aiIntegration,
+  aiUsage,
   brand,
   calendar,
   competitors,
@@ -3332,6 +3495,7 @@ function SettingsWorkspaceView({
   ucc,
 }: {
   aiIntegration: AiIntegrationSettings;
+  aiUsage: AiUsageEntry[];
   brand: BrandProfile;
   calendar: CalendarItem[];
   competitors: Competitor[];
@@ -3402,6 +3566,7 @@ function SettingsWorkspaceView({
       <SupabaseDatabasePanel sync={sync} />
       <AiIntegrationPanel
         aiIntegration={aiIntegration}
+        aiUsage={aiUsage}
         onAiIntegrationChange={onAiIntegrationChange}
       />
       <BrandSetupView
@@ -4964,6 +5129,7 @@ function StrategyBriefView({
   socialGoals,
   ucc,
   onBriefChange,
+  onRecordUsage,
 }: {
   aiIntegration: AiIntegrationSettings;
   audits: SocialAudit[];
@@ -4972,6 +5138,7 @@ function StrategyBriefView({
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onBriefChange: (brief: StrategyBrief) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
   const [generating, setGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -5053,7 +5220,7 @@ function StrategyBriefView({
         }),
       });
       const result = (await response.json()) as
-        | { ok: true; draft: BriefAiDraft }
+        | { ok: true; draft: BriefAiDraft; usage?: OpenAiUsage; model?: string }
         | { ok: false; error: string };
 
       if (!result.ok) {
@@ -5072,6 +5239,10 @@ function StrategyBriefView({
         updatedAt: new Date().toISOString(),
       });
       setAiDraftPending(true);
+
+      if (result.usage) {
+        onRecordUsage("Strategy Brief", result.model ?? "unknown", result.usage);
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -5400,6 +5571,7 @@ function CalendarBuilderView({
   socialGoals,
   ucc,
   onCalendarChange,
+  onRecordUsage,
   onReplaceCalendar,
 }: {
   aiIntegration: AiIntegrationSettings;
@@ -5412,6 +5584,7 @@ function CalendarBuilderView({
   ucc: UccStrategyData;
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onReplaceCalendar: (calendar: CalendarItem[], clearPerformance: boolean) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
   const [platformFilter, setPlatformFilter] = useState<"all" | Platform>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | CalendarStatus>("all");
@@ -5504,7 +5677,7 @@ function CalendarBuilderView({
         }),
       });
       const result = (await response.json()) as
-        | { ok: true; items: CalendarDraftItem[] }
+        | { ok: true; items: CalendarDraftItem[]; usage?: OpenAiUsage; model?: string }
         | { ok: false; error: string };
 
       if (!result.ok) {
@@ -5518,6 +5691,10 @@ function CalendarBuilderView({
       });
       onReplaceCalendar(items, hasPerformanceData);
       setGenerationMode("ai");
+
+      if (result.usage) {
+        onRecordUsage("Content Calendar", result.model ?? "unknown", result.usage);
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -5630,7 +5807,7 @@ function CalendarBuilderView({
         }),
       });
       const result = (await response.json()) as
-        | { ok: true; items: CalendarDraftItem[] }
+        | { ok: true; items: CalendarDraftItem[]; usage?: OpenAiUsage; model?: string }
         | { ok: false; error: string };
 
       if (!result.ok) {
@@ -5646,6 +5823,10 @@ function CalendarBuilderView({
           status: "idea",
           approvalStage: "idea",
         });
+      }
+
+      if (result.usage) {
+        onRecordUsage("Calendar item regenerate", result.model ?? "unknown", result.usage);
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));

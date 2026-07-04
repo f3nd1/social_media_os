@@ -128,6 +128,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
       ...seed.aiIntegration,
       ...(data.aiIntegration ?? {}),
     },
+    aiUsage: Array.isArray(data.aiUsage) ? data.aiUsage : [],
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,
