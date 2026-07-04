@@ -9,7 +9,6 @@ import {
   fetchWorkspaceSnapshot,
   fetchWorkspaceState,
   insertWorkspaceSnapshot,
-  isSnapshotTableMissing,
   listWorkspaceSnapshots,
   pruneWorkspaceSnapshots,
   resolveSupabaseConfig,
@@ -34,9 +33,9 @@ export type WorkspaceSync = {
   source: SupabaseConfigSource;
   isConfigured: boolean;
   lastError: string;
-  // Non-fatal note shown when the optional version-history snapshot fails
-  // (for example the workspace_snapshots table has not been created). The
-  // main cloud save is unaffected, so this never blocks sync.
+  // Non-fatal note shown when a version-history save fails. Version rows
+  // live in the same workspace_state table as the main save, so this only
+  // fires on a real network or permission problem, never a missing table.
   snapshotWarning: string;
   needsMigration: boolean;
   copyLocalToCloud: () => Promise<void>;
@@ -76,10 +75,6 @@ export function useWorkspaceSync(
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Throttle for automatic history snapshots: at most one every 5 minutes.
   const lastSnapshotAtRef = useRef(0);
-  // Once the snapshots table is confirmed missing, stop auto-attempting it so
-  // the console is not flooded with the same 404 every few minutes. Manual
-  // "Save a version now" still tries, and clears this on success.
-  const autoSnapshotDisabledRef = useRef(false);
 
   const config = resolved.config;
   const isConfigured = config !== null;
@@ -167,32 +162,22 @@ export function useWorkspaceSync(
           setLastError("");
 
           // Automatic history snapshot, throttled. Failures here are
-          // non-fatal (the main save already succeeded), but they are no
-          // longer swallowed: the reason is surfaced as snapshotWarning so
-          // the owner can see version history is not working.
+          // non-fatal (the main save already succeeded), but they are not
+          // swallowed: the reason is surfaced as snapshotWarning so the
+          // owner can see version history is not working.
           const now = Date.now();
 
-          if (
-            !autoSnapshotDisabledRef.current &&
-            now - lastSnapshotAtRef.current > 5 * 60_000
-          ) {
+          if (now - lastSnapshotAtRef.current > 5 * 60_000) {
             lastSnapshotAtRef.current = now;
             insertWorkspaceSnapshot(config, data)
               .then(() => pruneWorkspaceSnapshots(config))
               .then(() => setSnapshotWarning(""))
               .catch((error) => {
-                const message =
-                  error instanceof Error ? error.message : String(error);
-                setSnapshotWarning(message);
-
-                if (isSnapshotTableMissing(error)) {
-                  // The table will not appear on its own, so stop retrying
-                  // and flooding the console until the app is reloaded.
-                  autoSnapshotDisabledRef.current = true;
-                } else {
-                  // Transient failure: retry sooner than the full window.
-                  lastSnapshotAtRef.current = 0;
-                }
+                setSnapshotWarning(
+                  error instanceof Error ? error.message : String(error),
+                );
+                // Transient failure: retry sooner than the full window.
+                lastSnapshotAtRef.current = 0;
               });
           }
         })
@@ -283,9 +268,6 @@ export function useWorkspaceSync(
       await insertWorkspaceSnapshot(config, data);
       await pruneWorkspaceSnapshots(config);
       lastSnapshotAtRef.current = Date.now();
-      // The table clearly exists now, so re-enable automatic snapshots and
-      // clear any stale warning.
-      autoSnapshotDisabledRef.current = false;
       setSnapshotWarning("");
       return { ok: true };
     } catch (error) {

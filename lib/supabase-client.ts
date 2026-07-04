@@ -173,86 +173,41 @@ export async function upsertWorkspaceState(
   }
 }
 
-// Workspace snapshot history (Module E1). One row per saved version, newest
-// first, pruned to the last 20. This uses its OWN table, separate from the
-// single-row workspace_state table, because it holds many versions. Creating
-// it never touches workspace_state, so live data is safe.
+// Workspace snapshot history (Module E1). Version rows live INSIDE the
+// existing workspace_state table, using prefixed row ids like
+// "ucc-default:snapshot:2026-07-04T09:00:00.000Z". No second table exists or
+// is ever requested, so a missing-table 404 is impossible. The live row keeps
+// its exact id ("ucc-default"), so nothing about normal sync changes.
 
-export const WORKSPACE_SNAPSHOTS_TABLE = "workspace_snapshots";
 export const SNAPSHOT_KEEP_COUNT = 20;
-
-// Recognises the "the workspace_snapshots table has not been created yet"
-// case (a PostgREST 404 or a relation-not-found body) so the UI can tell the
-// owner exactly what to do instead of showing a bare 404.
-export class SnapshotTableMissingError extends Error {
-  constructor(public readonly detail: string) {
-    super(
-      `The "${WORKSPACE_SNAPSHOTS_TABLE}" table does not exist in Supabase yet, so version history is off. ` +
-        "Your main data in the workspace_state table is unaffected. To turn on version history, run the SQL in " +
-        "supabase/migrations/20260704000000_workspace_snapshots.sql in the Supabase SQL editor. " +
-        `(Supabase said: ${detail})`,
-    );
-    this.name = "SnapshotTableMissingError";
-  }
-}
-
-export function isSnapshotTableMissing(error: unknown): boolean {
-  return error instanceof SnapshotTableMissingError;
-}
-
-function looksLikeMissingTable(status: number, body: string): boolean {
-  const haystack = body.toLowerCase();
-
-  return (
-    // PostgREST returns 404 with PGRST205 / "could not find the table" when a
-    // table is absent from the schema cache, or 42P01 relation-not-found.
-    (status === 404 &&
-      (haystack.includes(WORKSPACE_SNAPSHOTS_TABLE) ||
-        haystack.includes("could not find the table") ||
-        haystack.includes("schema cache") ||
-        haystack.includes("pgrst205"))) ||
-    haystack.includes("42p01") ||
-    (haystack.includes(WORKSPACE_SNAPSHOTS_TABLE) &&
-      haystack.includes("does not exist"))
-  );
-}
-
-// Turns a failed snapshot response into either the clear "table missing"
-// error or the verbatim status and body, so nothing fails silently.
-async function snapshotError(response: Response): Promise<Error> {
-  let body = "";
-
-  try {
-    body = (await response.text()).trim();
-  } catch {
-    body = "";
-  }
-
-  if (looksLikeMissingTable(response.status, body)) {
-    return new SnapshotTableMissingError(
-      `${response.status} ${response.statusText}${body ? `: ${body}` : ""}`.trim(),
-    );
-  }
-
-  return new Error(
-    `${response.status} ${response.statusText}${body ? `: ${body}` : ""}`.trim(),
-  );
-}
+const SNAPSHOT_ID_PREFIX = `${WORKSPACE_STATE_ROW_ID}:snapshot:`;
 
 export type WorkspaceSnapshotMeta = {
   id: string;
   createdAt: string;
 };
 
+async function snapshotError(response: Response): Promise<Error> {
+  return new Error(await describeError(response));
+}
+
 export async function insertWorkspaceSnapshot(
   config: SupabaseConfig,
   data: MarketingWorkspaceData,
 ): Promise<void> {
-  const endpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}`;
+  const stamp = new Date().toISOString();
+  const endpoint = `${normaliseUrl(config.url)}/rest/v1/${WORKSPACE_STATE_TABLE}?on_conflict=id`;
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: { ...restHeaders(config.anonKey), Prefer: "return=minimal" },
-    body: JSON.stringify({ workspace_id: WORKSPACE_STATE_ROW_ID, data }),
+    headers: {
+      ...restHeaders(config.anonKey),
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify({
+      id: `${SNAPSHOT_ID_PREFIX}${stamp}`,
+      data,
+      updated_at: stamp,
+    }),
   });
 
   if (!response.ok) {
@@ -263,22 +218,27 @@ export async function insertWorkspaceSnapshot(
 export async function listWorkspaceSnapshots(
   config: SupabaseConfig,
 ): Promise<WorkspaceSnapshotMeta[]> {
-  const endpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}?workspace_id=eq.${WORKSPACE_STATE_ROW_ID}&select=id,created_at&order=created_at.desc&limit=${SNAPSHOT_KEEP_COUNT}`;
+  const endpoint = `${normaliseUrl(config.url)}/rest/v1/${WORKSPACE_STATE_TABLE}?id=like.${encodeURIComponent(SNAPSHOT_ID_PREFIX)}*&select=id,updated_at&order=updated_at.desc&limit=${SNAPSHOT_KEEP_COUNT}`;
   const response = await fetch(endpoint, { headers: restHeaders(config.anonKey) });
 
   if (!response.ok) {
     throw await snapshotError(response);
   }
 
-  const rows = (await response.json()) as Array<{ id: string; created_at: string }>;
-  return rows.map((row) => ({ id: row.id, createdAt: row.created_at }));
+  const rows = (await response.json()) as Array<{ id: string; updated_at: string | null }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    // Fall back to the timestamp embedded in the id if updated_at is unset.
+    createdAt: row.updated_at ?? row.id.slice(SNAPSHOT_ID_PREFIX.length),
+  }));
 }
 
 export async function fetchWorkspaceSnapshot(
   config: SupabaseConfig,
   id: string,
 ): Promise<MarketingWorkspaceData | null> {
-  const endpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}?id=eq.${encodeURIComponent(id)}&select=data`;
+  const endpoint = `${normaliseUrl(config.url)}/rest/v1/${WORKSPACE_STATE_TABLE}?id=eq.${encodeURIComponent(id)}&select=data`;
   const response = await fetch(endpoint, { headers: restHeaders(config.anonKey) });
 
   if (!response.ok) {
@@ -290,7 +250,7 @@ export async function fetchWorkspaceSnapshot(
 }
 
 export async function pruneWorkspaceSnapshots(config: SupabaseConfig): Promise<void> {
-  const listEndpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}?workspace_id=eq.${WORKSPACE_STATE_ROW_ID}&select=id&order=created_at.desc&offset=${SNAPSHOT_KEEP_COUNT}&limit=100`;
+  const listEndpoint = `${normaliseUrl(config.url)}/rest/v1/${WORKSPACE_STATE_TABLE}?id=like.${encodeURIComponent(SNAPSHOT_ID_PREFIX)}*&select=id&order=updated_at.desc&offset=${SNAPSHOT_KEEP_COUNT}&limit=100`;
   const response = await fetch(listEndpoint, { headers: restHeaders(config.anonKey) });
 
   if (!response.ok) {
@@ -304,7 +264,7 @@ export async function pruneWorkspaceSnapshots(config: SupabaseConfig): Promise<v
   }
 
   const ids = rows.map((row) => `"${row.id}"`).join(",");
-  const deleteEndpoint = `${config.url.replace(/\/+$/, "")}/rest/v1/${WORKSPACE_SNAPSHOTS_TABLE}?id=in.(${ids})`;
+  const deleteEndpoint = `${normaliseUrl(config.url)}/rest/v1/${WORKSPACE_STATE_TABLE}?id=in.(${ids})`;
   const deleteResponse = await fetch(deleteEndpoint, {
     method: "DELETE",
     headers: restHeaders(config.anonKey),

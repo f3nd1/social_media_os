@@ -21,7 +21,7 @@ Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS 3.4, npm, Supabase (
 
 ## Architecture
 
-- One workspace document (`MarketingWorkspaceData` in `lib/social-calendar-data.ts`) holds all state. It is localStorage-first (`social-calendar-intelligence-os:v1`) and syncs to the Supabase `workspace_state` table via `components/social-calendar/use-workspace-sync.ts`. Snapshots for restore live in `workspace_snapshots`.
+- One workspace document (`MarketingWorkspaceData` in `lib/social-calendar-data.ts`) holds all state. It is localStorage-first (`social-calendar-intelligence-os:v1`) and syncs to the Supabase `workspace_state` table via `components/social-calendar/use-workspace-sync.ts`. Version-history snapshots live in the SAME `workspace_state` table as rows with prefixed ids (`ucc-default:snapshot:<timestamp>`); there is no separate snapshots table.
 - CRITICAL: `normalizeWorkspaceData` in `lib/social-calendar-storage.ts` runs on every local load AND every cloud pull. Any new field on the workspace type MUST be optional-safe and given a default there, or old local/cloud data will crash the app.
 - Most UI lives in `components/social-calendar/social-calendar-app.tsx` (legacy single-file layout; split new work into lib files and keep new files under roughly 600 lines).
 - AI feature pattern: data model type in `lib/social-calendar-data.ts`, then a pure lib file with prompt builders and output mappers (no network), then an `/api/ai/*` route calling `callOpenAiJson` from `lib/openai-shared.ts`, then UI wiring gated on `isLiveAiEnabled`/`resolveModelForTask` with loading states, honest error text, and `onRecordUsage` feeding the AI usage meter. The analysis model handles heavy reasoning, the utility model light tasks.
