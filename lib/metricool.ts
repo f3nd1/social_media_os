@@ -115,65 +115,186 @@ function last30DayRange() {
   return { from: isoDate(from), to: isoDate(to) };
 }
 
+type MetricoolBrandRow = {
+  id?: number | string;
+  blogId?: number | string;
+  label?: string;
+  name?: string;
+  title?: string;
+};
+
+// Metricool's endpoints do not all return a bare JSON list: some wrap the
+// list in { "data": [...] } or similar. Calling .find on a non-array crashed
+// with "brands.find is not a function", so this accepts every wrapper shape
+// we can recognise and returns null (never throws) for anything else, letting
+// the caller show the raw body instead.
+function extractBrandList(payload: unknown): MetricoolBrandRow[] | null {
+  if (Array.isArray(payload)) {
+    return payload as MetricoolBrandRow[];
+  }
+
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+
+    for (const key of ["data", "brands", "profiles", "items", "content"]) {
+      if (Array.isArray(record[key])) {
+        return record[key] as MetricoolBrandRow[];
+      }
+    }
+  }
+
+  return null;
+}
+
+function matchBrand(
+  brands: MetricoolBrandRow[],
+  blogId: string,
+): MetricoolBrandRow | undefined {
+  return brands.find(
+    (brand) =>
+      String(brand.id) === String(blogId) || String(brand.blogId) === String(blogId),
+  );
+}
+
+// Reads one brand-listing endpoint. Distinguishes: found the brand (ok),
+// got a list without the brand (ok:false with the ids we did see), got a
+// non-list body (unrecognised, with the raw body), or an HTTP error
+// (exact status and body).
+async function readBrandEndpoint(
+  credentials: MetricoolCredentials,
+  url: string,
+): Promise<
+  | { kind: "found"; label: string }
+  | { kind: "empty-list" }
+  | { kind: "wrong-brand"; ids: string }
+  | { kind: "unrecognised"; raw: string }
+  | { kind: "http-error"; error: string; status: number }
+  | { kind: "network-error"; error: string }
+> {
+  try {
+    const response = await fetch(url, { headers: authHeaders(credentials.apiToken) });
+    const raw = await readBody(response);
+
+    if (!response.ok) {
+      return {
+        kind: "http-error",
+        error: describeUpstream(response.status, response.statusText, raw, endpointPath(url)),
+        status: response.status,
+      };
+    }
+
+    let payload: unknown = null;
+
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = null;
+    }
+
+    const brands = extractBrandList(payload);
+
+    if (!brands) {
+      return { kind: "unrecognised", raw };
+    }
+
+    if (brands.length === 0) {
+      return { kind: "empty-list" };
+    }
+
+    const matched = matchBrand(brands, credentials.blogId);
+
+    if (matched) {
+      return {
+        kind: "found",
+        label: matched.label ?? matched.name ?? matched.title ?? "connected brand",
+      };
+    }
+
+    return {
+      kind: "wrong-brand",
+      ids: brands.map((brand) => brand.id ?? brand.blogId).join(", "),
+    };
+  } catch (error) {
+    return {
+      kind: "network-error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 async function fetchBrandLabel(
   credentials: MetricoolCredentials,
 ): Promise<MetricoolResult<string>> {
   const v2Url = `${METRICOOL_BASE_URL}/v2/settings/brands?userId=${encodeURIComponent(credentials.userId)}`;
+  // The endpoint Metricool's own help pages document for listing brands and
+  // their blogIds.
+  const legacyUrl = `${METRICOOL_BASE_URL}/admin/simpleProfiles?userId=${encodeURIComponent(credentials.userId)}`;
 
-  try {
-    const response = await fetch(v2Url, { headers: authHeaders(credentials.apiToken) });
+  const v2 = await readBrandEndpoint(credentials, v2Url);
 
-    if (response.ok) {
-      const brands = (await response.json()) as Array<{ id?: number | string; label?: string; name?: string }>;
-      const matched = brands.find(
-        (brand) => String(brand.id) === String(credentials.blogId),
-      );
+  if (v2.kind === "found") {
+    return { ok: true, value: v2.label };
+  }
 
-      if (matched) {
-        return { ok: true, value: matched.label ?? matched.name ?? "connected brand" };
-      }
-
-      if (brands.length > 0) {
-        return {
-          ok: false,
-          error: `Connected to Metricool, but no brand with Blog ID "${credentials.blogId}" was found for this user. Available brand ids: ${brands
-            .map((brand) => brand.id)
-            .join(", ")}.`,
-        };
-      }
-
-      return { ok: true, value: "connected account" };
-    }
-
-    if (response.status !== 404) {
-      return { ok: false, error: await describeError(response, v2Url), status: response.status };
-    }
-  } catch (error) {
+  if (v2.kind === "wrong-brand") {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: `Connected to Metricool (the token works), but no brand with Blog ID "${credentials.blogId}" was found for this user. Brand ids Metricool returned: ${v2.ids}.`,
     };
   }
 
-  // Fall back to the legacy profile listing endpoint.
-  try {
-    const legacyUrl = `${METRICOOL_BASE_URL}/admin/simpleProfiles?userId=${encodeURIComponent(credentials.userId)}`;
-    const response = await fetch(legacyUrl, { headers: authHeaders(credentials.apiToken) });
+  if (v2.kind === "http-error" && v2.status !== 404) {
+    return { ok: false, error: v2.error, status: v2.status };
+  }
 
-    if (!response.ok) {
-      return { ok: false, error: await describeError(response, legacyUrl), status: response.status };
-    }
+  // v2 was a 404, an empty list, an unrecognised body, or unreachable: try
+  // the documented legacy listing before reporting anything.
+  const legacy = await readBrandEndpoint(credentials, legacyUrl);
 
-    const profiles = (await response.json()) as Array<{ id?: number | string; name?: string }>;
-    const matched = profiles.find((profile) => String(profile.id) === String(credentials.blogId));
+  if (legacy.kind === "found") {
+    return { ok: true, value: legacy.label };
+  }
 
-    return { ok: true, value: matched?.name ?? "connected account" };
-  } catch (error) {
+  if (legacy.kind === "wrong-brand") {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: `Connected to Metricool (the token works), but no brand with Blog ID "${credentials.blogId}" was found for this user. Brand ids Metricool returned: ${legacy.ids}.`,
     };
   }
+
+  if (legacy.kind === "empty-list") {
+    return {
+      ok: false,
+      error:
+        "Connected to Metricool (the token works), but it returned an empty brand list for this User ID. Check the User ID in Metricool Settings > API.",
+    };
+  }
+
+  if (legacy.kind === "http-error") {
+    return { ok: false, error: legacy.error, status: legacy.status };
+  }
+
+  if (legacy.kind === "unrecognised" || v2.kind === "unrecognised") {
+    const raw = legacy.kind === "unrecognised" ? legacy.raw : (v2 as { raw: string }).raw;
+
+    return {
+      ok: false,
+      error:
+        `Metricool answered with HTTP 200 (so the token and User ID are accepted) but the response was not a recognisable list of brands. Raw response from Metricool: ${
+          raw ? raw.slice(0, 400) : "(empty body)"
+        }. If this keeps happening, use the CSV import as the fallback and send this raw response so the endpoint can be adjusted.`,
+    };
+  }
+
+  return {
+    ok: false,
+    error:
+      legacy.kind === "network-error"
+        ? legacy.error
+        : v2.kind === "network-error"
+          ? v2.error
+          : "Metricool could not be reached.",
+  };
 }
 
 export async function testMetricoolConnection(
