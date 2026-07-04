@@ -219,6 +219,35 @@ export type UccCampaign = {
     enrolments: number;
     spend: number;
   };
+  // Manager approval gate (Module A2). Optional so campaigns created before
+  // the gate existed count as approved; new AI-accepted campaigns start as
+  // "draft" and must be approved before the calendar generator uses them.
+  approvalStatus?: "draft" | "approved";
+  // Notes carried over from an accepted AI suggestion (timeline reasoning,
+  // budget split). Informational only; never changes numbers by itself.
+  aiNotes?: string;
+};
+
+export function isCampaignApproved(campaign: UccCampaign): boolean {
+  return campaign.approvalStatus !== "draft";
+}
+
+// One AI-proposed campaign awaiting accept or dismiss (Module A2).
+export type CampaignSuggestion = {
+  id: string;
+  name: string;
+  objective: string;
+  audienceName: string;
+  courseNames: string[];
+  platformMix: string[];
+  timeline: string;
+  alignedMoments: string[];
+  budgetSplit: string;
+  kpis: string[];
+  startDate: string;
+  endDate: string;
+  model: string;
+  generatedAt: string;
 };
 
 export type UccBudgetPlan = {
@@ -702,6 +731,7 @@ export type MarketingWorkspaceData = {
   aiIntegration: AiIntegrationSettings;
   aiUsage: AiUsageEntry[];
   auditInsights: AuditInsight[];
+  campaignSuggestions: CampaignSuggestion[];
 };
 
 export const platformRules: Record<
@@ -2440,6 +2470,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     aiIntegration: createDefaultAiIntegration(),
     aiUsage: [],
     auditInsights: [],
+    campaignSuggestions: [],
   };
 }
 
