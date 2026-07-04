@@ -1,6 +1,19 @@
-import { platforms, type Platform } from "@/lib/social-calendar-data";
+import {
+  platforms,
+  type Platform,
+  type PdfMetricReview,
+} from "@/lib/social-calendar-data";
 
 type MetricKey = Exclude<keyof PlatformDataMetrics, "platform">;
+
+// A batch of metric rows awaiting human approval before they apply anywhere,
+// produced by PDF import, Metricool CSV import, or a Metricool API sync.
+export type PendingMetricReview = {
+  rows: PdfMetricReview[];
+  sourceLabel: string;
+  noteLabel: string;
+  rangeLabel: string;
+};
 
 export type PlatformDataMetrics = {
   platform: Platform;
@@ -346,4 +359,115 @@ function parseDurationToSeconds(duration: string) {
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Shared metric review pattern. Originally built for PDF import, and reused
+// as-is by Metricool CSV import and Metricool API sync, so every source of
+// platform metrics goes through the same approve-before-apply review table.
+
+export const pdfReviewMetricFields: Array<
+  keyof Omit<
+    PdfMetricReview,
+    "id" | "platform" | "confidence" | "approved" | "edited" | "notes"
+  >
+> = [
+  "followers",
+  "impressions",
+  "reach",
+  "engagement",
+  "comments",
+  "shares",
+  "saves",
+  "watchTime",
+  "clicks",
+  "followsGained",
+  "leads",
+  "posts",
+];
+
+export function buildPdfMetricReviewRows(
+  platformMetrics: PlatformDataMetrics[],
+  idPrefix = "metric",
+): PdfMetricReview[] {
+  return platformMetrics.map((metrics, index) => ({
+    id: `${idPrefix}-${metrics.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}-${index}`,
+    platform: metrics.platform,
+    followers: metrics.followers,
+    impressions: metrics.impressions,
+    reach: metrics.reach,
+    engagement: metrics.engagement,
+    comments: metrics.comments,
+    shares: metrics.shares,
+    saves: metrics.saves,
+    watchTime: metrics.watchTime,
+    clicks: metrics.clicks,
+    followsGained: metrics.followsGained,
+    leads: metrics.leads,
+    posts: metrics.posts,
+    confidence: calculatePdfMetricConfidence(metrics),
+    approved: true,
+    edited: false,
+    notes:
+      metrics.leads > 0
+        ? "Lead metric detected; approve before applying to KPI Tracker."
+        : "Review platform metric mapping before applying.",
+  }));
+}
+
+export function calculatePdfMetricConfidence(metrics: PlatformDataMetrics) {
+  const detectedCount = pdfReviewMetricFields.filter((field) => metrics[field] > 0)
+    .length;
+
+  return Math.min(95, Math.max(35, 35 + detectedCount * 8));
+}
+
+export function getPdfConfidenceLevel(rows: PdfMetricReview[]) {
+  if (rows.length === 0) {
+    return "low" as const;
+  }
+
+  const averageConfidence =
+    rows.reduce((sum, row) => sum + row.confidence, 0) / rows.length;
+
+  if (averageConfidence >= 75) {
+    return "high" as const;
+  }
+
+  if (averageConfidence >= 55) {
+    return "medium" as const;
+  }
+
+  return "low" as const;
+}
+
+export function countDetectedPdfMetrics(rows: PdfMetricReview[]) {
+  return rows.reduce(
+    (sum, row) =>
+      sum + pdfReviewMetricFields.filter((field) => row[field] > 0).length,
+    0,
+  );
+}
+
+export function reviewRowsToPlatformMetrics(rows: PdfMetricReview[]): PlatformDataMetrics[] {
+  return rows.map((row) => ({
+    platform: row.platform,
+    followers: row.followers,
+    impressions: row.impressions,
+    reach: row.reach,
+    engagement: row.engagement,
+    comments: row.comments,
+    shares: row.shares,
+    saves: row.saves,
+    watchTime: row.watchTime,
+    clicks: row.clicks,
+    followsGained: row.followsGained,
+    leads: row.leads,
+    posts: row.posts,
+  }));
+}
+
+export function metricLabel(value: string) {
+  return value
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (letter) => letter.toUpperCase());
 }
