@@ -99,6 +99,7 @@ import {
   insightsDraftToRecommendations,
   type InsightsAiDraft,
 } from "@/lib/insights-ai";
+import { buildReportContext } from "@/lib/report-ai";
 import {
   deleteAssetFile,
   resolveSupabaseConfig,
@@ -139,6 +140,7 @@ import {
   type AiIntegrationSettings,
   type AiRecommendation,
   type AiUsageEntry,
+  type WeeklyReport,
   type AuditInsight,
   type CampaignSuggestion,
   type CompetitorInsight,
@@ -955,7 +957,15 @@ export function SocialCalendarApp() {
               />
             ) : null}
 
-            {activeView === "reports" ? <ReportsView data={data} /> : null}
+            {activeView === "reports" ? (
+              <ReportsView
+                data={data}
+                onRecordUsage={recordAiUsage}
+                onWeeklyReportChange={(weeklyReport) =>
+                  updateWorkspace((current) => ({ ...current, weeklyReport }))
+                }
+              />
+            ) : null}
 
             {activeView === "settings" ? (
               <SettingsWorkspaceView
@@ -4290,12 +4300,183 @@ function ComplianceCheckerView({
   );
 }
 
-function ReportsView({ data }: { data: MarketingWorkspaceData }) {
+function WeeklyNarrativePanel({
+  data,
+  onRecordUsage,
+  onWeeklyReportChange,
+}: {
+  data: MarketingWorkspaceData;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
+  onWeeklyReportChange: (weeklyReport: WeeklyReport | null) => void;
+}) {
+  const [generating, setGenerating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const liveAi = isLiveAiEnabled(data.aiIntegration);
+  const report = data.weeklyReport;
+
+  async function generateNarrative() {
+    setGenerating(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/ai/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: data.aiIntegration.apiKey,
+          model: resolveModelForTask(data.aiIntegration, "analysis"),
+          context: buildReportContext(data),
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; narrative: string; usage?: OpenAiUsage; model?: string }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setErrorMessage(result.error);
+        return;
+      }
+
+      onWeeklyReportChange({
+        content: result.narrative,
+        status: "draft",
+        generatedAt: new Date().toISOString(),
+        model: result.model ?? "unknown",
+        approvedAt: "",
+      });
+
+      if (result.usage) {
+        onRecordUsage("Weekly report", result.model ?? "unknown", result.usage);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function editNarrative(content: string) {
+    if (!report) {
+      return;
+    }
+
+    // Any edit returns the report to draft so an approved report is always
+    // exactly what the manager signed off.
+    onWeeklyReportChange({
+      ...report,
+      content,
+      status: "draft",
+      approvedAt: "",
+    });
+  }
+
+  function approveNarrative() {
+    if (!report || !report.content.trim()) {
+      return;
+    }
+
+    onWeeklyReportChange({
+      ...report,
+      status: "approved",
+      approvedAt: new Date().toISOString(),
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={PenLine}
+          kicker="AI narrative"
+          title="Weekly Narrative"
+          description="A plain-English summary of the week written from your real numbers: what happened, what worked, risks, and next actions. Always a draft until you approve it."
+        />
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            <Button
+              disabled={!liveAi || generating}
+              onClick={generateNarrative}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Sparkles className="h-4 w-4" />
+              {generating ? "Writing" : "Write narrative with AI"}
+            </Button>
+            <Button
+              disabled={!report || !report.content.trim() || report.status === "approved"}
+              onClick={approveNarrative}
+              size="sm"
+              type="button"
+              variant={report?.status === "approved" ? "secondary" : "default"}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              {report?.status === "approved" ? "Approved" : "Approve report"}
+            </Button>
+          </div>
+          {!liveAi ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Connect OpenAI in Settings to write the narrative with AI.
+            </p>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {errorMessage ? (
+          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        {report ? (
+          <>
+            {report.status === "draft" ? (
+              <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+                AI draft, not yet approved. Edit the text below, then select
+                Approve report when it says what you want it to say.
+              </div>
+            ) : null}
+            <Textarea
+              className="min-h-[260px]"
+              value={report.content}
+              onChange={(event) => editNarrative(event.target.value)}
+            />
+            <p className="text-xs leading-5 text-muted-foreground">
+              Written by {report.model} on {report.generatedAt.slice(0, 16).replace("T", " ")}
+              {report.status === "approved" && report.approvedAt
+                ? `. Approved on ${report.approvedAt.slice(0, 16).replace("T", " ")}.`
+                : "."}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm leading-6 text-muted-foreground">
+            No narrative yet. Use the AI button to write a draft from this
+            week&apos;s numbers, then edit and approve it.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReportsView({
+  data,
+  onRecordUsage,
+  onWeeklyReportChange,
+}: {
+  data: MarketingWorkspaceData;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
+  onWeeklyReportChange: (weeklyReport: WeeklyReport | null) => void;
+}) {
   const delayed = data.calendar.filter((item) =>
     ["drafting", "review", "revision"].includes(item.status) ||
     item.approvalStage === "revision",
   );
   const topRecommendations = data.ucc.kpiRecords.map((row) => row.recommendation);
+  const acceptedAiRecommendations = data.aiRecommendations.filter(
+    (rec) => rec.status === "accepted",
+  );
 
   return (
     <section className="space-y-4">
@@ -4331,13 +4512,19 @@ function ReportsView({ data }: { data: MarketingWorkspaceData }) {
           />
         </CardContent>
       </Card>
+      <WeeklyNarrativePanel
+        data={data}
+        onRecordUsage={onRecordUsage}
+        onWeeklyReportChange={onWeeklyReportChange}
+      />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <ExportView data={data} />
         <Card>
           <CardHeader>
             <CardTitle>Recommended Next Actions</CardTitle>
             <CardDescription>
-              AI-style recommendations from actual KPI and performance data.
+              Recommendations from your KPI records, plus AI suggestions you
+              have accepted on the Budget and KPI screens.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -4346,9 +4533,17 @@ function ReportsView({ data }: { data: MarketingWorkspaceData }) {
                 {recommendation}
               </div>
             ))}
-            <div className="rounded-lg border bg-muted/20 p-3 text-sm leading-6">
-              Repurpose high-save English course content to Xiaohongshu and WeChat with Chinese parent proof.
-            </div>
+            {acceptedAiRecommendations.map((rec) => (
+              <div className="rounded-lg border bg-muted/20 p-3 text-sm leading-6" key={rec.id}>
+                <span className="font-medium">{rec.subject}:</span> {rec.recommendation}
+              </div>
+            ))}
+            {topRecommendations.length === 0 && acceptedAiRecommendations.length === 0 ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                Nothing yet. Recommendations appear here from KPI records and
+                from AI suggestions you accept.
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       </div>
