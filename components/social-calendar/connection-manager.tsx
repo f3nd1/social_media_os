@@ -133,7 +133,7 @@ export function ConnectionManagerPanel({
       });
       const result = (await response.json()) as
         | { ok: true; accountLabel: string }
-        | { ok: false; error: string };
+        | { ok: false; error: string; status?: number };
 
       if (result.ok) {
         onConnectionsChange(
@@ -187,7 +187,7 @@ export function ConnectionManagerPanel({
             metrics: Parameters<typeof buildPdfMetricReviewRows>[0];
             skippedNetworks: string[];
           }
-        | { ok: false; error: string };
+        | { ok: false; error: string; status?: number };
 
       if (!result.ok) {
         onConnectionsChange(

@@ -2,13 +2,19 @@
 // so the API token never reaches the browser network tab, and so the calls
 // avoid the CORS restrictions a browser would hit calling Metricool directly.
 //
-// Endpoint paths and metric ids below follow Metricool's published API
-// documentation (https://app.metricool.com/resources/apidocs/index.html) and
-// its "X-Mc-Auth" header plus userId/blogId query parameters. Where a v2 path
-// is not available on an account, this client automatically falls back to the
-// older documented path. If Metricool changes a path, this is the one file to
-// update: nothing here ever reports success on a failed call, every error
-// returned to the UI is the verbatim upstream status and message.
+// Authentication follows Metricool's published API: the access token in the
+// "X-Mc-Auth" request header, with userId and blogId as query parameters on
+// every call (confirmed against Metricool's API documentation). Where a v2
+// path is not available on an account, this client falls back to the older
+// documented path. If Metricool changes a path, this is the one file to
+// update.
+//
+// Nothing here ever reports success on a failed call. Every failure is
+// returned to the UI as the exact upstream status code, the raw response
+// body, and the endpoint path that produced it, so the owner can tell auth
+// (401) from plan/permission (402/403) from a wrong endpoint (404) from a
+// malformed request (400). The CSV import remains the fallback when the API
+// is gated by the account's plan.
 
 import { type Platform } from "@/lib/social-calendar-data";
 import type { PlatformDataMetrics } from "@/lib/pdf-data-import";
@@ -23,7 +29,7 @@ export type MetricoolCredentials = {
 
 export type MetricoolResult<T> =
   | { ok: true; value: T }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: number };
 
 // Metricool network identifiers mapped to the app's Platform union. Networks
 // Metricool tracks that the app has no Platform for (Pinterest, Google
@@ -58,20 +64,43 @@ function authHeaders(apiToken: string) {
   return { "X-Mc-Auth": apiToken };
 }
 
-async function describeError(response: Response) {
-  let body = "";
-
+// The path (and query, minus the secret token which only ever travels in the
+// header) so an error can name exactly which endpoint Metricool rejected.
+function endpointPath(url: string) {
   try {
-    body = (await response.text()).trim();
+    const parsed = new URL(url);
+    return parsed.pathname + parsed.search;
   } catch {
-    body = "";
+    return url;
   }
+}
 
-  if (response.status === 401 || response.status === 402 || response.status === 403) {
-    return `Metricool API access is not enabled on this plan. Use CSV import instead. (${response.status} ${response.statusText}${body ? `: ${body}` : ""})`;
+async function readBody(response: Response) {
+  try {
+    return (await response.text()).trim();
+  } catch {
+    return "";
   }
+}
 
-  return `${response.status} ${response.statusText}${body ? `: ${body}` : ""}`.trim();
+// Always reports the exact upstream status and raw body so the owner can tell
+// auth (401) from permission/plan (402/403) from a wrong endpoint (404) from a
+// malformed request (400). For plan-gated codes it ADDS a CSV-import hint
+// rather than replacing the real detail.
+function describeUpstream(status: number, statusText: string, body: string, path: string) {
+  const planHint =
+    status === 401 || status === 402 || status === 403
+      ? " This usually means Metricool API access is not enabled on your plan (it needs at least the Advanced plan). The CSV import is the fallback if the API stays blocked."
+      : "";
+
+  return `Metricool returned HTTP ${status} ${statusText} for ${path}. Response body: ${
+    body || "(empty)"
+  }.${planHint}`;
+}
+
+async function describeError(response: Response, url: string) {
+  const body = await readBody(response);
+  return describeUpstream(response.status, response.statusText, body, endpointPath(url));
 }
 
 function isoDate(date: Date) {
@@ -117,7 +146,7 @@ async function fetchBrandLabel(
     }
 
     if (response.status !== 404) {
-      return { ok: false, error: await describeError(response) };
+      return { ok: false, error: await describeError(response, v2Url), status: response.status };
     }
   } catch (error) {
     return {
@@ -132,7 +161,7 @@ async function fetchBrandLabel(
     const response = await fetch(legacyUrl, { headers: authHeaders(credentials.apiToken) });
 
     if (!response.ok) {
-      return { ok: false, error: await describeError(response) };
+      return { ok: false, error: await describeError(response, legacyUrl), status: response.status };
     }
 
     const profiles = (await response.json()) as Array<{ id?: number | string; name?: string }>;
@@ -165,7 +194,10 @@ async function fetchTimelineMetric(
   metric: string,
   from: string,
   to: string,
-): Promise<{ ok: true; total: number; latest: number } | { ok: false; error: string; notFound: boolean }> {
+): Promise<
+  | { ok: true; total: number; latest: number }
+  | { ok: false; error: string; status: number; notFound: boolean }
+> {
   const url = `${METRICOOL_BASE_URL}/v2/analytics/timelines/${metric}?from=${from}&to=${to}&blogId=${encodeURIComponent(
     credentials.blogId,
   )}&userId=${encodeURIComponent(credentials.userId)}&network=${encodeURIComponent(network)}`;
@@ -176,7 +208,8 @@ async function fetchTimelineMetric(
     if (!response.ok) {
       return {
         ok: false,
-        error: await describeError(response),
+        error: await describeError(response, url),
+        status: response.status,
         notFound: response.status === 404,
       };
     }
@@ -194,6 +227,7 @@ async function fetchTimelineMetric(
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
+      status: 0,
       notFound: false,
     };
   }
@@ -235,7 +269,10 @@ export async function syncMetricoolMetrics(
   const { from, to } = last30DayRange();
   const metrics: PlatformDataMetrics[] = [];
   const skippedNetworks: string[] = [];
-  let authErrorCount = 0;
+  let planGatedCount = 0;
+  // The first genuine (non plan-gated) upstream failure, kept verbatim so a
+  // 400 or 404 is reported exactly instead of being flattened into "skipped".
+  let firstRealError: { error: string; status: number } | null = null;
 
   for (const network of networks) {
     const platform = METRICOOL_NETWORK_TO_PLATFORM[network];
@@ -256,17 +293,37 @@ export async function syncMetricoolMetrics(
     const allFailed = results.every((result) => !result.ok);
 
     if (allFailed) {
-      const authFailure = results.some(
-        (result) => !result.ok && /not enabled on this plan/.test(result.error),
+      const failures = results.filter(
+        (result): result is { ok: false; error: string; status: number; notFound: boolean } =>
+          !result.ok,
+      );
+      // 401/402/403 mean the plan does not include API access; those are the
+      // only failures we treat as "gated" and roll up into the plan message.
+      const planGated = failures.every((result) =>
+        [401, 402, 403].includes(result.status),
       );
 
-      if (authFailure) {
-        authErrorCount += 1;
+      if (planGated) {
+        planGatedCount += 1;
         continue;
       }
 
-      // Metricool has nothing tracked for this network on this brand.
-      skippedNetworks.push(network);
+      // A 404 across every metric means Metricool tracks nothing for this
+      // network on this brand: a genuine skip, not an error.
+      const allNotFound = failures.every((result) => result.status === 404);
+
+      if (allNotFound) {
+        skippedNetworks.push(network);
+        continue;
+      }
+
+      // Anything else (a 400 malformed request, a 5xx, a wrong endpoint) is a
+      // real error we must surface exactly, not hide.
+      if (!firstRealError) {
+        const first = failures[0];
+        firstRealError = { error: `${network}: ${first.error}`, status: first.status };
+      }
+
       continue;
     }
 
@@ -289,12 +346,21 @@ export async function syncMetricoolMetrics(
     });
   }
 
-  if (metrics.length === 0 && authErrorCount === networks.length) {
-    return {
-      ok: false,
-      error:
-        "Metricool API access is not enabled on this plan. Use CSV import instead.",
-    };
+  // No metrics came back. Surface the most informative reason, exactly.
+  if (metrics.length === 0) {
+    if (firstRealError) {
+      return { ok: false, error: firstRealError.error, status: firstRealError.status };
+    }
+
+    if (planGatedCount > 0) {
+      return {
+        ok: false,
+        error:
+          "Metricool returned 401/402/403 for every network, which means API access is not enabled on your plan (it needs at least the Advanced plan). Use the CSV import instead.",
+        status: 403,
+      };
+    }
+    // Everything was a clean 404: the account simply has no tracked networks.
   }
 
   return { ok: true, value: { metrics, skippedNetworks } };

@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     const result = await testMetricoolConnection(credentials);
 
     if (!result.ok) {
-      return NextResponse.json({ ok: false, error: result.error });
+      return NextResponse.json({ ok: false, error: result.error, status: result.status });
     }
 
     return NextResponse.json({ ok: true, accountLabel: result.value.accountLabel });
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     const result = await syncMetricoolMetrics(credentials);
 
     if (!result.ok) {
-      return NextResponse.json({ ok: false, error: result.error });
+      return NextResponse.json({ ok: false, error: result.error, status: result.status });
     }
 
     return NextResponse.json({
