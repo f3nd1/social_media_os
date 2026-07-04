@@ -86,7 +86,12 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
     ucc: {
       ...seed.ucc,
       ...data.ucc,
-      courses: mergeSeedRecords(seed.ucc.courses, data.ucc?.courses),
+      // Courses are fully user-managed (add/edit/delete), so a saved courses
+      // array is authoritative. This lets a deleted course stay deleted rather
+      // than being re-injected from the seed on every load.
+      courses: Array.isArray(data.ucc?.courses)
+        ? data.ucc.courses
+        : seed.ucc.courses,
       audiences: Array.isArray(data.ucc?.audiences)
         ? data.ucc.audiences
         : seed.ucc.audiences,

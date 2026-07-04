@@ -164,17 +164,32 @@ export type UccCourse = {
   audienceIds: string[];
   courseProof: string[];
   complianceNotes: string;
-  status: "active" | "future" | "paused";
+  status: "active" | "future" | "paused" | "archived";
+  // Added for full course management (Stage 2). Optional so existing seed and
+  // saved courses upgrade without a rewrite; the editor defaults them.
+  description?: string;
+  usp?: string;
+  duration?: string;
+  entryRequirements?: string;
+  fees?: string;
+  sellingPoints?: string[];
 };
 
 export type UccAudience = {
   id: string;
-  name: UccAudienceSegment;
+  // Widened from UccAudienceSegment to string so managers can add new
+  // segments. Existing seed values remain valid strings.
+  name: string;
   languages: string[];
   motivations: string[];
   concerns: string[];
   recommendedChannels: UccMarketingChannel[];
   nurtureAngle: string;
+  // Added for full audience management (Stage 3). Optional for the same
+  // upgrade-safe reason as the new course fields.
+  interests?: string[];
+  buyingJourney?: string;
+  decisionMakers?: string;
 };
 
 export type UccCampaign = {
