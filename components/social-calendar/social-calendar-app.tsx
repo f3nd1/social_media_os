@@ -304,6 +304,9 @@ export function SocialCalendarApp() {
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
   const [myDayMode, setMyDayMode] = useState(false);
+  // Steps the user chose to skip in the guided setup this session. Kept in
+  // component state because a skip is a "not now", not a saved decision.
+  const [guidedSkipped, setGuidedSkipped] = useState<string[]>([]);
 
   // Undo for destructive deletes (Module E5). Deleting keeps a snapshot of
   // the workspace for ten seconds; Undo restores it, expiry runs any
@@ -370,6 +373,33 @@ export function SocialCalendarApp() {
 
   function resetSampleData() {
     setData(localSocialCalendarRepository.reset());
+  }
+
+  // Onboarding handlers (welcome + guided setup).
+  function exploreWithSampleData() {
+    setData(normalizeWorkspaceData(createSeedWorkspaceData()));
+    setGuidedSkipped([]);
+    setActiveView("dashboard");
+  }
+
+  function startGuidedSetup() {
+    setGuidedSkipped([]);
+    updateWorkspace((current) => ({
+      ...current,
+      welcomeDismissed: true,
+      guidedSetupActive: true,
+    }));
+    // Begin at the first step, brand, which lives on Settings.
+    setActiveView("settings");
+  }
+
+  function dismissWelcome() {
+    updateWorkspace((current) => ({ ...current, welcomeDismissed: true }));
+  }
+
+  function exitGuidedSetup() {
+    setGuidedSkipped([]);
+    updateWorkspace((current) => ({ ...current, guidedSetupActive: false }));
   }
 
   // Finalise any pending delete: run its deferred clean-up and drop the
@@ -857,8 +887,38 @@ export function SocialCalendarApp() {
 
             {myDayMode ? <MyDayView data={data} /> : null}
 
-            {myDayMode ? null : (
+            {!myDayMode &&
+            !data.welcomeDismissed &&
+            !data.guidedSetupActive &&
+            !data.brand.brandName.trim() &&
+            data.calendar.length === 0 ? (
+              <WelcomeOverlay
+                onDismiss={dismissWelcome}
+                onExploreSample={exploreWithSampleData}
+                onStartGuided={startGuidedSetup}
+              />
+            ) : null}
+
+            {myDayMode ||
+            (!data.welcomeDismissed &&
+              !data.guidedSetupActive &&
+              !data.brand.brandName.trim() &&
+              data.calendar.length === 0) ? null : (
               <>
+            {data.guidedSetupActive ? (
+              <GuidedSetupWizard
+                data={data}
+                skipped={guidedSkipped}
+                onExit={exitGuidedSetup}
+                onNavigate={setActiveView}
+                onSkip={(key) =>
+                  setGuidedSkipped((prev) =>
+                    prev.includes(key) ? prev : [...prev, key],
+                  )
+                }
+              />
+            ) : null}
+
             {!data.firstRunChecklistDismissed &&
             !data.brand.brandName.trim() &&
             data.calendar.length === 0 ? (
@@ -900,6 +960,20 @@ export function SocialCalendarApp() {
                 detail="Education claims stay factual and proof-based"
               />
             </section>
+
+            <ScreenHelpHint
+              dismissed={data.dismissedHelpScreens ?? []}
+              view={activeView}
+              onDismiss={(view) =>
+                updateWorkspace((current) => ({
+                  ...current,
+                  dismissedHelpScreens: [
+                    ...(current.dismissedHelpScreens ?? []),
+                    view,
+                  ],
+                }))
+              }
+            />
 
             {activeView === "dashboard" ? (
               <ManagementDashboardView data={data} onNavigate={setActiveView} />
@@ -1560,6 +1634,384 @@ function buildSetupStatus(data: MarketingWorkspaceData): SetupStatusRow[] {
       next: "Upload a guideline or move an item through the compliance stage.",
     },
   ];
+}
+
+// The core setup steps a first-time user is guided through, in order. Each
+// has a plain-language reason and the screen that completes it. Shared by the
+// guided wizard and the first-run checklist so they stay in step.
+type GuidedStepKey = "brand" | "courses" | "audiences" | "audit" | "brief";
+
+function guidedSteps(
+  data: MarketingWorkspaceData,
+): Array<{ key: GuidedStepKey; title: string; why: string; view: ViewId; done: boolean }> {
+  return [
+    {
+      key: "brand",
+      title: "Set up your brand",
+      why: "Your brand name and voice guide every piece of content the app helps you make.",
+      view: "settings",
+      done: data.brand.brandName.trim().length > 0,
+    },
+    {
+      key: "courses",
+      title: "Add your courses",
+      why: "Courses are what you market. Add the ones United Ceres College offers.",
+      view: "courses",
+      done: data.ucc.courses.some((course) => course.status !== "archived"),
+    },
+    {
+      key: "audiences",
+      title: "Add your audiences",
+      why: "Audiences are the people you want to reach, so the app can tailor the message.",
+      view: "courses",
+      done: data.ucc.audiences.length > 0,
+    },
+    {
+      key: "audit",
+      title: "Record a quick audit",
+      why: "An audit notes where each social platform stands today, so progress is measurable.",
+      view: "objectives",
+      done: data.audits.length > 0,
+    },
+    {
+      key: "brief",
+      title: "Approve a strategy brief",
+      why: "The brief turns everything above into a plan. Approving it unlocks the calendar.",
+      view: "brief",
+      done: data.brief.approved,
+    },
+  ];
+}
+
+// A plain-language tooltip for a jargon word. The word is shown with a dotted
+// underline and a small question mark; the explanation appears on hover or
+// keyboard focus, so a non-technical reader is never left guessing.
+function HelpTip({
+  children,
+  explanation,
+}: {
+  children: ReactNode;
+  explanation: string;
+}) {
+  return (
+    <span className="group relative inline-flex items-center gap-0.5">
+      <span className="underline decoration-dotted underline-offset-2">{children}</span>
+      <button
+        aria-label="What does this mean?"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold leading-none text-muted-foreground"
+        tabIndex={0}
+        type="button"
+      >
+        ?
+      </button>
+      <span
+        className="pointer-events-none absolute left-0 top-full z-40 mt-1 hidden w-64 rounded-md border bg-card p-2 text-xs font-normal normal-case leading-5 text-foreground shadow-md group-hover:block group-focus-within:block"
+        role="tooltip"
+      >
+        {explanation}
+      </span>
+    </span>
+  );
+}
+
+// One plain-English line per major screen: what it is for and the single most
+// useful thing to do. Jargon is explained inline the first time it appears.
+const SCREEN_HELP: Partial<Record<ViewId, ReactNode>> = {
+  dashboard: (
+    <>
+      Your overview of everything. New here? Follow the Setup status checklist
+      below to connect the whole system, one step at a time.
+    </>
+  ),
+  objectives: (
+    <>
+      Set your main goal and record a quick{" "}
+      <HelpTip explanation="An audit is a simple snapshot of how each social account is doing now (followers, reach, engagement), so you can measure progress later.">
+        audit
+      </HelpTip>{" "}
+      of where each platform stands today. Pick which{" "}
+      <HelpTip explanation="The funnel is the journey from a stranger noticing you, to a lead enquiring, to an enrolment. Choose the stage you most want to improve.">
+        funnel
+      </HelpTip>{" "}
+      stage you want to improve.
+    </>
+  ),
+  courses: (
+    <>
+      List the courses you offer and the audiences you offer them to. Start by
+      selecting Add course, then Add audience.
+    </>
+  ),
+  campaigns: (
+    <>
+      Group your marketing into campaigns. Add a campaign, then approve it so it
+      can feed the content calendar.
+    </>
+  ),
+  platform: (
+    <>
+      See which platform suits each audience, scan live trends, and research
+      what real people are saying.
+    </>
+  ),
+  brief: (
+    <>
+      The brief is your plan, built from content{" "}
+      <HelpTip explanation="A content pillar is a recurring theme you post about, for example 'student success' or 'course proof'. A few pillars keep your content focused.">
+        pillars
+      </HelpTip>{" "}
+      and angles. Fill it in or generate a draft, then Approve it to unlock the
+      calendar.
+    </>
+  ),
+  calendar: (
+    <>
+      Your month of posts. Generate it from the approved brief, then open any
+      item to refine its hook,{" "}
+      <HelpTip explanation="CTA means 'call to action': the one thing you want the reader to do next, for example 'Book a campus tour' or 'Enquire now'.">
+        CTA
+      </HelpTip>
+      , and caption.
+    </>
+  ),
+  production: (
+    <>
+      Where each post is written, checked, and approved. Move an item all the
+      way to &ldquo;manager approved&rdquo; when it is ready to publish.
+    </>
+  ),
+  assets: <>Store the photos, videos, and files your posts will use.</>,
+  budget: (
+    <>
+      Plan the cost of each campaign. The AI review suggests changes as drafts
+      you accept or dismiss; it never changes your numbers.
+    </>
+  ),
+  competitors: (
+    <>
+      Track what other colleges are doing and turn it into insights you can
+      accept or dismiss.
+    </>
+  ),
+  kpi: (
+    <>
+      Record real results for each campaign and compare them against target, so
+      you know what is working.
+    </>
+  ),
+  compliance: (
+    <>
+      Check any wording against the education marketing rules before it goes
+      out. Paste a caption to see any risky claims flagged.
+    </>
+  ),
+  reports: (
+    <>
+      Your weekly summary, the approvals audit trail, and exports for
+      management.
+    </>
+  ),
+  settings: (
+    <>
+      Connect AI and Supabase, set up your brand, and load sample data or start
+      empty. New here? Set your brand name first.
+    </>
+  ),
+};
+
+function ScreenHelpHint({
+  dismissed,
+  onDismiss,
+  view,
+}: {
+  dismissed: string[];
+  onDismiss: (view: ViewId) => void;
+  view: ViewId;
+}) {
+  const help = SCREEN_HELP[view];
+
+  if (!help || dismissed.includes(view)) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-info-border bg-info p-3 text-sm leading-6 text-info-foreground">
+      <p>
+        <span className="font-semibold">Need help? </span>
+        {help}
+      </p>
+      <button
+        aria-label="Dismiss this tip"
+        className="shrink-0 rounded-md border border-info-border px-2 py-0.5 text-xs font-medium"
+        onClick={() => onDismiss(view)}
+        type="button"
+      >
+        Got it
+      </button>
+    </div>
+  );
+}
+
+// The very first thing a brand-new user sees: a calm welcome that explains the
+// app in one paragraph and offers two clear ways to begin.
+function WelcomeOverlay({
+  onDismiss,
+  onExploreSample,
+  onStartGuided,
+}: {
+  onDismiss: () => void;
+  onExploreSample: () => void;
+  onStartGuided: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <SectionTitle
+          icon={GraduationCap}
+          kicker="Welcome"
+          title="Welcome to UCC Marketing OS"
+          description="A calm place to plan United Ceres College's marketing."
+        />
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <p className="max-w-2xl text-sm leading-6">
+          This app helps you plan social media and campaigns from start to
+          finish: describe your courses and audiences, build a plan, generate a
+          content calendar, and track results. The AI only ever suggests
+          drafts. You always review and approve before anything counts, so you
+          stay in control.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            className="flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors hover:bg-muted/40"
+            onClick={onExploreSample}
+            type="button"
+          >
+            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
+              <Database className="h-5 w-5" />
+            </span>
+            <span className="text-sm font-semibold">Explore with sample data</span>
+            <span className="text-xs leading-5 text-muted-foreground">
+              Fill the app with a ready-made example so you can click around and
+              see how everything fits together. You can clear it later.
+            </span>
+          </button>
+          <button
+            className="flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors hover:bg-muted/40"
+            onClick={onStartGuided}
+            type="button"
+          >
+            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <ListChecks className="h-5 w-5" />
+            </span>
+            <span className="text-sm font-semibold">Set up my own, step by step</span>
+            <span className="text-xs leading-5 text-muted-foreground">
+              A short guide walks you through the first steps one at a time, in
+              plain language, until you have a working calendar.
+            </span>
+          </button>
+        </div>
+        <button
+          className="text-xs leading-5 text-muted-foreground underline underline-offset-2"
+          onClick={onDismiss}
+          type="button"
+        >
+          I will look around on my own
+        </button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// A gentle step-by-step guide shown while the user is setting up. It always
+// points at the next unfinished step, with a reason and a "Skip for now",
+// never trapping the user.
+function GuidedSetupWizard({
+  data,
+  onExit,
+  onNavigate,
+  onSkip,
+  skipped,
+}: {
+  data: MarketingWorkspaceData;
+  onExit: () => void;
+  onNavigate: (view: ViewId) => void;
+  onSkip: (key: GuidedStepKey) => void;
+  skipped: string[];
+}) {
+  const steps = guidedSteps(data);
+  const total = steps.length;
+  const current = steps.find((step) => !step.done && !skipped.includes(step.key));
+  const doneCount = steps.filter((step) => step.done).length;
+
+  return (
+    <Card className="border-primary/40">
+      <CardHeader className="flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={ListChecks}
+          kicker="Guided setup"
+          title={current ? current.title : "You are set up"}
+          description={
+            current
+              ? current.why
+              : "Every core step is done or skipped. The next thing is to generate your content calendar."
+          }
+        />
+        <Badge variant={current ? "info" : "success"}>
+          {doneCount}/{total} done
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {current ? (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => onNavigate(current.view)} size="sm" type="button">
+              Take me to this step
+            </Button>
+            <Button
+              onClick={() => onSkip(current.key)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Skip for now
+            </Button>
+            <Button onClick={onExit} size="sm" type="button" variant="outline">
+              Exit guide
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => onNavigate("calendar")} size="sm" type="button">
+              Go to Content Calendar
+            </Button>
+            <Button onClick={onExit} size="sm" type="button" variant="outline">
+              Finish guide
+            </Button>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-1.5">
+          {steps.map((step) => (
+            <span
+              className={cn(
+                "rounded-md border px-2 py-0.5 text-xs",
+                step.done
+                  ? "border-success-border bg-success text-success-foreground"
+                  : skipped.includes(step.key)
+                    ? "border-border bg-muted text-muted-foreground"
+                    : current?.key === step.key
+                      ? "border-primary bg-primary/10 font-medium"
+                      : "border-border text-muted-foreground",
+              )}
+              key={step.key}
+            >
+              {step.done ? "✓ " : ""}
+              {step.title.replace(/^(Set up|Add|Record a|Approve a) /, "")}
+            </span>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 // The five steps from a blank workspace to a working calendar, shown once on
@@ -3902,6 +4354,9 @@ function AiSkillControlPanel({
   onNavigate: (view: ViewId) => void;
 }) {
   const [selectedModuleId, setSelectedModuleId] = useState(modules[0]?.id ?? "");
+  // Advanced reference detail is collapsed by default so this screen opens
+  // simple for a new user (progressive disclosure).
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const selectedModule =
     modules.find((module) => module.id === selectedModuleId) ?? modules[0];
 
@@ -3934,15 +4389,30 @@ function AiSkillControlPanel({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <SectionTitle
           icon={BookOpenText}
           kicker="AI QA"
           title="AI Skill Control Panel"
-          description="Separate AI modules with input sources, output destinations, reviewer controls, risk level, guardrails, and saved output history."
+          description="A reference list of the AI skills and where each one runs, with reviewer controls, risk level, guardrails, and saved output history."
         />
+        <Button
+          onClick={() => setShowAdvanced((value) => !value)}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {showAdvanced ? "Hide advanced" : "Show advanced"}
+        </Button>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!showAdvanced ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            This is reference detail for advanced users. Select Show advanced to
+            see every AI skill, where it runs, and its saved output history.
+          </p>
+        ) : (
+          <>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1180px] text-left text-sm">
             <thead className="border-b text-xs uppercase text-muted-foreground">
@@ -4228,6 +4698,8 @@ function AiSkillControlPanel({
             </div>
           </div>
         ) : null}
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -4886,6 +5358,12 @@ function BudgetResourcesView({
               <Plus className="h-4 w-4" />
               Add budget line
             </Button>
+            {ucc.campaigns.length === 0 ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Add and approve a campaign on the Campaigns screen first, then
+                you can plan its budget here.
+              </p>
+            ) : null}
           </div>
         </CardHeader>
         <CardContent>
@@ -8153,6 +8631,77 @@ function SocialGoalSettingPanel({
   );
 }
 
+function makeNewAudit(platform: Platform): SocialAudit {
+  return {
+    platform,
+    url: "",
+    followers: 0,
+    averageReach: 0,
+    engagementRate: 0,
+    postingFrequency: "",
+    scores: {
+      profileCompleteness: 0,
+      postingConsistency: 0,
+      contentMix: 0,
+      hookQuality: 0,
+      ctaClarity: 0,
+      visualConsistency: 0,
+      engagementPerformance: 0,
+    },
+    notes: "",
+  };
+}
+
+// The control that lets the owner add a platform to the audit. Without this a
+// blank workspace could never start an audit, which stalled the whole setup.
+function AddAuditControl({
+  audits,
+  onAdd,
+}: {
+  audits: SocialAudit[];
+  onAdd: (platform: Platform) => void;
+}) {
+  const available = platforms.filter(
+    (platform) => !audits.some((audit) => audit.platform === platform),
+  );
+  const [choice, setChoice] = useState<Platform>(available[0] ?? platforms[0]);
+
+  if (available.length === 0) {
+    return (
+      <p className="text-xs leading-5 text-muted-foreground">
+        Every platform has been added to the audit.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="min-w-[200px]">
+        <Field label="Platform to audit">
+          <NativeSelect
+            onChange={(event) => setChoice(event.target.value as Platform)}
+            value={available.includes(choice) ? choice : available[0]}
+          >
+            {available.map((platform) => (
+              <option key={platform} value={platform}>
+                {platform}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+      </div>
+      <Button
+        onClick={() => onAdd(available.includes(choice) ? choice : available[0])}
+        size="sm"
+        type="button"
+      >
+        <Plus className="h-4 w-4" />
+        Add platform audit
+      </Button>
+    </div>
+  );
+}
+
 function SocialAuditView({
   aiIntegration,
   auditInsights,
@@ -8309,6 +8858,16 @@ function SocialAuditView({
     );
   }
 
+  function addAudit(platform: Platform) {
+    if (audits.some((audit) => audit.platform === platform)) {
+      setSelectedPlatform(platform);
+      return;
+    }
+
+    onAuditsChange([...audits, makeNewAudit(platform)]);
+    setSelectedPlatform(platform);
+  }
+
   function updateSocialGoals(patch: Partial<SocialGoalSettings>) {
     onSocialGoalsChange({ ...socialGoals, ...patch });
   }
@@ -8328,11 +8887,26 @@ function SocialAuditView({
 
   if (!selectedAudit) {
     return (
-      <EmptyState
-        action="Add platforms to begin the audit"
-        icon={SearchCheck}
-        title="No social audit data yet"
-      />
+      <section className="space-y-4">
+        <SocialGoalSettingPanel
+          socialGoals={socialGoals}
+          onChange={updateSocialGoals}
+          onMonthlyTargetChange={updateMonthlyTarget}
+        />
+        <Card>
+          <CardHeader>
+            <SectionTitle
+              icon={SearchCheck}
+              kicker="Step 2"
+              title="Start your social audit"
+              description="Add a platform to record where it stands today. You can fill in the numbers by hand, or connect a data source in Settings later. Add each platform you use."
+            />
+          </CardHeader>
+          <CardContent>
+            <AddAuditControl audits={audits} onAdd={addAudit} />
+          </CardContent>
+        </Card>
+      </section>
     );
   }
 
@@ -8353,6 +8927,7 @@ function SocialAuditView({
             description="Score the current platform presence across completeness, consistency, content mix, hooks, CTAs, visuals, and engagement."
           />
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <AddAuditControl audits={audits} onAdd={addAudit} />
             <Button
               disabled={!liveAi || recalcRunning}
               onClick={() => void recalculateAll()}
@@ -8365,7 +8940,8 @@ function SocialAuditView({
             </Button>
             {!liveAi ? (
               <p className="text-xs leading-5 text-muted-foreground">
-                Connect OpenAI in Settings to generate with AI.
+                Connect OpenAI in Settings to recalculate scores with AI. You
+                can also type the scores in by hand below.
               </p>
             ) : null}
           </div>
@@ -13524,6 +14100,10 @@ function formatFileSize(bytes: number) {
 function formatShortDate(value: string) {
   const date = value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
 
+  if (!value || Number.isNaN(date.getTime())) {
+    return "no date";
+  }
+
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -13531,12 +14111,21 @@ function formatShortDate(value: string) {
 }
 
 function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  // A blank or unset date (common in a fresh, empty workspace) would make
+  // Intl.DateTimeFormat throw "Invalid time value" and crash the screen, so
+  // fall back to a plain dash instead.
+  if (!value || Number.isNaN(date.getTime())) {
+    return "not yet";
+  }
+
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function formatEfficiency(value?: number) {
