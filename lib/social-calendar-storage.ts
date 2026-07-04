@@ -133,6 +133,9 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
     campaignSuggestions: Array.isArray(data.campaignSuggestions)
       ? data.campaignSuggestions
       : [],
+    competitorInsights: Array.isArray(data.competitorInsights)
+      ? data.competitorInsights
+      : [],
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,

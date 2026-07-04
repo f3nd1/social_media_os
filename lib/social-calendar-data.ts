@@ -609,6 +609,19 @@ export type AiUsageEntry = {
   estimatedCost: number | null;
 };
 
+// One AI competitor insight awaiting accept or dismiss (Module A3). Accepted
+// insights become context for the Strategy Brief and campaign suggestions.
+export type CompetitorInsight = {
+  id: string;
+  competitorId: string;
+  competitorName: string;
+  kind: "strength" | "weakness" | "content gap" | "whitespace";
+  insight: string;
+  status: "draft" | "accepted";
+  model: string;
+  generatedAt: string;
+};
+
 export const CONNECTION_SOURCE_LABELS: Record<ConnectionSource, string> = {
   metricool: "Metricool",
   facebook: "Facebook",
@@ -732,6 +745,7 @@ export type MarketingWorkspaceData = {
   aiUsage: AiUsageEntry[];
   auditInsights: AuditInsight[];
   campaignSuggestions: CampaignSuggestion[];
+  competitorInsights: CompetitorInsight[];
 };
 
 export const platformRules: Record<
@@ -2471,6 +2485,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     aiUsage: [],
     auditInsights: [],
     campaignSuggestions: [],
+    competitorInsights: [],
   };
 }
 
