@@ -88,6 +88,11 @@ import {
   type CompetitorAiContext,
   type CompetitorAiDraft,
 } from "@/lib/competitor-ai";
+import {
+  copyDraftToPatch,
+  type CopyAiContext,
+  type CopyAiDraft,
+} from "@/lib/copy-ai";
 import { resolveSupabaseConfig } from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
@@ -873,11 +878,13 @@ export function SocialCalendarApp() {
 
             {activeView === "production" ? (
               <ContentProductionView
+                aiIntegration={data.aiIntegration}
                 brand={data.brand}
                 brief={data.brief}
                 calendar={data.calendar}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
+                onRecordUsage={recordAiUsage}
                 onCalendarChange={(calendar) =>
                   updateWorkspace((current) => ({ ...current, calendar }))
                 }
@@ -7806,7 +7813,10 @@ function CalendarItemEditor({
             >
               {statuses.map((status) => (
                 <option
-                  disabled={status === "posted" && !canPublishCalendarItem(item)}
+                  disabled={
+                    (status === "posted" || status === "scheduled") &&
+                    !canPublishCalendarItem(item)
+                  }
                   key={status}
                   value={status}
                 >
@@ -8078,24 +8088,141 @@ function CalendarItemEditor({
 }
 
 function ContentProductionView({
+  aiIntegration,
   brand,
   brief,
   calendar,
   socialGoals,
   ucc,
   onCalendarChange,
+  onRecordUsage,
   onUccChange,
 }: {
+  aiIntegration: AiIntegrationSettings;
   brand: BrandProfile;
   brief: StrategyBrief;
   calendar: CalendarItem[];
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onCalendarChange: (calendar: CalendarItem[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onUccChange: (ucc: UccStrategyData) => void;
 }) {
   const [roleView, setRoleView] = useState<Role>("copywriter");
   const [selectedItemId, setSelectedItemId] = useState(calendar[0]?.id ?? "");
+  const [aiBusy, setAiBusy] = useState<"" | "copy" | "video-script" | "guidance">("");
+  const [guidance, setGuidance] = useState("");
+  const [genMessage, setGenMessage] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
+
+  const liveAi = isLiveAiEnabled(aiIntegration);
+
+  async function aiGenerate(
+    id: string,
+    task: "copy" | "video-script",
+    guidanceText: string,
+    busyKey: "copy" | "video-script" | "guidance",
+  ) {
+    const item = calendar.find((row) => row.id === id);
+
+    if (!item) {
+      return;
+    }
+
+    setAiBusy(busyKey);
+    setGenMessage(null);
+
+    try {
+      const campaign = ucc.campaigns.find((row) => row.id === item.campaignId) ?? null;
+      const audience = ucc.audiences.find((row) => row.id === item.audienceId) ?? null;
+      const rule = platformRules[item.platform];
+      const response = await fetch("/api/ai/copy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          model: resolveModelForTask(aiIntegration, "analysis"),
+          context: {
+            item: {
+              platform: item.platform,
+              contentPillar: item.contentPillar,
+              contentTopic: item.contentTopic,
+              format: item.format,
+              currentHook: item.hook,
+              currentCaption: item.caption,
+              currentVideoScript: item.videoScript,
+              businessGoalConnection: item.businessGoalConnection,
+            },
+            campaign: campaign
+              ? { name: campaign.name, objective: campaign.objective }
+              : null,
+            audience: audience
+              ? {
+                  name: audience.name,
+                  languages: audience.languages,
+                  painPoints: audience.concerns,
+                  nurtureAngle: audience.nurtureAngle,
+                }
+              : null,
+            brand: { name: brand.brandName, toneOfVoice: brand.toneOfVoice },
+            platformRulebook: {
+              role: rule.role,
+              persona: rule.persona,
+              content: rule.content,
+              cta: rule.cta,
+              defaultFormat: rule.defaultFormat,
+              guardrail: rule.guardrail,
+            },
+            briefToneGuidance: brief.toneGuidance,
+            task,
+            guidance: guidanceText,
+          } satisfies CopyAiContext,
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; draft: CopyAiDraft; usage?: OpenAiUsage; model?: string }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setGenMessage({ tone: "error", text: result.error });
+        return;
+      }
+
+      const patch = copyDraftToPatch(result.draft);
+      updateItem(id, patch);
+      onUccChange(
+        appendAiOutputHistory(
+          ucc,
+          "ai-copywriting",
+          buildAiOutputRecord({
+            action:
+              task === "video-script"
+                ? "Generated video script with AI"
+                : guidanceText
+                  ? `Regenerated with guidance: ${guidanceText}`
+                  : "Generated production copy with AI",
+            item,
+            output: patch,
+          }),
+        ),
+      );
+      setSelectedItemId(id);
+      setGenMessage({
+        tone: "success",
+        text: "AI draft written to this item. It stays a draft until approved through the stage flow.",
+      });
+
+      if (result.usage) {
+        onRecordUsage("Production copy", result.model ?? "unknown", result.usage);
+      }
+    } catch (error) {
+      setGenMessage({
+        tone: "error",
+        text: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setAiBusy("");
+    }
+  }
 
   const roleItems = useMemo(() => {
     if (roleView === "video editor") {
@@ -8230,11 +8357,18 @@ function ContentProductionView({
           />
           <Button
             disabled={!brief.approved || calendar.length === 0}
-            onClick={generateAllCopy}
+            onClick={() => {
+              generateAllCopy();
+              setGenMessage({
+                tone: "info",
+                text: "Offline draft, AI not connected. Template copy was written to every item. Use the AI buttons below for live copy on the selected item.",
+              });
+            }}
             size="sm"
+            variant="outline"
           >
             <Wand2 className="h-4 w-4" />
-            Generate all copy
+            Generate all copy (offline templates)
           </Button>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -8294,17 +8428,94 @@ function ContentProductionView({
                   {selectedItem.contentTopic}
                 </CardDescription>
               </div>
-              <Button
-                disabled={!brief.approved}
-                onClick={() => generateCopy(selectedItem.id)}
-                size="sm"
-              >
-                <Wand2 className="h-4 w-4" />
-                Generate selected copy
-              </Button>
+              <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <Button
+                    disabled={!brief.approved || !liveAi || aiBusy !== ""}
+                    onClick={() => void aiGenerate(selectedItem.id, "copy", "", "copy")}
+                    size="sm"
+                    type="button"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {aiBusy === "copy" ? "Generating" : "Generate copy with AI"}
+                  </Button>
+                  <Button
+                    disabled={!brief.approved || !liveAi || aiBusy !== ""}
+                    onClick={() =>
+                      void aiGenerate(selectedItem.id, "video-script", "", "video-script")
+                    }
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {aiBusy === "video-script" ? "Generating" : "Generate video script with AI"}
+                  </Button>
+                  <Button
+                    disabled={!brief.approved}
+                    onClick={() => {
+                      generateCopy(selectedItem.id);
+                      setGenMessage({
+                        tone: "info",
+                        text: "Offline draft, AI not connected. Template copy written to this item.",
+                      });
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Wand2 className="h-4 w-4" />
+                    Offline template copy
+                  </Button>
+                </div>
+                {!liveAi ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Connect OpenAI in Settings to generate with AI.
+                  </p>
+                ) : null}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="space-y-3 xl:col-span-2">
+              {genMessage ? (
+                <div
+                  className={cn(
+                    "rounded-md border p-3 text-xs leading-5",
+                    genMessage.tone === "error"
+                      ? "border-warning-border bg-warning text-warning-foreground"
+                      : genMessage.tone === "success"
+                        ? "border-success-border bg-success text-success-foreground"
+                        : "bg-muted/30 text-muted-foreground",
+                  )}
+                >
+                  {genMessage.text}
+                </div>
+              ) : null}
+              <div className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
+                <div className="min-w-[240px] flex-1">
+                  <Field label="Regenerate with guidance">
+                    <Input
+                      onChange={(event) => setGuidance(event.target.value)}
+                      placeholder="e.g. more parent-reassuring, shorter, stronger proof"
+                      value={guidance}
+                    />
+                  </Field>
+                </div>
+                <Button
+                  disabled={!brief.approved || !liveAi || aiBusy !== "" || !guidance.trim()}
+                  onClick={() =>
+                    void aiGenerate(selectedItem.id, "copy", guidance.trim(), "guidance")
+                  }
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {aiBusy === "guidance" ? "Revising" : "Regenerate with guidance"}
+                </Button>
+              </div>
+            </div>
             <div className="space-y-3">
               <ProductionBlock
                 eyebrow="Generated hook"
@@ -9848,26 +10059,74 @@ function csvToAsset(row: Record<string, string>, ucc: UccStrategyData): UccAsset
   };
 }
 
+// Stage flow (Module B1): scheduling or publishing requires the approval
+// stage to have reached Manager approved.
+const STAGES_AT_OR_PAST_MANAGER_APPROVAL: ApprovalStage[] = [
+  "manager approved",
+  "scheduled",
+  "published",
+  "reported",
+];
+
 function canPublishCalendarItem(item: CalendarItem) {
-  return item.approvalStage === "published" || item.approvalStage === "reported";
+  return STAGES_AT_OR_PAST_MANAGER_APPROVAL.includes(item.approvalStage ?? "idea");
 }
 
 function sanitizeCalendarPatch(
   item: CalendarItem,
   patch: Partial<CalendarItem>,
 ) {
-  if (patch.status === "posted" && !canPublishCalendarItem({ ...item, ...patch })) {
+  let nextPatch = patch;
+
+  // Compliance Review interception: moving to "compliance approved" runs the
+  // rule-based checker. Flags block the move unless the manager explicitly
+  // overrides, and the override is logged on the item.
+  if (
+    nextPatch.approvalStage === "compliance approved" &&
+    item.approvalStage !== "compliance approved"
+  ) {
+    const merged = { ...item, ...nextPatch };
+    const flags = checkComplianceText(
+      [merged.hook, merged.caption, merged.videoScript].join("\n"),
+    );
+
+    if (flags.length > 0 && typeof window !== "undefined") {
+      const flagList = flags.map((flag) => `- ${flag}`).join("\n");
+      const overridden = window.confirm(
+        `Compliance flags found:\n\n${flagList}\n\nOverride and mark compliance approved anyway? The override will be logged on this item.`,
+      );
+
+      if (!overridden) {
+        const { approvalStage: _blockedStage, ...rest } = nextPatch;
+        nextPatch = {
+          ...rest,
+          blocker: `Compliance review blocked: ${flags.join(" ")}`,
+        };
+      } else {
+        const existingNote = merged.complianceNote ? `${merged.complianceNote}\n` : "";
+        nextPatch = {
+          ...nextPatch,
+          complianceNote: `${existingNote}Manager override on ${new Date().toISOString().slice(0, 10)}: compliance approved despite flags (${flags.join(" ")})`,
+        };
+      }
+    }
+  }
+
+  if (
+    (nextPatch.status === "posted" || nextPatch.status === "scheduled") &&
+    !canPublishCalendarItem({ ...item, ...nextPatch })
+  ) {
     return {
-      ...patch,
+      ...nextPatch,
       status: item.status,
       blocker:
-        patch.blocker ||
+        nextPatch.blocker ||
         item.blocker ||
-        "Publishing is blocked until compliance approval reaches Published.",
+        "Blocked: the approval stage must reach Manager approved before this item can be scheduled or published.",
     };
   }
 
-  return patch;
+  return nextPatch;
 }
 
 function buildAiOutputRecord({
