@@ -42,7 +42,13 @@ import {
 } from "@/lib/supabase-client";
 import type { WorkspaceSync } from "@/components/social-calendar/use-workspace-sync";
 
-type SetupNavView = "dashboard" | "settings" | "courses" | "brief" | "calendar";
+type SetupNavView =
+  | "dashboard"
+  | "brand"
+  | "settings"
+  | "courses"
+  | "brief"
+  | "calendar";
 
 type SetupGuideProps = {
   data: MarketingWorkspaceData;
@@ -470,9 +476,9 @@ export function SetupGuide({
             done={isDone("brand")}
             icon={GraduationCap}
             title="Set up your brand"
-            plain="Your brand name and voice guide every piece of content the app makes. Add them in Settings, then come back here."
+            plain="Your brand name and voice guide every piece of content the app makes. Add them on the Brand screen, then come back here."
             actionLabel="Take me to brand setup"
-            onGo={() => onNavigate("settings")}
+            onGo={() => onNavigate("brand")}
           />
         ) : null}
 

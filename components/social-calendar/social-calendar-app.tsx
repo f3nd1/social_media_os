@@ -251,6 +251,7 @@ type PdfExtractionResponse = {
 
 export type ViewId =
   | "dashboard"
+  | "brand"
   | "objectives"
   | "courses"
   | "campaigns"
@@ -280,6 +281,7 @@ const navGroups: Array<{ phase: string; items: NavItem[] }> = [
   {
     phase: "Set up",
     items: [
+      { id: "brand", label: "Brand", icon: Palette },
       { id: "courses", label: "Courses & Audiences", icon: GraduationCap },
       { id: "settings", label: "Settings", icon: Settings2 },
     ],
@@ -1079,6 +1081,58 @@ export function SocialCalendarApp() {
               <ManagementDashboardView data={data} onNavigate={setActiveView} />
             ) : null}
 
+            {activeView === "brand" ? (
+              <BrandSetupView
+                brand={data.brand}
+                importState={pdfImportState}
+                pdfDataSource={data.pdfDataSource}
+                onBrandChange={(field, value) =>
+                  updateWorkspace((current) => ({
+                    ...current,
+                    brand: { ...current.brand, [field]: value },
+                  }))
+                }
+                onPdfDataSourceChange={(field, value) =>
+                  updateWorkspace((current) => ({
+                    ...current,
+                    pdfDataSource: { ...current.pdfDataSource, [field]: value },
+                  }))
+                }
+                onPdfReportChange={(uploadId, patch) =>
+                  updateWorkspace((current) => ({
+                    ...current,
+                    pdfDataSource: {
+                      ...current.pdfDataSource,
+                      uploads: current.pdfDataSource.uploads.map((upload) =>
+                        upload.id === uploadId ? { ...upload, ...patch } : upload,
+                      ),
+                    },
+                  }))
+                }
+                onPdfReportDelete={(uploadId) =>
+                  updateWorkspace((current) => {
+                    const uploads = current.pdfDataSource.uploads.filter(
+                      (upload) => upload.id !== uploadId,
+                    );
+
+                    return {
+                      ...current,
+                      pdfDataSource: {
+                        ...current.pdfDataSource,
+                        uploads,
+                        selectedUploadId:
+                          current.pdfDataSource.selectedUploadId === uploadId
+                            ? uploads[0]?.id ?? ""
+                            : current.pdfDataSource.selectedUploadId,
+                      },
+                    };
+                  })
+                }
+                onPdfReportUpload={addPdfReports}
+                onPdfReportApply={applySelectedPdfReportData}
+              />
+            ) : null}
+
             {activeView === "objectives" ? (
               <SocialAuditView
                 aiIntegration={data.aiIntegration}
@@ -1295,14 +1349,11 @@ export function SocialCalendarApp() {
                 onRunSetupGuide={startSetupGuide}
                 aiIntegration={data.aiIntegration}
                 aiUsage={data.aiUsage}
-                brand={data.brand}
                 connections={data.connections}
                 workspaceData={data}
                 onRestoreWorkspace={(workspace) =>
                   setData(normalizeWorkspaceData(workspace))
                 }
-                importState={pdfImportState}
-                pdfDataSource={data.pdfDataSource}
                 ucc={data.ucc}
                 competitors={data.competitors}
                 calendar={data.calendar}
@@ -1313,50 +1364,6 @@ export function SocialCalendarApp() {
                 onConnectionsChange={(connections) =>
                   updateWorkspace((current) => ({ ...current, connections }))
                 }
-                onBrandChange={(field, value) =>
-                  updateWorkspace((current) => ({
-                    ...current,
-                    brand: { ...current.brand, [field]: value },
-                  }))
-                }
-                onPdfDataSourceChange={(field, value) =>
-                  updateWorkspace((current) => ({
-                    ...current,
-                    pdfDataSource: { ...current.pdfDataSource, [field]: value },
-                  }))
-                }
-                onPdfReportChange={(uploadId, patch) =>
-                  updateWorkspace((current) => ({
-                    ...current,
-                    pdfDataSource: {
-                      ...current.pdfDataSource,
-                      uploads: current.pdfDataSource.uploads.map((upload) =>
-                        upload.id === uploadId ? { ...upload, ...patch } : upload,
-                      ),
-                    },
-                  }))
-                }
-                onPdfReportDelete={(uploadId) =>
-                  updateWorkspace((current) => {
-                    const uploads = current.pdfDataSource.uploads.filter(
-                      (upload) => upload.id !== uploadId,
-                    );
-
-                    return {
-                      ...current,
-                      pdfDataSource: {
-                        ...current.pdfDataSource,
-                        uploads,
-                        selectedUploadId:
-                          current.pdfDataSource.selectedUploadId === uploadId
-                            ? uploads[0]?.id ?? ""
-                            : current.pdfDataSource.selectedUploadId,
-                      },
-                    };
-                  })
-                }
-                onPdfReportUpload={addPdfReports}
-                onPdfReportApply={applySelectedPdfReportData}
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
                 }
@@ -1688,8 +1695,8 @@ function buildSetupStatus(data: MarketingWorkspaceData): SetupStatusRow[] {
     {
       label: "Brand set up",
       done: data.brand.brandName.trim().length > 0,
-      view: "settings",
-      next: "Add your brand name and details in Settings.",
+      view: "brand",
+      next: "Add your brand name and details on the Brand screen.",
     },
     {
       label: "Courses added",
@@ -1749,7 +1756,7 @@ function guidedSteps(
       key: "brand",
       title: "Set up your brand",
       why: "Your brand name and voice guide every piece of content the app helps you make.",
-      view: "settings",
+      view: "brand",
       done: data.brand.brandName.trim().length > 0,
     },
     {
@@ -1821,6 +1828,12 @@ const SCREEN_HELP: Partial<Record<ViewId, ReactNode>> = {
     <>
       Your overview of everything. New here? Follow the Setup status checklist
       below to connect the whole system, one step at a time.
+    </>
+  ),
+  brand: (
+    <>
+      Your brand name, voice, colours, and goals. The app uses these to keep
+      every piece of content on brand. This is the first thing to fill in.
     </>
   ),
   objectives: (
@@ -1913,8 +1926,8 @@ const SCREEN_HELP: Partial<Record<ViewId, ReactNode>> = {
   ),
   settings: (
     <>
-      Connect AI and Supabase, set up your brand, and load sample data or start
-      empty. New here? Set your brand name first.
+      Connect AI and Supabase, manage connections, and load sample data or start
+      empty. Your brand details now live on the Brand screen.
     </>
   ),
 };
@@ -2128,9 +2141,9 @@ function FirstRunChecklist({
 }) {
   const steps: Array<{ label: string; done: boolean; view: ViewId }> = [
     {
-      label: "1. Set up your brand in Settings",
+      label: "1. Set up your brand on the Brand screen",
       done: data.brand.brandName.trim().length > 0,
-      view: "settings",
+      view: "brand",
     },
     {
       label: "2. Add your courses and audiences",
@@ -7638,37 +7651,26 @@ function WorkspaceDataModePanel({
 function SettingsWorkspaceView({
   aiIntegration,
   aiUsage,
-  brand,
   calendar,
   competitors,
   connections,
-  importState,
   onAiIntegrationChange,
   onApplyMetrics,
   onRestoreWorkspace,
   workspaceData,
-  onBrandChange,
   onCalendarChange,
   onCompetitorsChange,
   onConnectionsChange,
-  onPdfDataSourceChange,
-  onPdfReportApply,
-  onPdfReportChange,
-  onPdfReportDelete,
-  onPdfReportUpload,
   onRunSetupGuide,
   onUccChange,
-  pdfDataSource,
   sync,
   ucc,
 }: {
   aiIntegration: AiIntegrationSettings;
   aiUsage: AiUsageEntry[];
-  brand: BrandProfile;
   calendar: CalendarItem[];
   competitors: Competitor[];
   connections: PlatformConnection[];
-  importState: PdfImportState;
   onRestoreWorkspace: (workspace: MarketingWorkspaceData) => void;
   onRunSetupGuide: () => void;
   workspaceData: MarketingWorkspaceData;
@@ -7678,23 +7680,10 @@ function SettingsWorkspaceView({
     approvedBy: string,
     source: { label: string; noteLabel: string; rangeLabel: string; editedCount: number },
   ) => void;
-  onBrandChange: <K extends keyof BrandProfile>(
-    field: K,
-    value: BrandProfile[K],
-  ) => void;
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
   onConnectionsChange: (connections: PlatformConnection[]) => void;
-  onPdfDataSourceChange: <K extends keyof PdfDataSourceSettings>(
-    field: K,
-    value: PdfDataSourceSettings[K],
-  ) => void;
-  onPdfReportApply: () => void;
-  onPdfReportChange: (uploadId: string, patch: Partial<PdfReportUpload>) => void;
-  onPdfReportDelete: (uploadId: string) => void;
-  onPdfReportUpload: (files: FileList | null) => void | Promise<void>;
   onUccChange: (ucc: UccStrategyData) => void;
-  pdfDataSource: PdfDataSourceSettings;
   sync: WorkspaceSync;
   ucc: UccStrategyData;
 }) {
@@ -7768,17 +7757,6 @@ function SettingsWorkspaceView({
         aiIntegration={aiIntegration}
         aiUsage={aiUsage}
         onAiIntegrationChange={onAiIntegrationChange}
-      />
-      <BrandSetupView
-        brand={brand}
-        importState={importState}
-        pdfDataSource={pdfDataSource}
-        onBrandChange={onBrandChange}
-        onPdfDataSourceChange={onPdfDataSourceChange}
-        onPdfReportApply={onPdfReportApply}
-        onPdfReportChange={onPdfReportChange}
-        onPdfReportDelete={onPdfReportDelete}
-        onPdfReportUpload={onPdfReportUpload}
       />
       <ConnectionManagerPanel
         connections={connections}
