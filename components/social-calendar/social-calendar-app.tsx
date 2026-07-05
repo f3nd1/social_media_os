@@ -7996,7 +7996,7 @@ function BrandSetupView({
         <CardHeader>
           <SectionTitle
             icon={Settings2}
-            kicker="Step 1"
+            kicker="Set up"
             title="Brand Setup"
             description="The calendar engine uses these fields to keep content tied to the brand, audience, offers, and goals."
           />
@@ -9038,7 +9038,7 @@ function SocialAuditView({
           <CardHeader>
             <SectionTitle
               icon={SearchCheck}
-              kicker="Step 2"
+              kicker="Plan"
               title="Start your social audit"
               description="Add a platform to record where it stands today. You can fill in the numbers by hand, or connect a data source in Settings later. Add each platform you use."
             />
@@ -9063,7 +9063,7 @@ function SocialAuditView({
         <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <SectionTitle
             icon={SearchCheck}
-            kicker="Step 2"
+            kicker="Plan"
             title="Social Audit"
             description="Score the current platform presence across completeness, consistency, content mix, hooks, CTAs, visuals, and engagement."
           />
@@ -9584,7 +9584,7 @@ function CompetitorIntelligenceView({
         <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <SectionTitle
             icon={UsersRound}
-            kicker="Step 3"
+            kicker="Plan"
             title="Competitor Intelligence"
             description="Track 3 to 6 competitors, their platform behavior, format choices, tone, frequency, strengths, and gaps."
           />
@@ -9988,7 +9988,7 @@ function StrategyBriefView({
         <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <SectionTitle
             icon={ClipboardCheck}
-            kicker="Step 4"
+            kicker="Plan"
             title="Strategic Narrative Brief"
             description="Generate a draft with AI or edit by hand, then approve before generating the calendar."
           />
@@ -10699,7 +10699,7 @@ function CalendarBuilderView({
         <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <SectionTitle
             icon={CalendarDays}
-            kicker="Step 5"
+            kicker="Create"
             title="Calendar Builder"
             description={`${brand.brandName} has ${calendar.length} platform-native calendar items connected to the approved strategy brief.`}
           />
@@ -11985,7 +11985,7 @@ function ContentProductionView({
         <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <SectionTitle
             icon={ListChecks}
-            kicker="Step 7"
+            kicker="Create"
             title="Content Production View"
             description="Daily Content Master table, platform playbooks, copy generation, role handoffs, and approval tracking."
           />
@@ -12759,7 +12759,7 @@ function PerformanceLearningView({
         <CardHeader>
           <SectionTitle
             icon={TrendingUp}
-            kicker="Step 8"
+            kicker="Review"
             title="Performance Learning Layer"
             description="Enter post results, then repeat, improve, or stop content based on platform, hook, pillar, and format signals."
           />
@@ -13075,7 +13075,7 @@ function ExportView({ data }: { data: MarketingWorkspaceData }) {
         <CardHeader>
           <SectionTitle
             icon={Download}
-            kicker="Step 9"
+            kicker="Report"
             title="Export"
             description="Export production-ready planning data for calendars, platform owners, video production, weekly handoff, and performance review."
           />
