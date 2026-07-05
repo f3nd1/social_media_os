@@ -32,21 +32,34 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import type {
   AiIntegrationSettings,
+  BrandProfile,
   MarketingWorkspaceData,
   PlatformConnection,
   SetupGuideProgress,
+  SocialAudit,
+  StrategyBrief,
+  UccStrategyData,
 } from "@/lib/social-calendar-data";
+import type { OpenAiUsage } from "@/lib/openai-shared";
 import {
   resolveSupabaseConfig,
   saveSupabaseConfig,
 } from "@/lib/supabase-client";
 import type { WorkspaceSync } from "@/components/social-calendar/use-workspace-sync";
+import {
+  AudienceStepBody,
+  AuditStepBody,
+  BrandStepBody,
+  BriefStepBody,
+  CourseStepBody,
+} from "@/components/social-calendar/setup-guide-data-steps";
 
 type SetupNavView =
   | "dashboard"
   | "brand"
   | "settings"
   | "courses"
+  | "objectives"
   | "brief"
   | "calendar";
 
@@ -60,6 +73,11 @@ type SetupGuideProps = {
   onNavigate: (view: SetupNavView) => void;
   onAiIntegrationChange: (next: AiIntegrationSettings) => void;
   onConnectionsChange: (next: PlatformConnection[]) => void;
+  onUpdateBrand: (patch: Partial<BrandProfile>) => void;
+  onUccChange: (next: UccStrategyData) => void;
+  onAuditsChange: (next: SocialAudit[]) => void;
+  onBriefChange: (next: StrategyBrief) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 };
 
 const STEP_KEYS = [
@@ -69,13 +87,19 @@ const STEP_KEYS = [
   "analytics",
   "compliance",
   "brand",
-  "courses",
+  "course",
+  "audience",
+  "audit",
   "brief",
 ] as const;
 
 type StepKey = (typeof STEP_KEYS)[number];
 
 const TOTAL_STEPS = STEP_KEYS.length;
+// Part A "Connect" is steps 1 to 4 (welcome is an unnumbered intro); Part B
+// "Your data" is steps 5 to 9. The two counts are shown separately.
+const CONNECT_STEPS = 4;
+const DATA_STEPS = 5;
 
 // Pick a sensible pair of models from whatever the key can access: a cheaper
 // one for light tasks and a stronger one for analysis. Mirrors the Settings
@@ -109,6 +133,11 @@ export function SetupGuide({
   onNavigate,
   onAiIntegrationChange,
   onConnectionsChange,
+  onUpdateBrand,
+  onUccChange,
+  onAuditsChange,
+  onBriefChange,
+  onRecordUsage,
 }: SetupGuideProps) {
   const guide: SetupGuideProgress =
     data.setupGuide ?? { active: true, completed: false, stepIndex: 0, skipped: [] };
@@ -151,11 +180,12 @@ export function SetupGuide({
         return Boolean(guide.complianceAcknowledged);
       case "brand":
         return data.brand.brandName.trim().length > 0;
-      case "courses":
-        return (
-          data.ucc.courses.some((course) => course.status !== "archived") &&
-          data.ucc.audiences.length > 0
-        );
+      case "course":
+        return data.ucc.courses.some((course) => course.status !== "archived");
+      case "audience":
+        return data.ucc.audiences.length > 0;
+      case "audit":
+        return data.audits.length > 0;
       case "brief":
         return data.brief.approved;
       default:
@@ -334,13 +364,32 @@ export function SetupGuide({
     );
   }
 
-  const displayStep = Math.min(step + 1, TOTAL_STEPS);
+  // Two separate counts. Part A "Connect" is steps 1 to 4, Part B "Your data"
+  // is steps 5 to 9, welcome is an intro and finish is the end.
+  const inPartA = step >= 1 && step <= CONNECT_STEPS;
+  const inPartB = step >= CONNECT_STEPS + 1 && step <= CONNECT_STEPS + DATA_STEPS;
   const partLabel =
-    stepKey === "finish"
-      ? "Done"
-      : step <= 4
-        ? "Part A: connections"
-        : "Part B: your data";
+    stepKey === "welcome"
+      ? "Welcome"
+      : inPartA
+        ? "Connect"
+        : inPartB
+          ? "Your data"
+          : "Done";
+  const countLabel = inPartA
+    ? `Connect: step ${step} of ${CONNECT_STEPS}`
+    : inPartB
+      ? `Your data: step ${step - CONNECT_STEPS} of ${DATA_STEPS}`
+      : stepKey === "welcome"
+        ? "Choose how to begin"
+        : "All steps complete";
+  const progressValue = inPartA
+    ? (step / CONNECT_STEPS) * 100
+    : inPartB
+      ? ((step - CONNECT_STEPS) / DATA_STEPS) * 100
+      : stepKey === "finish"
+        ? 100
+        : 0;
 
   return (
     <Card className="border-primary/40">
@@ -354,18 +403,14 @@ export function SetupGuide({
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Setup guide / {partLabel}
               </p>
-              <p className="text-sm font-semibold">
-                {stepKey === "finish"
-                  ? "All steps complete"
-                  : `Step ${displayStep} of ${TOTAL_STEPS}`}
-              </p>
+              <p className="text-sm font-semibold">{countLabel}</p>
             </div>
           </div>
           <Button onClick={onExit} size="sm" type="button" variant="outline">
             Save and close
           </Button>
         </div>
-        <Progress value={(displayStep / TOTAL_STEPS) * 100} />
+        <Progress value={progressValue} />
       </CardHeader>
       <CardContent className="space-y-4">
         {stepKey === "brand" ? <PartASummary guide={guide} /> : null}
@@ -472,36 +517,79 @@ export function SetupGuide({
         ) : null}
 
         {stepKey === "brand" ? (
-          <HandoffStep
+          <StepShell
             done={isDone("brand")}
             icon={GraduationCap}
             title="Set up your brand"
-            plain="Your brand name and voice guide every piece of content the app makes. Add them on the Brand screen, then come back here."
-            actionLabel="Take me to brand setup"
-            onGo={() => onNavigate("brand")}
-          />
+            plain="Your brand name and voice guide every piece of content the app makes. Fill them in here."
+          >
+            <BrandStepBody
+              brand={data.brand}
+              onOpenFull={() => onNavigate("brand")}
+              onUpdateBrand={onUpdateBrand}
+            />
+          </StepShell>
         ) : null}
 
-        {stepKey === "courses" ? (
-          <HandoffStep
-            done={isDone("courses")}
+        {stepKey === "course" ? (
+          <StepShell
+            done={isDone("course")}
             icon={GraduationCap}
-            title="Add your courses and audiences"
-            plain="Courses are what you market and audiences are who you market to. Add at least one of each so the app can tailor the plan."
-            actionLabel="Take me to courses and audiences"
-            onGo={() => onNavigate("courses")}
-          />
+            title="Add your courses"
+            plain="Courses are what you market. Add at least one here; you can add several."
+          >
+            <CourseStepBody
+              onOpenFull={() => onNavigate("courses")}
+              onUccChange={onUccChange}
+              ucc={data.ucc}
+            />
+          </StepShell>
+        ) : null}
+
+        {stepKey === "audience" ? (
+          <StepShell
+            done={isDone("audience")}
+            icon={GraduationCap}
+            title="Add your audiences"
+            plain="Audiences are who you market to, so the app can tailor the message. Add at least one."
+          >
+            <AudienceStepBody
+              onOpenFull={() => onNavigate("courses")}
+              onUccChange={onUccChange}
+              ucc={data.ucc}
+            />
+          </StepShell>
+        ) : null}
+
+        {stepKey === "audit" ? (
+          <StepShell
+            done={isDone("audit")}
+            icon={ShieldCheck}
+            title="Record a quick audit"
+            plain="An audit notes where a platform stands today so progress is measurable. Add one platform to start; refine the numbers later."
+          >
+            <AuditStepBody
+              audits={data.audits}
+              onAuditsChange={onAuditsChange}
+              onOpenFull={() => onNavigate("objectives")}
+            />
+          </StepShell>
         ) : null}
 
         {stepKey === "brief" ? (
-          <HandoffStep
+          <StepShell
             done={isDone("brief")}
             icon={ShieldCheck}
-            title="Record an audit and approve a strategy brief"
-            plain="The brief turns everything above into a plan. Record a quick audit on the Objectives screen if you like, then open the Strategy Brief, fill it in or generate a draft, and approve it to unlock the calendar."
-            actionLabel="Take me to the strategy brief"
-            onGo={() => onNavigate("brief")}
-          />
+            title="Approve a strategy brief"
+            plain="The brief turns everything above into a plan. Generate a draft or type one, then approve it to unlock the calendar."
+          >
+            <BriefStepBody
+              data={data}
+              onBriefChange={onBriefChange}
+              onOpenFull={() => onNavigate("brief")}
+              onRecordUsage={onRecordUsage}
+            />
+          </StepShell>
         ) : null}
 
         {stepKey === "finish" ? (
@@ -518,6 +606,7 @@ export function SetupGuide({
             canSkip={stepKey !== "compliance"}
             done={isDone(stepKey)}
             isLast={step === TOTAL_STEPS - 1}
+            nextLabel={inPartB ? "Save and next" : "Next step"}
             onBack={step > 0 ? () => goTo(step - 1) : undefined}
             onNext={() => goTo(step + 1)}
             onSkip={() => skip(stepKey)}
@@ -778,39 +867,6 @@ function StepShell({
   );
 }
 
-function HandoffStep({
-  actionLabel,
-  done,
-  icon: Icon,
-  onGo,
-  plain,
-  title,
-}: {
-  actionLabel: string;
-  done: boolean;
-  icon: typeof Database;
-  onGo: () => void;
-  plain: string;
-  title: string;
-}) {
-  return (
-    <StepShell done={done} icon={Icon} plain={plain} title={title}>
-      <Button onClick={onGo} size="sm" type="button">
-        {actionLabel}
-      </Button>
-      {done ? (
-        <p className="text-xs leading-5 text-success-foreground">
-          Done. This step is complete.
-        </p>
-      ) : (
-        <p className="text-xs leading-5 text-muted-foreground">
-          This step turns green automatically once it is done.
-        </p>
-      )}
-    </StepShell>
-  );
-}
-
 function DoneBadge({ done }: { done: boolean }) {
   return done ? (
     <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-success-border bg-success px-2 py-0.5 text-xs font-medium text-success-foreground">
@@ -899,6 +955,7 @@ function StepFooter({
   canSkip,
   done,
   isLast,
+  nextLabel,
   onBack,
   onNext,
   onSkip,
@@ -907,6 +964,7 @@ function StepFooter({
   canSkip: boolean;
   done: boolean;
   isLast: boolean;
+  nextLabel: string;
   onBack?: () => void;
   onNext: () => void;
   onSkip: () => void;
@@ -928,7 +986,7 @@ function StepFooter({
           </Button>
         ) : null}
         <Button disabled={!canAdvance} onClick={onNext} size="sm" type="button">
-          {isLast ? "Finish" : "Next step"}
+          {isLast ? "Finish" : nextLabel}
           <ArrowRight className="h-4 w-4" />
         </Button>
       </div>

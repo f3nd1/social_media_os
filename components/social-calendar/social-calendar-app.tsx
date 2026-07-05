@@ -1066,6 +1066,22 @@ export function SocialCalendarApp() {
                 onConnectionsChange={(connections) =>
                   updateWorkspace((current) => ({ ...current, connections }))
                 }
+                onUpdateBrand={(patch) =>
+                  updateWorkspace((current) => ({
+                    ...current,
+                    brand: { ...current.brand, ...patch },
+                  }))
+                }
+                onUccChange={(ucc) =>
+                  updateWorkspace((current) => ({ ...current, ucc }))
+                }
+                onAuditsChange={(audits) =>
+                  updateWorkspace((current) => ({ ...current, audits }))
+                }
+                onBriefChange={(brief) =>
+                  updateWorkspace((current) => ({ ...current, brief }))
+                }
+                onRecordUsage={recordAiUsage}
               />
             ) : null}
 
