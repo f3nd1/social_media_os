@@ -305,16 +305,13 @@ const navGroups: Array<{ phase: string; items: NavItem[] }> = [
     ],
   },
   {
-    phase: "Review",
+    phase: "Measure",
     items: [
       { id: "kpi", label: "KPI Tracker", icon: TrendingUp },
+      { id: "reports", label: "Reports", icon: Download },
       { id: "compliance", label: "Compliance", icon: ShieldCheck },
       { id: "budget", label: "Budget & Resources", icon: FileSpreadsheet },
     ],
-  },
-  {
-    phase: "Report",
-    items: [{ id: "reports", label: "Reports", icon: Download }],
   },
 ];
 
