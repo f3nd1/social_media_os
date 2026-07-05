@@ -16,6 +16,8 @@ import {
   BookOpenText,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
   Database,
   Download,
@@ -341,6 +343,12 @@ export function SocialCalendarApp() {
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
   const [myDayMode, setMyDayMode] = useState(false);
+  // Collapsible left-nav sections. By default the section holding the current
+  // screen is open; on a fresh workspace only Set up is open so a beginner is
+  // not faced with everything at once. A manual click overrides the default.
+  const [navSectionToggles, setNavSectionToggles] = useState<
+    Record<string, boolean>
+  >({});
   // Steps the user chose to skip in the guided setup this session. Kept in
   // component state because a skip is a "not now", not a saved decision.
   const [guidedSkipped, setGuidedSkipped] = useState<string[]>([]);
@@ -390,6 +398,27 @@ export function SocialCalendarApp() {
     ["approved", "scheduled", "posted"].includes(item.status),
   ).length;
   const activeNav = navItems.find((item) => item.id === activeView) ?? navItems[0];
+
+  const activeSectionPhase =
+    navGroups.find((group) => group.items.some((item) => item.id === activeView))
+      ?.phase ?? "Home";
+  const isBeginnerWorkspace =
+    !data.brand.brandName.trim() && data.calendar.length === 0;
+
+  function isNavSectionOpen(phase: string) {
+    if (phase in navSectionToggles) {
+      return navSectionToggles[phase];
+    }
+
+    return phase === activeSectionPhase || (isBeginnerWorkspace && phase === "Set up");
+  }
+
+  function toggleNavSection(phase: string) {
+    setNavSectionToggles((current) => ({
+      ...current,
+      [phase]: !isNavSectionOpen(phase),
+    }));
+  }
 
   function updateWorkspace(
     updater: (current: MarketingWorkspaceData) => MarketingWorkspaceData,
@@ -792,23 +821,60 @@ export function SocialCalendarApp() {
           </div>
 
           <nav className="mt-8 space-y-4">
-            {navGroups.map((group) => (
-              <div className="space-y-1" key={group.phase}>
-                {group.phase !== "Home" ? (
-                  <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-                    {group.phase}
-                  </p>
-                ) : null}
-                {group.items.map((item) => (
-                  <NavButton
-                    active={activeView === item.id}
-                    item={item}
-                    key={item.id}
-                    onClick={() => setActiveView(item.id)}
-                  />
-                ))}
-              </div>
-            ))}
+            {navGroups.map((group) => {
+              if (group.phase === "Home") {
+                return (
+                  <div className="space-y-1" key={group.phase}>
+                    {group.items.map((item) => (
+                      <NavButton
+                        active={activeView === item.id}
+                        item={item}
+                        key={item.id}
+                        onClick={() => setActiveView(item.id)}
+                      />
+                    ))}
+                  </div>
+                );
+              }
+
+              const open = isNavSectionOpen(group.phase);
+              const holdsActive = group.items.some((item) => item.id === activeView);
+
+              return (
+                <div className="space-y-1" key={group.phase}>
+                  <button
+                    aria-expanded={open}
+                    className="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 transition-colors hover:text-foreground"
+                    onClick={() => toggleNavSection(group.phase)}
+                    type="button"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {group.phase}
+                      {!open && holdsActive ? (
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                      ) : null}
+                    </span>
+                    {open ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  {open ? (
+                    <div className="space-y-1">
+                      {group.items.map((item) => (
+                        <NavButton
+                          active={activeView === item.id}
+                          item={item}
+                          key={item.id}
+                          onClick={() => setActiveView(item.id)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </nav>
 
           <div className="mt-auto space-y-5 px-2">
