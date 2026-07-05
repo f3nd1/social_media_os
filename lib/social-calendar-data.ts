@@ -668,6 +668,10 @@ export type ListeningResult = {
   dateRange: string;
   model: string;
   generatedAt: string;
+  // Human decision on whether this finding becomes strategy input. Only
+  // "accepted" findings flow into the brief and campaign context; others stay
+  // as research on this screen. Optional so older saves upgrade safely.
+  status?: "new" | "accepted" | "dismissed";
 };
 
 // One line in the permanent approvals log (Module E3). Append-only audit

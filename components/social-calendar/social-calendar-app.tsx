@@ -1215,6 +1215,7 @@ export function SocialCalendarApp() {
                 brief={data.brief}
                 campaignSuggestions={data.campaignSuggestions}
                 competitorInsights={data.competitorInsights}
+                listeningResults={data.listeningResults}
                 ucc={data.ucc}
                 onCampaignSuggestionsChange={(campaignSuggestions) =>
                   updateWorkspace((current) => ({ ...current, campaignSuggestions }))
@@ -1268,6 +1269,7 @@ export function SocialCalendarApp() {
                 brand={data.brand}
                 brief={data.brief}
                 competitorInsights={data.competitorInsights}
+                listeningResults={data.listeningResults}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onBriefChange={(brief) =>
@@ -3142,6 +3144,7 @@ function CampaignPlanningView({
   brief,
   campaignSuggestions,
   competitorInsights,
+  listeningResults,
   onCampaignSuggestionsChange,
   onOfferUndo,
   onRecordUsage,
@@ -3154,6 +3157,7 @@ function CampaignPlanningView({
   brief: StrategyBrief;
   campaignSuggestions: CampaignSuggestion[];
   competitorInsights: CompetitorInsight[];
+  listeningResults: ListeningResult[];
   onCampaignSuggestionsChange: (campaignSuggestions: CampaignSuggestion[]) => void;
   onOfferUndo: (message: string, onExpire?: () => void) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
@@ -3195,6 +3199,9 @@ function CampaignPlanningView({
                 (insight) =>
                   `${insight.competitorName} (${insight.kind}): ${insight.insight}`,
               ),
+            acceptedListeningInsights: listeningResults
+              .filter((result) => result.status === "accepted")
+              .map((result) => `${result.topic}: ${result.insight}`),
             courses: ucc.courses
               .filter((course) => course.status !== "archived")
               .map((course) => ({
@@ -3758,6 +3765,7 @@ function TrendRadarPanel({
         dateRange: result.dateRange,
         model: result.model ?? "unknown",
         generatedAt: new Date().toISOString(),
+        status: "new",
       };
 
       onListeningResultsChange([entry, ...data.listeningResults].slice(0, 20));
@@ -4087,7 +4095,24 @@ function TrendRadarPanel({
                         )?.label ?? result.analysisType}
                       </span>
                     </p>
-                    <Badge variant="outline">{result.dateRange}</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{result.dateRange}</Badge>
+                      <Badge
+                        variant={
+                          result.status === "accepted"
+                            ? "success"
+                            : result.status === "dismissed"
+                              ? "secondary"
+                              : "warning"
+                        }
+                      >
+                        {result.status === "accepted"
+                          ? "Accepted"
+                          : result.status === "dismissed"
+                            ? "Dismissed"
+                            : "New"}
+                      </Badge>
+                    </div>
                   </div>
                   <p className="whitespace-pre-wrap text-sm leading-6">{result.insight}</p>
                   <div className="space-y-2">
@@ -4119,6 +4144,48 @@ function TrendRadarPanel({
                     Covered: {result.sourcesCovered}. Analysed by {result.model} on{" "}
                     {result.generatedAt.slice(0, 16).replace("T", " ")}. Research
                     evidence only; do not copy quotes into marketing content.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      disabled={result.status === "accepted"}
+                      onClick={() =>
+                        onListeningResultsChange(
+                          data.listeningResults.map((row) =>
+                            row.id === result.id
+                              ? { ...row, status: "accepted" }
+                              : row,
+                          ),
+                        )
+                      }
+                      size="sm"
+                      type="button"
+                    >
+                      {result.status === "accepted"
+                        ? "Accepted as strategy input"
+                        : "Accept as strategy input"}
+                    </Button>
+                    <Button
+                      disabled={result.status === "dismissed"}
+                      onClick={() =>
+                        onListeningResultsChange(
+                          data.listeningResults.map((row) =>
+                            row.id === result.id
+                              ? { ...row, status: "dismissed" }
+                              : row,
+                          ),
+                        )
+                      }
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Accepted findings feed the Strategy Brief and campaign
+                    suggestions as internal research signals. Quotes are never
+                    used as copy.
                   </p>
                 </div>
               ))
@@ -9723,6 +9790,7 @@ function StrategyBriefView({
   brand,
   brief,
   competitorInsights,
+  listeningResults,
   socialGoals,
   ucc,
   onBriefChange,
@@ -9733,6 +9801,7 @@ function StrategyBriefView({
   brand: BrandProfile;
   brief: StrategyBrief;
   competitorInsights: CompetitorInsight[];
+  listeningResults: ListeningResult[];
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onBriefChange: (brief: StrategyBrief) => void;
@@ -9805,6 +9874,9 @@ function StrategyBriefView({
           (insight) =>
             `${insight.competitorName} (${insight.kind}): ${insight.insight}`,
         ),
+      acceptedListeningInsights: listeningResults
+        .filter((result) => result.status === "accepted")
+        .map((result) => `${result.topic}: ${result.insight}`),
       platforms: [...platforms],
     };
   }

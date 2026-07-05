@@ -41,6 +41,9 @@ export type BriefAiContext = {
   }>;
   // Accepted competitor insights (Module A3), phrased "Name (kind): insight".
   acceptedCompetitorInsights: string[];
+  // Accepted social listening findings (Module D3), phrased "topic: insight".
+  // Internal research signals only; never marketing copy and no quotes.
+  acceptedListeningInsights: string[];
   platforms: Platform[];
 };
 

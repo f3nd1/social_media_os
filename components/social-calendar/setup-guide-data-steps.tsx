@@ -505,6 +505,9 @@ export function BriefStepBody({
       acceptedCompetitorInsights: (data.competitorInsights ?? [])
         .filter((insight) => insight.status === "accepted")
         .map((insight) => `${insight.competitorName} (${insight.kind}): ${insight.insight}`),
+      acceptedListeningInsights: (data.listeningResults ?? [])
+        .filter((result) => result.status === "accepted")
+        .map((result) => `${result.topic}: ${result.insight}`),
       platforms: [...platforms],
     };
   }

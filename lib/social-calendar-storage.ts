@@ -156,6 +156,10 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
       ? data.listeningResults.map((result) => ({
           ...result,
           quotes: Array.isArray(result.quotes) ? result.quotes : [],
+          status:
+            result.status === "accepted" || result.status === "dismissed"
+              ? result.status
+              : ("new" as const),
         }))
       : [],
     approvalsLog: Array.isArray(data.approvalsLog) ? data.approvalsLog : [],

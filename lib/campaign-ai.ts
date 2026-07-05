@@ -21,6 +21,9 @@ export type CampaignAiContext = {
   };
   acceptedAuditInsights: string[];
   acceptedCompetitorInsights: string[];
+  // Accepted social listening findings (Module D3), phrased "topic: insight".
+  // Internal research signals only; never marketing copy and no quotes.
+  acceptedListeningInsights: string[];
   courses: Array<{
     name: string;
     category: string;
