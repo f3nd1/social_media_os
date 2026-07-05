@@ -1,8 +1,10 @@
 import {
   approvalStages,
+  createDefaultSetupGuide,
   createSeedWorkspaceData,
   type ApprovalStage,
   type MarketingWorkspaceData,
+  type SetupGuideProgress,
 } from "@/lib/social-calendar-data";
 
 const STORAGE_KEY = "social-calendar-intelligence-os:v1";
@@ -165,6 +167,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
     dismissedHelpScreens: Array.isArray(data.dismissedHelpScreens)
       ? data.dismissedHelpScreens
       : [],
+    setupGuide: normalizeSetupGuide(data.setupGuide),
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,
@@ -246,6 +249,41 @@ function normalizeApprovalStage(stage: unknown): ApprovalStage {
   }
 
   return "idea";
+}
+
+// Upgrade any saved setup-guide progress to the current shape with safe
+// defaults. Older saves have no setupGuide at all, so they get a fresh,
+// inactive one and the guide simply does not open.
+function normalizeSetupGuide(raw: SetupGuideProgress | undefined): SetupGuideProgress {
+  if (!raw || typeof raw !== "object") {
+    return createDefaultSetupGuide();
+  }
+
+  const welcomeChoice =
+    raw.welcomeChoice === "sample" || raw.welcomeChoice === "own"
+      ? raw.welcomeChoice
+      : undefined;
+  const analyticsChoice =
+    raw.analyticsChoice === "metricool" || raw.analyticsChoice === "csv"
+      ? raw.analyticsChoice
+      : undefined;
+
+  return {
+    active: Boolean(raw.active),
+    completed: Boolean(raw.completed),
+    stepIndex:
+      typeof raw.stepIndex === "number" && raw.stepIndex >= 0
+        ? Math.floor(raw.stepIndex)
+        : 0,
+    skipped: Array.isArray(raw.skipped)
+      ? raw.skipped.filter((key): key is string => typeof key === "string")
+      : [],
+    welcomeChoice,
+    supabaseTested: Boolean(raw.supabaseTested),
+    openAiTested: Boolean(raw.openAiTested),
+    analyticsChoice,
+    complianceAcknowledged: Boolean(raw.complianceAcknowledged),
+  };
 }
 
 function roleLabelForStorage(role: string) {

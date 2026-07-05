@@ -144,6 +144,7 @@ import {
   approvalStages,
   calculateAuditScore,
   calendarItemKinds,
+  createDefaultSetupGuide,
   createEmptyWorkspaceData,
   createSeedWorkspaceData,
   dailyPublishingRhythm,
@@ -218,6 +219,7 @@ import {
   MetricReviewPanel,
   reviewRowsToApprovedMetrics,
 } from "@/components/social-calendar/connection-manager";
+import { SetupGuide } from "@/components/social-calendar/setup-guide";
 import {
   buildExportSheets,
   downloadCsvPack,
@@ -247,7 +249,7 @@ type PdfExtractionResponse = {
   summary?: string;
 };
 
-type ViewId =
+export type ViewId =
   | "dashboard"
   | "objectives"
   | "courses"
@@ -404,6 +406,29 @@ export function SocialCalendarApp() {
   function exitGuidedSetup() {
     setGuidedSkipped([]);
     updateWorkspace((current) => ({ ...current, guidedSetupActive: false }));
+  }
+
+  // Interactive setup guide (Part 1). Progress is stored in the workspace so
+  // the guide is resumable and its live-tested green ticks survive a reload.
+  function patchSetupGuide(patch: Partial<NonNullable<MarketingWorkspaceData["setupGuide"]>>) {
+    updateWorkspace((current) => ({
+      ...current,
+      setupGuide: { ...(current.setupGuide ?? createDefaultSetupGuide()), ...patch },
+    }));
+  }
+
+  function startSetupGuide() {
+    patchSetupGuide({ active: true, completed: false, stepIndex: 0, skipped: [] });
+    setActiveView("dashboard");
+  }
+
+  function exitSetupGuide() {
+    patchSetupGuide({ active: false });
+  }
+
+  function finishSetupGuide() {
+    patchSetupGuide({ active: false, completed: true });
+    setActiveView("calendar");
   }
 
   // Finalise any pending delete: run its deferred clean-up and drop the
@@ -892,6 +917,7 @@ export function SocialCalendarApp() {
             {myDayMode ? <MyDayView data={data} /> : null}
 
             {!myDayMode &&
+            !data.setupGuide?.active &&
             !data.welcomeDismissed &&
             !data.guidedSetupActive &&
             !data.brand.brandName.trim() &&
@@ -904,12 +930,31 @@ export function SocialCalendarApp() {
             ) : null}
 
             {myDayMode ||
-            (!data.welcomeDismissed &&
+            (!data.setupGuide?.active &&
+              !data.welcomeDismissed &&
               !data.guidedSetupActive &&
               !data.brand.brandName.trim() &&
               data.calendar.length === 0) ? null : (
               <>
-            {data.guidedSetupActive ? (
+            {data.setupGuide?.active ? (
+              <SetupGuide
+                data={data}
+                sync={sync}
+                onPatch={patchSetupGuide}
+                onExit={exitSetupGuide}
+                onFinish={finishSetupGuide}
+                onLoadSample={exploreWithSampleData}
+                onNavigate={setActiveView}
+                onAiIntegrationChange={(aiIntegration) =>
+                  updateWorkspace((current) => ({ ...current, aiIntegration }))
+                }
+                onConnectionsChange={(connections) =>
+                  updateWorkspace((current) => ({ ...current, connections }))
+                }
+              />
+            ) : null}
+
+            {data.guidedSetupActive && !data.setupGuide?.active ? (
               <GuidedSetupWizard
                 data={data}
                 skipped={guidedSkipped}
@@ -923,7 +968,8 @@ export function SocialCalendarApp() {
               />
             ) : null}
 
-            {!data.firstRunChecklistDismissed &&
+            {!data.setupGuide?.active &&
+            !data.firstRunChecklistDismissed &&
             !data.brand.brandName.trim() &&
             data.calendar.length === 0 ? (
               <FirstRunChecklist
@@ -1196,6 +1242,7 @@ export function SocialCalendarApp() {
             {activeView === "settings" ? (
               <SettingsWorkspaceView
                 sync={sync}
+                onRunSetupGuide={startSetupGuide}
                 aiIntegration={data.aiIntegration}
                 aiUsage={data.aiUsage}
                 brand={data.brand}
@@ -7559,6 +7606,7 @@ function SettingsWorkspaceView({
   onPdfReportChange,
   onPdfReportDelete,
   onPdfReportUpload,
+  onRunSetupGuide,
   onUccChange,
   pdfDataSource,
   sync,
@@ -7572,6 +7620,7 @@ function SettingsWorkspaceView({
   connections: PlatformConnection[];
   importState: PdfImportState;
   onRestoreWorkspace: (workspace: MarketingWorkspaceData) => void;
+  onRunSetupGuide: () => void;
   workspaceData: MarketingWorkspaceData;
   onAiIntegrationChange: (aiIntegration: AiIntegrationSettings) => void;
   onApplyMetrics: (
@@ -7634,6 +7683,25 @@ function SettingsWorkspaceView({
 
   return (
     <section className="space-y-4">
+      <Card className="border-primary/40">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <ListChecks className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold">Interactive setup guide</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Walk through connecting the app and entering your data, one step
+                at a time. Safe to run again any time; it never deletes anything.
+              </p>
+            </div>
+          </div>
+          <Button onClick={onRunSetupGuide} size="sm" type="button">
+            Run setup guide
+          </Button>
+        </CardContent>
+      </Card>
       <AppearanceSettingsPanel />
       <WorkspaceDataModePanel
         sync={sync}

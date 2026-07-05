@@ -860,7 +860,33 @@ export type MarketingWorkspaceData = {
   welcomeDismissed?: boolean;
   guidedSetupActive?: boolean;
   dismissedHelpScreens?: string[];
+  // Interactive setup guide progress. Optional so older saves upgrade safely.
+  // Saved in the workspace so the guide is resumable and every green tick
+  // (which only appears after a genuine live test) survives a reload.
+  setupGuide?: SetupGuideProgress;
 };
+
+// One resumable run of the interactive setup guide. Numbered steps are keyed
+// by string; skipped lists optional steps the owner passed on this run.
+export type SetupGuideProgress = {
+  active: boolean;
+  completed: boolean;
+  // 0-based index of the current step.
+  stepIndex: number;
+  skipped: string[];
+  // Recorded outcomes, so ticks and choices persist across a resume.
+  welcomeChoice?: "sample" | "own";
+  supabaseTested?: boolean;
+  openAiTested?: boolean;
+  // "metricool" once a live Metricool test passes, "csv" if the owner chose
+  // the CSV import path instead.
+  analyticsChoice?: "metricool" | "csv";
+  complianceAcknowledged?: boolean;
+};
+
+export function createDefaultSetupGuide(): SetupGuideProgress {
+  return { active: false, completed: false, stepIndex: 0, skipped: [] };
+}
 
 export const platformRules: Record<
   Platform,
@@ -2613,6 +2639,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     welcomeDismissed: true,
     guidedSetupActive: false,
     dismissedHelpScreens: [],
+    setupGuide: createDefaultSetupGuide(),
   };
 }
 
@@ -2718,11 +2745,12 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
     approvalsLog: [],
     approverName: "",
     datasetMode: "live",
-    // A blank workspace is a brand-new start, so the welcome card shows and
-    // the guide is available.
+    // A blank workspace is a brand-new start, so the interactive setup guide
+    // opens straight away. The older welcome card is suppressed while it runs.
     welcomeDismissed: false,
     guidedSetupActive: false,
     dismissedHelpScreens: [],
+    setupGuide: { active: true, completed: false, stepIndex: 0, skipped: [] },
   };
 }
 
