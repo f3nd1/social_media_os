@@ -23,7 +23,12 @@ export type CalendarAiContext = {
     keyAnglesToOwn: string[];
   };
   campaigns: Array<{ name: string; objective: string; platformMix: string[] }>;
-  courses: Array<{ name: string; category: string; usp: string }>;
+  courses: Array<{
+    name: string;
+    category: string;
+    usp: string;
+    complianceNotes: string;
+  }>;
   audiences: Array<{ name: string; goals: string[]; painPoints: string[] }>;
   platforms: Platform[];
   // How many items to produce. 1 with a focus item means "regenerate one".
@@ -62,6 +67,7 @@ export function buildCalendarSystemPrompt(): string {
     "You are a senior education marketing content planner for a private college.",
     "You draft social content calendar items for a human Marketing Manager to review and approve. You never approve, schedule, or publish anything yourself.",
     "Compliance is mandatory. Keep every caption and hook factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa or immigration outcomes, admission certainty, rankings, or guaranteed course outcomes. Prefer language about steps, support, eligibility, and evidence.",
+    "Each course in the context may carry its own complianceNotes. When you write an item about a course, respect that course's complianceNotes as binding constraints.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object of the requested shape. Do not include any commentary outside the JSON.",
   ].join(" ");

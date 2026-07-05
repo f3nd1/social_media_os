@@ -8,6 +8,9 @@ export type ComplianceAiContext = {
   content: string;
   calendarItems: Array<{ id: string; topic: string; platform: string; text: string }>;
   guidelineDocs: Array<{ name: string; excerpt: string }>;
+  // Per-course compliance notes the manager typed on the Courses screen, so the
+  // reviewer weighs each course's own constraints, not just the built-in rules.
+  courseComplianceNotes: Array<{ course: string; notes: string }>;
 };
 
 export type ComplianceFlag = {
@@ -91,6 +94,12 @@ export function buildComplianceUserPrompt(context: ComplianceAiContext): string 
           .map((doc) => `--- ${doc.name} ---\n${doc.excerpt}`)
           .join("\n\n")}`
       : "No guideline documents uploaded; use the built-in rules.",
+    "",
+    context.courseComplianceNotes.length > 0
+      ? `COURSE-SPECIFIC COMPLIANCE NOTES (from the college's own course records; treat as binding for content about that course):\n${context.courseComplianceNotes
+          .map((entry) => `- ${entry.course}: ${entry.notes}`)
+          .join("\n")}`
+      : "No course-specific compliance notes recorded.",
     "",
     context.mode === "calendar"
       ? `CALENDAR ITEMS TO REVIEW:\n${JSON.stringify(context.calendarItems, null, 2)}`

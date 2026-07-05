@@ -21,7 +21,12 @@ export type CampaignAiContext = {
   };
   acceptedAuditInsights: string[];
   acceptedCompetitorInsights: string[];
-  courses: Array<{ name: string; category: string; usp: string }>;
+  courses: Array<{
+    name: string;
+    category: string;
+    usp: string;
+    complianceNotes: string;
+  }>;
   audiences: Array<{ name: string; goals: string[]; painPoints: string[] }>;
   existingCampaignNames: string[];
   sgMoments: Array<{ name: string; window: string; relevance: string }>;
@@ -51,6 +56,7 @@ export function buildCampaignSystemPrompt(): string {
     "You propose campaign drafts for a human Marketing Manager to accept or dismiss. You never launch or approve anything yourself. Leave campaign owners unassigned.",
     "Time every proposal against the Singapore marketing moments provided (intakes, results season, festivals, fairs, 11.11 and 12.12), naming the moments used.",
     "Compliance is mandatory. Keep claims factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes. Use conditional language for pathways.",
+    "Each course in the context may carry its own complianceNotes. Respect a course's complianceNotes as binding constraints for any proposal that features that course.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");

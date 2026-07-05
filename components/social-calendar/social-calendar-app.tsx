@@ -3201,6 +3201,7 @@ function CampaignPlanningView({
                 name: course.name,
                 category: course.category,
                 usp: course.usp ?? "",
+                complianceNotes: course.complianceNotes ?? "",
               })),
             audiences: ucc.audiences.map((audience) => ({
               name: audience.name,
@@ -5693,6 +5694,15 @@ function ComplianceCheckerView({
                   }))
                 : [],
             guidelineDocs: guidelineExcerpts(),
+            courseComplianceNotes: data.ucc.courses
+              .filter(
+                (course) =>
+                  course.status !== "archived" && course.complianceNotes.trim().length > 0,
+              )
+              .map((course) => ({
+                course: course.name || "Untitled course",
+                notes: course.complianceNotes.trim(),
+              })),
           } satisfies ComplianceAiContext,
         }),
       });
@@ -10228,6 +10238,7 @@ function CalendarBuilderView({
           name: course.name,
           category: course.category,
           usp: course.usp ?? "",
+          complianceNotes: course.complianceNotes ?? "",
         })),
       audiences: ucc.audiences.map((audience) => ({
         name: audience.name,
@@ -10814,6 +10825,7 @@ function CalendarBuilderView({
         <div className="space-y-4">
           <CalendarMonthGrid
             calendar={visibleItems}
+            courses={ucc.courses}
             onSelectItem={setSelectedItemId}
             selectedItemId={selectedItem?.id}
           />
@@ -10838,10 +10850,12 @@ function CalendarBuilderView({
 
 function CalendarMonthGrid({
   calendar,
+  courses,
   onSelectItem,
   selectedItemId,
 }: {
   calendar: CalendarItem[];
+  courses: UccCourse[];
   onSelectItem: (id: string) => void;
   selectedItemId?: string;
 }) {
@@ -10927,7 +10941,13 @@ function CalendarMonthGrid({
                             <PlatformBadge platform={item.platform} />
                             <ItemKindBadge itemKind={item.itemKind ?? "post"} />
                             <StatusBadge status={item.status} />
-                            <ComplianceBadge item={item} />
+                            <ComplianceBadge
+                              item={item}
+                              courseNotes={
+                                courses.find((course) => course.id === item.courseId)
+                                  ?.complianceNotes ?? ""
+                              }
+                            />
                           </div>
                           <p className="mt-2 line-clamp-2 text-xs font-medium leading-4">
                             {item.contentTopic}
@@ -12090,7 +12110,12 @@ function ContentProductionView({
                     <PlatformBadge platform={item.platform} />
                     <ItemKindBadge itemKind={item.itemKind ?? "post"} />
                     <StatusBadge status={item.status} />
-                    <ComplianceBadge item={item} />
+                    <ComplianceBadge
+                      item={item}
+                      courseNotes={
+                        findCourse(ucc, item.courseId ?? "")?.complianceNotes ?? ""
+                      }
+                    />
                   </div>
                 </div>
               </CardHeader>
@@ -13349,12 +13374,24 @@ function complianceTextForItem(item: CalendarItem): string {
 // found risky wording on a card, so a manager sees it before opening the item.
 // This never blocks or approves; it only surfaces what the checker already
 // reports elsewhere in the app.
-function ComplianceBadge({ item }: { item: CalendarItem }) {
+function ComplianceBadge({
+  item,
+  courseNotes = "",
+}: {
+  item: CalendarItem;
+  courseNotes?: string;
+}) {
   const flags = checkComplianceText(complianceTextForItem(item));
   const clear = flags.length === 0;
-  const label = clear
+  const base = clear
     ? "Compliance check: no risky wording found."
     : `Compliance check: ${flags.length} thing${flags.length === 1 ? "" : "s"} to review before approval. ${flags.join(" / ")}`;
+  // Surface the item's course compliance notes so they are considered at the
+  // point of review, even without AI. These are the manager's own constraints,
+  // not rule-checker output.
+  const label = courseNotes.trim()
+    ? `${base}\nCourse compliance notes to respect: ${courseNotes.trim()}`
+    : base;
 
   return (
     <span
