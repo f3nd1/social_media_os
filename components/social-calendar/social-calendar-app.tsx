@@ -266,27 +266,59 @@ export type ViewId =
   | "reports"
   | "settings";
 
-const navItems: Array<{
-  id: ViewId;
-  label: string;
-  icon: LucideIcon;
-}> = [
-  { id: "dashboard", label: "Dashboard", icon: BarChart3 },
-  { id: "objectives", label: "Objectives", icon: Target },
-  { id: "courses", label: "Courses & Audiences", icon: GraduationCap },
-  { id: "campaigns", label: "Campaigns", icon: ClipboardCheck },
-  { id: "platform", label: "Platform Strategy", icon: Gauge },
-  { id: "brief", label: "Strategy Brief", icon: SearchCheck },
-  { id: "calendar", label: "Content Calendar", icon: CalendarDays },
-  { id: "production", label: "Production Board", icon: ListChecks },
-  { id: "assets", label: "Asset Library", icon: FileText },
-  { id: "budget", label: "Budget & Resources", icon: FileSpreadsheet },
-  { id: "competitors", label: "Competitors", icon: UsersRound },
-  { id: "kpi", label: "KPI Tracker", icon: TrendingUp },
-  { id: "compliance", label: "Compliance", icon: ShieldCheck },
-  { id: "reports", label: "Reports", icon: Download },
-  { id: "settings", label: "Settings", icon: Settings2 },
+type NavItem = { id: ViewId; label: string; icon: LucideIcon };
+
+// The navigation grouped into the phases of the real journey, so related
+// screens sit together instead of a flat list of fifteen. Order within each
+// group follows the data dependencies (brand and data before AI, an approved
+// brief before a calendar, production before results). "Home" has no heading.
+const navGroups: Array<{ phase: string; items: NavItem[] }> = [
+  {
+    phase: "Home",
+    items: [{ id: "dashboard", label: "Dashboard", icon: BarChart3 }],
+  },
+  {
+    phase: "Set up",
+    items: [
+      { id: "courses", label: "Courses & Audiences", icon: GraduationCap },
+      { id: "settings", label: "Settings", icon: Settings2 },
+    ],
+  },
+  {
+    phase: "Plan",
+    items: [
+      { id: "objectives", label: "Objectives & Audit", icon: Target },
+      { id: "competitors", label: "Competitors", icon: UsersRound },
+      { id: "platform", label: "Platform Strategy", icon: Gauge },
+      { id: "brief", label: "Strategy Brief", icon: SearchCheck },
+      { id: "campaigns", label: "Campaigns", icon: ClipboardCheck },
+    ],
+  },
+  {
+    phase: "Create",
+    items: [
+      { id: "calendar", label: "Content Calendar", icon: CalendarDays },
+      { id: "production", label: "Production Board", icon: ListChecks },
+      { id: "assets", label: "Asset Library", icon: FileText },
+    ],
+  },
+  {
+    phase: "Review",
+    items: [
+      { id: "kpi", label: "KPI Tracker", icon: TrendingUp },
+      { id: "compliance", label: "Compliance", icon: ShieldCheck },
+      { id: "budget", label: "Budget & Resources", icon: FileSpreadsheet },
+    ],
+  },
+  {
+    phase: "Report",
+    items: [{ id: "reports", label: "Reports", icon: Download }],
+  },
 ];
+
+// Flat list derived from the groups, kept for lookups (active screen label)
+// and anywhere that still iterates every screen.
+const navItems: NavItem[] = navGroups.flatMap((group) => group.items);
 
 const scoreFields: Array<{ key: keyof AuditScores; label: string }> = [
   { key: "profileCompleteness", label: "Profile completeness" },
@@ -760,14 +792,23 @@ export function SocialCalendarApp() {
             </div>
           </div>
 
-          <nav className="mt-8 space-y-1">
-            {navItems.map((item) => (
-              <NavButton
-                active={activeView === item.id}
-                item={item}
-                key={item.id}
-                onClick={() => setActiveView(item.id)}
-              />
+          <nav className="mt-8 space-y-4">
+            {navGroups.map((group) => (
+              <div className="space-y-1" key={group.phase}>
+                {group.phase !== "Home" ? (
+                  <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                    {group.phase}
+                  </p>
+                ) : null}
+                {group.items.map((item) => (
+                  <NavButton
+                    active={activeView === item.id}
+                    item={item}
+                    key={item.id}
+                    onClick={() => setActiveView(item.id)}
+                  />
+                ))}
+              </div>
             ))}
           </nav>
 
@@ -823,26 +864,35 @@ export function SocialCalendarApp() {
               ) : null}
             </div>
             <nav className="flex max-w-full gap-2 overflow-x-auto pb-1">
-              {navItems.map((item) => {
-                const Icon = item.icon;
+              {navGroups.map((group) => (
+                <div className="flex shrink-0 items-center gap-2" key={group.phase}>
+                  {group.phase !== "Home" ? (
+                    <span className="shrink-0 pl-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                      {group.phase}
+                    </span>
+                  ) : null}
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
 
-                return (
-                  <button
-                    className={cn(
-                      "flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors",
-                      activeView === item.id
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card text-muted-foreground",
-                    )}
-                    key={item.id}
-                    onClick={() => setActiveView(item.id)}
-                    type="button"
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </button>
-                );
-              })}
+                    return (
+                      <button
+                        className={cn(
+                          "flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors",
+                          activeView === item.id
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card text-muted-foreground",
+                        )}
+                        key={item.id}
+                        onClick={() => setActiveView(item.id)}
+                        type="button"
+                      >
+                        <Icon className="h-4 w-4" />
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </nav>
           </div>
 
