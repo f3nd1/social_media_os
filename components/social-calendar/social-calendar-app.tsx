@@ -349,9 +349,6 @@ export function SocialCalendarApp() {
   const [navSectionToggles, setNavSectionToggles] = useState<
     Record<string, boolean>
   >({});
-  // Steps the user chose to skip in the guided setup this session. Kept in
-  // component state because a skip is a "not now", not a saved decision.
-  const [guidedSkipped, setGuidedSkipped] = useState<string[]>([]);
 
   // Undo for destructive deletes (Module E5). Deleting keeps a snapshot of
   // the workspace for ten seconds; Undo restores it, expiry runs any
@@ -441,31 +438,11 @@ export function SocialCalendarApp() {
     setData(localSocialCalendarRepository.reset());
   }
 
-  // Onboarding handlers (welcome + guided setup).
+  // Load the built-in demo content and leave the guide. Used by the wizard's
+  // welcome step ("Explore with sample data").
   function exploreWithSampleData() {
     setData(normalizeWorkspaceData(createSeedWorkspaceData()));
-    setGuidedSkipped([]);
     setActiveView("dashboard");
-  }
-
-  function startGuidedSetup() {
-    setGuidedSkipped([]);
-    updateWorkspace((current) => ({
-      ...current,
-      welcomeDismissed: true,
-      guidedSetupActive: true,
-    }));
-    // Begin at the first step, brand, which lives on Settings.
-    setActiveView("settings");
-  }
-
-  function dismissWelcome() {
-    updateWorkspace((current) => ({ ...current, welcomeDismissed: true }));
-  }
-
-  function exitGuidedSetup() {
-    setGuidedSkipped([]);
-    updateWorkspace((current) => ({ ...current, guidedSetupActive: false }));
   }
 
   // Interactive setup guide (Part 1). Progress is stored in the workspace so
@@ -799,6 +776,60 @@ export function SocialCalendarApp() {
     });
   }
 
+  // Dedicated full-screen wizard. While the setup guide is active it is the
+  // ONLY thing on screen: no left menu, no dashboard, no other panels, so a
+  // non-technical user cannot get lost. Every field inside it writes to the
+  // real workspace and syncs to Supabase exactly as the full screens do.
+  if (isHydrated && data.setupGuide?.active) {
+    return (
+      <main className="min-h-screen bg-muted/20">
+        <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-4 py-8 sm:px-6">
+          <div className="mb-4 flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-foreground text-background">
+              <GraduationCap className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold">UCC Marketing OS</p>
+              <p className="text-xs text-muted-foreground">Guided setup</p>
+            </div>
+          </div>
+          <SetupGuide
+            fullScreen
+            data={data}
+            sync={sync}
+            onPatch={patchSetupGuide}
+            onExit={exitSetupGuide}
+            onFinish={finishSetupGuide}
+            onLoadSample={exploreWithSampleData}
+            onNavigate={setActiveView}
+            onAiIntegrationChange={(aiIntegration) =>
+              updateWorkspace((current) => ({ ...current, aiIntegration }))
+            }
+            onConnectionsChange={(connections) =>
+              updateWorkspace((current) => ({ ...current, connections }))
+            }
+            onUpdateBrand={(patch) =>
+              updateWorkspace((current) => ({
+                ...current,
+                brand: { ...current.brand, ...patch },
+              }))
+            }
+            onUccChange={(ucc) =>
+              updateWorkspace((current) => ({ ...current, ucc }))
+            }
+            onAuditsChange={(audits) =>
+              updateWorkspace((current) => ({ ...current, audits }))
+            }
+            onBriefChange={(brief) =>
+              updateWorkspace((current) => ({ ...current, brief }))
+            }
+            onRecordUsage={recordAiUsage}
+          />
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen">
       <div className="mx-auto flex w-full max-w-[1560px] gap-0 px-4 py-4 sm:px-6 lg:gap-8 lg:px-8 lg:py-8">
@@ -1031,76 +1062,9 @@ export function SocialCalendarApp() {
 
             {myDayMode ? <MyDayView data={data} /> : null}
 
-            {!myDayMode &&
-            !data.setupGuide?.active &&
-            !data.welcomeDismissed &&
-            !data.guidedSetupActive &&
-            !data.brand.brandName.trim() &&
-            data.calendar.length === 0 ? (
-              <WelcomeOverlay
-                onDismiss={dismissWelcome}
-                onExploreSample={exploreWithSampleData}
-                onStartGuided={startGuidedSetup}
-              />
-            ) : null}
-
-            {myDayMode ||
-            (!data.setupGuide?.active &&
-              !data.welcomeDismissed &&
-              !data.guidedSetupActive &&
-              !data.brand.brandName.trim() &&
-              data.calendar.length === 0) ? null : (
+            {myDayMode ? null : (
               <>
-            {data.setupGuide?.active ? (
-              <SetupGuide
-                data={data}
-                sync={sync}
-                onPatch={patchSetupGuide}
-                onExit={exitSetupGuide}
-                onFinish={finishSetupGuide}
-                onLoadSample={exploreWithSampleData}
-                onNavigate={setActiveView}
-                onAiIntegrationChange={(aiIntegration) =>
-                  updateWorkspace((current) => ({ ...current, aiIntegration }))
-                }
-                onConnectionsChange={(connections) =>
-                  updateWorkspace((current) => ({ ...current, connections }))
-                }
-                onUpdateBrand={(patch) =>
-                  updateWorkspace((current) => ({
-                    ...current,
-                    brand: { ...current.brand, ...patch },
-                  }))
-                }
-                onUccChange={(ucc) =>
-                  updateWorkspace((current) => ({ ...current, ucc }))
-                }
-                onAuditsChange={(audits) =>
-                  updateWorkspace((current) => ({ ...current, audits }))
-                }
-                onBriefChange={(brief) =>
-                  updateWorkspace((current) => ({ ...current, brief }))
-                }
-                onRecordUsage={recordAiUsage}
-              />
-            ) : null}
-
-            {data.guidedSetupActive && !data.setupGuide?.active ? (
-              <GuidedSetupWizard
-                data={data}
-                skipped={guidedSkipped}
-                onExit={exitGuidedSetup}
-                onNavigate={setActiveView}
-                onSkip={(key) =>
-                  setGuidedSkipped((prev) =>
-                    prev.includes(key) ? prev : [...prev, key],
-                  )
-                }
-              />
-            ) : null}
-
-            {!data.setupGuide?.active &&
-            !data.firstRunChecklistDismissed &&
+            {!data.firstRunChecklistDismissed &&
             !data.brand.brandName.trim() &&
             data.calendar.length === 0 ? (
               <FirstRunChecklist
@@ -1822,53 +1786,6 @@ function buildSetupStatus(data: MarketingWorkspaceData): SetupStatusRow[] {
   ];
 }
 
-// The core setup steps a first-time user is guided through, in order. Each
-// has a plain-language reason and the screen that completes it. Shared by the
-// guided wizard and the first-run checklist so they stay in step.
-type GuidedStepKey = "brand" | "courses" | "audiences" | "audit" | "brief";
-
-function guidedSteps(
-  data: MarketingWorkspaceData,
-): Array<{ key: GuidedStepKey; title: string; why: string; view: ViewId; done: boolean }> {
-  return [
-    {
-      key: "brand",
-      title: "Set up your brand",
-      why: "Your brand name and voice guide every piece of content the app helps you make.",
-      view: "brand",
-      done: data.brand.brandName.trim().length > 0,
-    },
-    {
-      key: "courses",
-      title: "Add your courses",
-      why: "Courses are what you market. Add the ones United Ceres College offers.",
-      view: "courses",
-      done: data.ucc.courses.some((course) => course.status !== "archived"),
-    },
-    {
-      key: "audiences",
-      title: "Add your audiences",
-      why: "Audiences are the people you want to reach, so the app can tailor the message.",
-      view: "courses",
-      done: data.ucc.audiences.length > 0,
-    },
-    {
-      key: "audit",
-      title: "Record a quick audit",
-      why: "An audit notes where each social platform stands today, so progress is measurable.",
-      view: "objectives",
-      done: data.audits.length > 0,
-    },
-    {
-      key: "brief",
-      title: "Approve a strategy brief",
-      why: "The brief turns everything above into a plan. Approving it unlocks the calendar.",
-      view: "brief",
-      done: data.brief.approved,
-    },
-  ];
-}
-
 // A plain-language tooltip for a jargon word. The word is shown with a dotted
 // underline and a small question mark; the explanation appears on hover or
 // keyboard focus, so a non-technical reader is never left guessing.
@@ -2041,168 +1958,6 @@ function ScreenHelpHint({
         Got it
       </button>
     </div>
-  );
-}
-
-// The very first thing a brand-new user sees: a calm welcome that explains the
-// app in one paragraph and offers two clear ways to begin.
-function WelcomeOverlay({
-  onDismiss,
-  onExploreSample,
-  onStartGuided,
-}: {
-  onDismiss: () => void;
-  onExploreSample: () => void;
-  onStartGuided: () => void;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <SectionTitle
-          icon={GraduationCap}
-          kicker="Welcome"
-          title="Welcome to UCC Marketing OS"
-          description="A calm place to plan United Ceres College's marketing."
-        />
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <p className="max-w-2xl text-sm leading-6">
-          This app helps you plan social media and campaigns from start to
-          finish: describe your courses and audiences, build a plan, generate a
-          content calendar, and track results. The AI only ever suggests
-          drafts. You always review and approve before anything counts, so you
-          stay in control.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <button
-            className="flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors hover:bg-muted/40"
-            onClick={onExploreSample}
-            type="button"
-          >
-            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-              <Database className="h-5 w-5" />
-            </span>
-            <span className="text-sm font-semibold">Explore with sample data</span>
-            <span className="text-xs leading-5 text-muted-foreground">
-              Fill the app with a ready-made example so you can click around and
-              see how everything fits together. You can clear it later.
-            </span>
-          </button>
-          <button
-            className="flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors hover:bg-muted/40"
-            onClick={onStartGuided}
-            type="button"
-          >
-            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <ListChecks className="h-5 w-5" />
-            </span>
-            <span className="text-sm font-semibold">Set up my own, step by step</span>
-            <span className="text-xs leading-5 text-muted-foreground">
-              A short guide walks you through the first steps one at a time, in
-              plain language, until you have a working calendar.
-            </span>
-          </button>
-        </div>
-        <button
-          className="text-xs leading-5 text-muted-foreground underline underline-offset-2"
-          onClick={onDismiss}
-          type="button"
-        >
-          I will look around on my own
-        </button>
-      </CardContent>
-    </Card>
-  );
-}
-
-// A gentle step-by-step guide shown while the user is setting up. It always
-// points at the next unfinished step, with a reason and a "Skip for now",
-// never trapping the user.
-function GuidedSetupWizard({
-  data,
-  onExit,
-  onNavigate,
-  onSkip,
-  skipped,
-}: {
-  data: MarketingWorkspaceData;
-  onExit: () => void;
-  onNavigate: (view: ViewId) => void;
-  onSkip: (key: GuidedStepKey) => void;
-  skipped: string[];
-}) {
-  const steps = guidedSteps(data);
-  const total = steps.length;
-  const current = steps.find((step) => !step.done && !skipped.includes(step.key));
-  const doneCount = steps.filter((step) => step.done).length;
-
-  return (
-    <Card className="border-primary/40">
-      <CardHeader className="flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <SectionTitle
-          icon={ListChecks}
-          kicker="Guided setup"
-          title={current ? current.title : "You are set up"}
-          description={
-            current
-              ? current.why
-              : "Every core step is done or skipped. The next thing is to generate your content calendar."
-          }
-        />
-        <Badge variant={current ? "info" : "success"}>
-          {doneCount}/{total} done
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {current ? (
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => onNavigate(current.view)} size="sm" type="button">
-              Take me to this step
-            </Button>
-            <Button
-              onClick={() => onSkip(current.key)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Skip for now
-            </Button>
-            <Button onClick={onExit} size="sm" type="button" variant="outline">
-              Exit guide
-            </Button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => onNavigate("calendar")} size="sm" type="button">
-              Go to Content Calendar
-            </Button>
-            <Button onClick={onExit} size="sm" type="button" variant="outline">
-              Finish guide
-            </Button>
-          </div>
-        )}
-        <div className="flex flex-wrap gap-1.5">
-          {steps.map((step) => (
-            <span
-              className={cn(
-                "rounded-md border px-2 py-0.5 text-xs",
-                step.done
-                  ? "border-success-border bg-success text-success-foreground"
-                  : skipped.includes(step.key)
-                    ? "border-border bg-muted text-muted-foreground"
-                    : current?.key === step.key
-                      ? "border-primary bg-primary/10 font-medium"
-                      : "border-border text-muted-foreground",
-              )}
-              key={step.key}
-            >
-              {step.done ? "✓ " : ""}
-              {step.title.replace(/^(Set up|Add|Record a|Approve a) /, "")}
-            </span>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

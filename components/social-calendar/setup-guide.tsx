@@ -66,6 +66,9 @@ type SetupNavView =
 type SetupGuideProps = {
   data: MarketingWorkspaceData;
   sync: WorkspaceSync;
+  // When true the guide is the whole page (dedicated full-screen wizard), so
+  // it uses a larger progress bar and an explicit Exit guide control.
+  fullScreen?: boolean;
   onPatch: (patch: Partial<SetupGuideProgress>) => void;
   onExit: () => void;
   onFinish: () => void;
@@ -126,6 +129,7 @@ type TestState = "idle" | "testing" | "ok" | "error";
 export function SetupGuide({
   data,
   sync,
+  fullScreen = false,
   onPatch,
   onExit,
   onFinish,
@@ -407,10 +411,10 @@ export function SetupGuide({
             </div>
           </div>
           <Button onClick={onExit} size="sm" type="button" variant="outline">
-            Save and close
+            {fullScreen ? "Exit guide" : "Save and close"}
           </Button>
         </div>
-        <Progress value={progressValue} />
+        <Progress className={fullScreen ? "h-3" : undefined} value={progressValue} />
       </CardHeader>
       <CardContent className="space-y-4">
         {stepKey === "brand" ? <PartASummary guide={guide} /> : null}
