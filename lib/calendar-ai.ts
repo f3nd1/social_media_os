@@ -217,8 +217,10 @@ export function calendarDraftToItems(
     const assignedRole = matchRole(draft.owner, platform);
     const content = draftContentFields(draft, platform);
     // An AI item belongs to a campaign (matched by name); a campaign already
-    // targets a course, so the item inherits that course link. This is what
-    // lets per-item course context and compliance work downstream.
+    // targets a course and an audience, so the item inherits both links. The
+    // course link lets per-item course context and compliance work; the
+    // audience link lets per-item copy resolve the audience and produce the
+    // simplified Chinese variant when the audience's languages include Chinese.
     const campaign = findCampaignByName(draft.campaign, options.campaigns);
 
     return {
@@ -230,7 +232,7 @@ export function calendarDraftToItems(
       platform,
       campaignId: campaign?.id ?? "",
       courseId: campaign?.courseId ?? "",
-      audienceId: "",
+      audienceId: campaign?.audienceId ?? "",
       ...content,
       bestPostingTime: rule.bestPostingTime,
       assignedRole,
