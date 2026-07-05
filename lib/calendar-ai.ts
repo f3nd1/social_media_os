@@ -177,11 +177,13 @@ function asStringArray(value: unknown): string[] {
     .filter((item) => item.trim().length > 0);
 }
 
-function findCampaignId(name: string, campaigns: UccCampaign[]): string {
-  const match = campaigns.find(
+function findCampaignByName(
+  name: string,
+  campaigns: UccCampaign[],
+): UccCampaign | undefined {
+  return campaigns.find(
     (campaign) => campaign.name.toLowerCase() === name?.toLowerCase().trim(),
   );
-  return match?.id ?? "";
 }
 
 // Build the shared content fields from a single AI draft item. Used both when
@@ -214,6 +216,10 @@ export function calendarDraftToItems(
     const date = addDaysIso(options.startDate, index);
     const assignedRole = matchRole(draft.owner, platform);
     const content = draftContentFields(draft, platform);
+    // An AI item belongs to a campaign (matched by name); a campaign already
+    // targets a course, so the item inherits that course link. This is what
+    // lets per-item course context and compliance work downstream.
+    const campaign = findCampaignByName(draft.campaign, options.campaigns);
 
     return {
       id: `ai-cal-${Date.now()}-${index}`,
@@ -222,8 +228,8 @@ export function calendarDraftToItems(
       actualPostDate: "",
       date,
       platform,
-      campaignId: findCampaignId(draft.campaign, options.campaigns),
-      courseId: "",
+      campaignId: campaign?.id ?? "",
+      courseId: campaign?.courseId ?? "",
       audienceId: "",
       ...content,
       bestPostingTime: rule.bestPostingTime,
