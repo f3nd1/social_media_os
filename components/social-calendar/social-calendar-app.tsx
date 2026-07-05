@@ -3214,6 +3214,7 @@ function CampaignPlanningView({
               name: audience.name,
               goals: audience.motivations,
               painPoints: audience.concerns,
+              preferredChannels: audience.recommendedChannels ?? [],
             })),
             existingCampaignNames: ucc.campaigns.map((campaign) => campaign.name),
             sgMoments: formatMomentsForPrompt(upcomingSgMoments(new Date())),
@@ -9856,6 +9857,7 @@ function StrategyBriefView({
         goals: audience.motivations,
         painPoints: audience.concerns,
         interests: audience.interests ?? [],
+        preferredChannels: audience.recommendedChannels ?? [],
       })),
       auditGoal: {
         primaryObjective: socialGoals.primaryObjective,

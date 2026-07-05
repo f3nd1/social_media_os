@@ -30,7 +30,14 @@ export type CampaignAiContext = {
     usp: string;
     complianceNotes: string;
   }>;
-  audiences: Array<{ name: string; goals: string[]; painPoints: string[] }>;
+  audiences: Array<{
+    name: string;
+    goals: string[];
+    painPoints: string[];
+    // The audience's preferred platforms, so each proposal's platform mix leans
+    // towards where that audience actually is.
+    preferredChannels: string[];
+  }>;
   existingCampaignNames: string[];
   sgMoments: Array<{ name: string; window: string; relevance: string }>;
   // Trend Radar cards the manager accepted (Module D1). Optional so older
@@ -60,6 +67,7 @@ export function buildCampaignSystemPrompt(): string {
     "Time every proposal against the Singapore marketing moments provided (intakes, results season, festivals, fairs, 11.11 and 12.12), naming the moments used.",
     "Compliance is mandatory. Keep claims factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes. Use conditional language for pathways.",
     "Each course in the context may carry its own complianceNotes. Respect a course's complianceNotes as binding constraints for any proposal that features that course.",
+    "Each audience lists preferredChannels. Weight each proposal's platform mix towards the preferred channels of the audience it targets, rather than spreading evenly.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");

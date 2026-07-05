@@ -490,6 +490,7 @@ export function BriefStepBody({
         goals: audience.motivations,
         painPoints: audience.concerns,
         interests: audience.interests ?? [],
+        preferredChannels: audience.recommendedChannels ?? [],
       })),
       auditGoal: {
         primaryObjective: data.socialGoals.primaryObjective,
