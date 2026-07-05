@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8"/>
+<style>
+  :root { --ink:#1f2933; --muted:#5a6b7b; --primary:#0891b2; --line:#d7dee5; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    font-family: "Helvetica Neue", Arial, "Segoe UI", "Liberation Sans", sans-serif;
+    color: var(--ink); font-size: 12.5px; line-height: 1.55;
+  }
+  h1 { font-size: 30px; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 0 0 4px; color: var(--primary); }
+  h3 { font-size: 14.5px; margin: 16px 0 6px; }
+  p { margin: 8px 0; }
+  ul { margin: 8px 0; padding-left: 20px; }
+  li { margin: 4px 0; }
+  .muted { color: var(--muted); }
+  .section { padding: 4px 2px 8px; }
+  .section + .section { page-break-before: always; }
+  .kicker { text-transform: uppercase; letter-spacing: 1.5px; font-size: 11px; color: var(--primary); font-weight: 700; }
+  .rule { height: 3px; background: var(--primary); width: 54px; border-radius: 2px; margin: 6px 0 14px; }
+
+  /* Cover */
+  .cover { page-break-after: always; padding-top: 40px; }
+  .cover .badge { display:inline-block; background:#e0f5f9; color:#0e7490; border:1px solid #67c8db; border-radius:999px; padding:4px 12px; font-size:11px; font-weight:700; letter-spacing:1px; }
+  .cover h1 { font-size: 40px; margin-top: 18px; }
+  .cover .sub { font-size: 17px; color: var(--muted); margin-top: 2px; }
+  .cover .lead { font-size: 14px; max-width: 460px; margin-top: 18px; }
+  .honesty { margin-top: 26px; border-left: 5px solid #b45309; background:#fdf3e6; padding: 12px 16px; border-radius: 0 8px 8px 0; }
+  .honesty strong { color:#92400e; }
+  .cover .meta { margin-top: 30px; font-size: 12px; color: var(--muted); }
+
+  /* Diagrams */
+  .diagram { border:1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 10px 0; break-inside: avoid; background:#fbfcfd; }
+  .caption { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; margin: 6px 0 2px; font-size: 12px; }
+  .legend-item { display:inline-flex; align-items:center; gap:6px; }
+  .swatch { width:13px; height:13px; border-radius:3px; border:2px solid; display:inline-block; }
+
+  .menu-dashboard { border:2px solid; border-radius:9px; padding:8px 12px; margin: 4px 0 10px; }
+  .menu-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .menu-card { border:1px solid var(--line); border-radius:9px; overflow:hidden; break-inside: avoid; }
+  .menu-head { color:#fff; font-weight:700; padding:7px 12px; font-size:13.5px; }
+  .menu-body { padding:10px 12px; display:flex; flex-wrap:wrap; gap:6px; }
+  .menu-item { border:1.5px solid; border-radius:6px; padding:3px 8px; font-size:11.5px; background:#fff; }
+
+  /* Connections + screens tables */
+  table { width:100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+  th, td { border:1px solid var(--line); padding:7px 9px; text-align:left; vertical-align:top; }
+  th { background:#eef4f6; font-size: 11.5px; }
+  .yes { color:#047857; font-weight:600; }
+  .opt { color:#b45309; font-weight:600; }
+
+  /* Checklist */
+  .check li { list-style:none; margin-left:-16px; }
+  .check .box { display:inline-block; width:14px; height:14px; border:2px solid var(--primary); border-radius:3px; margin-right:8px; vertical-align:-2px; }
+  .aitag { display:inline-block; background:#fef3c7; color:#92400e; border:1px solid #f0c674; border-radius:5px; padding:1px 7px; font-size:10.5px; font-weight:700; margin-left:4px; }
+
+  .note { background:#f4f8fa; border:1px solid #cfe0e6; border-radius:8px; padding:10px 14px; margin:10px 0; }
+  .limit li { margin:6px 0; }
+</style>
+</head>
+<body>
+
+  <!-- COVER -->
+  <div class="cover">
+    <span class="badge">HANDOVER PACK</span>
+    <h1>UCC Marketing OS</h1>
+    <div class="sub">A guide to understanding and testing the app</div>
+    <p class="lead">This pack explains, in plain language, what the marketing operations app for United Ceres College does, how to get it running, and exactly what to try. No coding knowledge is needed.</p>
+    <div class="honesty">
+      <strong>An honest note before you start.</strong> This is a working prototype, not a finished product. Some parts need a connection key or a live test with real accounts before they are fully proven. Section 5 lists what is not finished, so nothing here overstates how ready it is.
+    </div>
+    <div class="meta">Prepared 5 July 2026. Runs on your own computer for now (it is not yet on a public web address).</div>
+  </div>
+
+  <!-- 1 -->
+  <div class="section">
+    <div class="kicker">Section 1</div>
+    <h2>What this system is</h2>
+    <div class="rule"></div>
+    <p>UCC Marketing OS is a marketing operations app for United Ceres College. It is objective-first, which means every activity is tied to a measurable goal. It runs on one simple principle: <strong>AI recommends, humans decide</strong>. The AI only ever writes drafts. A person reviews and approves everything, and nothing is ever published or approved automatically.</p>
+    <h3>What it does</h3>
+    <ul>
+      <li>Plan marketing campaigns, each tied to a clear objective</li>
+      <li>Generate content calendars and copy with AI, always as drafts you approve</li>
+      <li>Check wording against education marketing compliance rules</li>
+      <li>Track KPIs and real results against targets</li>
+      <li>Produce weekly reports and a permanent approvals record for management</li>
+    </ul>
+  </div>
+
+  <!-- 2 -->
+  <div class="section">
+    <div class="kicker">Section 2</div>
+    <h2>Visual overview</h2>
+    <div class="rule"></div>
+    <p>The journey a user follows, from setting up to reporting. Each box is a stage. The green <strong>APPROVE</strong> markers are the points where a person must approve before the work moves on.</p>
+    <div class="diagram">
+      <div class="legend"><span class="legend-item"><span class="swatch" style="background:#e0f5f9;border-color:#0891b2"></span>Set up</span><span class="legend-item"><span class="swatch" style="background:#f0e9fd;border-color:#7c3aed"></span>Plan</span><span class="legend-item"><span class="swatch" style="background:#fdf1e0;border-color:#d97706"></span>Create</span><span class="legend-item"><span class="swatch" style="background:#e5f6ef;border-color:#059669"></span>Measure</span><span class="legend-item"><span class="swatch" style="background:#e8ebef;border-color:#334155"></span>Dashboard</span></div>
+      <svg viewBox="0 0 560 604" width="100%" role="img" aria-label="Journey flow diagram"><line x1="210" y1="88" x2="210" y2="106" stroke="#94a3b8" stroke-width="2"/><path d="M 205 100 L 215 100 L 210 108 Z" fill="#94a3b8"/><line x1="210" y1="150" x2="210" y2="168" stroke="#94a3b8" stroke-width="2"/><path d="M 205 162 L 215 162 L 210 170 Z" fill="#94a3b8"/><line x1="210" y1="212" x2="210" y2="230" stroke="#94a3b8" stroke-width="2"/><path d="M 205 224 L 215 224 L 210 232 Z" fill="#94a3b8"/><line x1="210" y1="274" x2="210" y2="292" stroke="#94a3b8" stroke-width="2"/><path d="M 205 286 L 215 286 L 210 294 Z" fill="#94a3b8"/><line x1="210" y1="336" x2="210" y2="354" stroke="#94a3b8" stroke-width="2"/><path d="M 205 348 L 215 348 L 210 356 Z" fill="#94a3b8"/><line x1="210" y1="398" x2="210" y2="416" stroke="#94a3b8" stroke-width="2"/><path d="M 205 410 L 215 410 L 210 418 Z" fill="#94a3b8"/><line x1="210" y1="460" x2="210" y2="478" stroke="#94a3b8" stroke-width="2"/><path d="M 205 472 L 215 472 L 210 480 Z" fill="#94a3b8"/><line x1="210" y1="522" x2="210" y2="540" stroke="#94a3b8" stroke-width="2"/><path d="M 205 534 L 215 534 L 210 542 Z" fill="#94a3b8"/><rect x="60" y="46" width="300" height="42" rx="9" fill="#e0f5f9" stroke="#0891b2" stroke-width="2"/><text x="210" y="72" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">Set up brand and data</text><rect x="60" y="108" width="300" height="42" rx="9" fill="#f0e9fd" stroke="#7c3aed" stroke-width="2"/><text x="210" y="134" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">Audit</text><rect x="60" y="170" width="300" height="42" rx="9" fill="#f0e9fd" stroke="#7c3aed" stroke-width="2"/><text x="210" y="196" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">Strategy Brief</text><rect x="374" y="179" width="94" height="24" rx="12" fill="#16a34a"/><text x="421" y="195" text-anchor="middle" font-size="11" font-weight="700" fill="#ffffff" letter-spacing="0.5">APPROVE</text><rect x="60" y="232" width="300" height="42" rx="9" fill="#f0e9fd" stroke="#7c3aed" stroke-width="2"/><text x="210" y="258" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">Campaigns</text><rect x="374" y="241" width="94" height="24" rx="12" fill="#16a34a"/><text x="421" y="257" text-anchor="middle" font-size="11" font-weight="700" fill="#ffffff" letter-spacing="0.5">APPROVE</text><rect x="60" y="294" width="300" height="42" rx="9" fill="#fdf1e0" stroke="#d97706" stroke-width="2"/><text x="210" y="320" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">Content Calendar</text><rect x="60" y="356" width="300" height="42" rx="9" fill="#fdf1e0" stroke="#d97706" stroke-width="2"/><text x="210" y="382" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">Production</text><rect x="374" y="365" width="94" height="24" rx="12" fill="#16a34a"/><text x="421" y="381" text-anchor="middle" font-size="11" font-weight="700" fill="#ffffff" letter-spacing="0.5">APPROVE</text><rect x="60" y="418" width="300" height="42" rx="9" fill="#e5f6ef" stroke="#059669" stroke-width="2"/><text x="210" y="444" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">Compliance</text><rect x="60" y="480" width="300" height="42" rx="9" fill="#e5f6ef" stroke="#059669" stroke-width="2"/><text x="210" y="506" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">KPI and Reports</text><rect x="60" y="542" width="300" height="42" rx="9" fill="#e8ebef" stroke="#334155" stroke-width="2"/><text x="210" y="568" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2933">Dashboard</text></svg>
+      <div class="caption">The AI can draft up to each APPROVE gate, but a human decides. Nothing is published automatically. Production items are also approved by a manager before they can go out.</div>
+    </div>
+
+    <h3>The menu, grouped into five sections</h3>
+    <p>The left-hand menu is grouped so related screens sit together. On a fresh, empty workspace only "Set up" is opened, so a beginner is not faced with everything at once.</p>
+    <div class="diagram">
+      
+    <div class="menu-dashboard" style="border-color:#334155;background:#e8ebef">
+      <strong>Dashboard</strong> <span class="muted">the home overview you return to</span>
+    </div>
+    <div class="menu-grid">
+    <div class="menu-card">
+      <div class="menu-head" style="background:#0891b2">Set up</div>
+      <div class="menu-body">
+        <span class="menu-item" style="border-color:#0891b2">Brand</span><span class="menu-item" style="border-color:#0891b2">Courses & Audiences</span><span class="menu-item" style="border-color:#0891b2">Settings</span>
+      </div>
+    </div>
+    <div class="menu-card">
+      <div class="menu-head" style="background:#7c3aed">Plan</div>
+      <div class="menu-body">
+        <span class="menu-item" style="border-color:#7c3aed">Objectives & Audit</span><span class="menu-item" style="border-color:#7c3aed">Competitors</span><span class="menu-item" style="border-color:#7c3aed">Platform Strategy</span><span class="menu-item" style="border-color:#7c3aed">Strategy Brief</span><span class="menu-item" style="border-color:#7c3aed">Campaigns</span>
+      </div>
+    </div>
+    <div class="menu-card">
+      <div class="menu-head" style="background:#d97706">Create</div>
+      <div class="menu-body">
+        <span class="menu-item" style="border-color:#d97706">Content Calendar</span><span class="menu-item" style="border-color:#d97706">Production Board</span><span class="menu-item" style="border-color:#d97706">Asset Library</span>
+      </div>
+    </div>
+    <div class="menu-card">
+      <div class="menu-head" style="background:#059669">Measure</div>
+      <div class="menu-body">
+        <span class="menu-item" style="border-color:#059669">KPI Tracker</span><span class="menu-item" style="border-color:#059669">Reports</span><span class="menu-item" style="border-color:#059669">Compliance</span><span class="menu-item" style="border-color:#059669">Budget & Resources</span>
+      </div>
+    </div></div>
+      <div class="caption">Every screen is still there; the groups just tidy the menu. Each section can be opened or closed.</div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="section">
+    <div class="kicker">Section 3</div>
+    <h2>How to get it running</h2>
+    <div class="rule"></div>
+    <p>You do not need to write any code. These are the only steps:</p>
+    <ul>
+      <li>Make sure the computer has <strong>Node.js version 20 or newer</strong> installed (a free tool for running the app).</li>
+      <li>Get the code: the repository is <strong>f3nd1/social_media_os</strong>. Use the <strong>main</strong> branch.</li>
+      <li>Open a terminal (a text command window) in the project folder.</li>
+      <li>Type <strong>npm install</strong> and press enter. This sets things up once. Wait for it to finish.</li>
+      <li>Type <strong>npm run dev</strong> and press enter. This starts the app.</li>
+      <li>Open a web browser and go to <strong>http://localhost:3000</strong></li>
+      <li>To stop the app, return to the terminal and press <strong>Ctrl and C</strong> together.</li>
+    </ul>
+
+    <h3>The three connections, and whether you need them</h3>
+    <p>The app works on its own. These connections add extra power, and each one is optional.</p>
+    <table>
+      <tr><th>Connection</th><th>What it is for</th><th>Optional?</th><th>Without it</th></tr>
+      <tr>
+        <td><strong>Supabase</strong><br/><span class="muted">cloud save</span></td>
+        <td>Saves your work to the cloud so it is safe and follows you between devices.</td>
+        <td class="opt">Optional</td>
+        <td>Everything still works and stays saved on this one browser.</td>
+      </tr>
+      <tr>
+        <td><strong>OpenAI</strong><br/><span class="muted">AI features</span></td>
+        <td>Lets the app draft strategy, calendars, and copy for you.</td>
+        <td class="opt">Optional</td>
+        <td>The AI buttons fall back to simpler offline templates, clearly labelled "Offline draft, AI not connected".</td>
+      </tr>
+      <tr>
+        <td><strong>Metricool or CSV</strong><br/><span class="muted">analytics</span></td>
+        <td>Brings in your real social media numbers.</td>
+        <td class="opt">Optional</td>
+        <td>You can type numbers in by hand, or import a CSV file.</td>
+      </tr>
+    </table>
+
+    <div class="note">
+      <strong>The easy way to connect everything:</strong> open <strong>Settings</strong> and click <strong>"Run setup guide"</strong>. It takes over the whole screen and walks you through each connection, one step at a time. It <strong>tests each connection as it goes</strong>, so a step only turns green when the connection genuinely responds. Every step can be skipped, and you can leave and come back to it any time.
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <div class="section">
+    <div class="kicker">Section 4</div>
+    <h2>What to test</h2>
+    <div class="rule"></div>
+    <h3>A. One end-to-end path (tick as you go)</h3>
+    <ul class="check">
+      <li><span class="box"></span>Open <strong>Settings</strong> and click <strong>Run setup guide</strong></li>
+      <li><span class="box"></span>Choose <strong>Set up my own</strong></li>
+      <li><span class="box"></span>Connect Supabase, OpenAI and Metricool, or skip each (all optional)</li>
+      <li><span class="box"></span>Read the short compliance reminder and continue</li>
+      <li><span class="box"></span>Enter a <strong>brand name</strong> and tone of voice</li>
+      <li><span class="box"></span>Add at least one <strong>course</strong></li>
+      <li><span class="box"></span>Add at least one <strong>audience</strong></li>
+      <li><span class="box"></span>Record a <strong>quick audit</strong> for one platform</li>
+      <li><span class="box"></span>Generate or type a <strong>Strategy Brief</strong>, then <strong>approve</strong> it</li>
+      <li><span class="box"></span>Finish the guide and click <strong>Generate my first content calendar</strong></li>
+      <li><span class="box"></span>Open the calendar, open an item, and <strong>approve</strong> it</li>
+      <li><span class="box"></span>Open the <strong>Dashboard</strong> and check the setup status and numbers have updated</li>
+    </ul>
+
+    <h3>B. What each screen does, and what "working" looks like</h3>
+    <table>
+      <tr><th>Screen</th><th>What it does</th><th>Working looks like</th></tr>
+      <tr><td>Brand</td><td>Your name, voice, colours, goals</td><td>You can type and it saves</td></tr>
+      <tr><td>Courses & Audiences</td><td>What you offer and who to</td><td>You can add and edit both</td></tr>
+      <tr><td>Settings</td><td>Connections, and sample vs your own data</td><td>Test buttons report a real result</td></tr>
+      <tr><td>Objectives & Audit</td><td>Your goal plus a baseline per platform</td><td>You can add an audit and see a score</td></tr>
+      <tr><td>Competitors</td><td>Track other colleges <span class="aitag">Needs OpenAI</span> for insights</td><td>You can add competitors; AI insights need a key</td></tr>
+      <tr><td>Platform Strategy</td><td>Which platform per audience, trends, listening</td><td>Guidance shows; trends and listening need keys or a worker</td></tr>
+      <tr><td>Strategy Brief</td><td>Turns everything into a plan <span class="aitag">Needs OpenAI</span> for the AI draft</td><td>You can approve it; the badge turns to approved. You can also write it by hand</td></tr>
+      <tr><td>Campaigns</td><td>Group work into campaigns and approve them <span class="aitag">Needs OpenAI</span> for ideas</td><td>An approved campaign shows as approved</td></tr>
+      <tr><td>Content Calendar</td><td>Your month of posts <span class="aitag">Needs OpenAI</span> for AI generation</td><td>Items appear after you generate from the approved brief; an offline template also works</td></tr>
+      <tr><td>Production Board</td><td>Write, check and approve each post <span class="aitag">Needs OpenAI</span> for copy</td><td>You can move an item along to "manager approved"</td></tr>
+      <tr><td>Asset Library</td><td>Store photos, videos and files</td><td>You can add and see assets</td></tr>
+      <tr><td>KPI Tracker</td><td>Real results against target</td><td>You can enter results and see status</td></tr>
+      <tr><td>Reports</td><td>Weekly summary, approvals log, PDF and CSV export</td><td>Export downloads a dated file</td></tr>
+      <tr><td>Compliance</td><td>Checks wording against the rules <span class="aitag">Needs OpenAI</span> for deeper review</td><td>Paste risky wording and see it flagged (the rule check works without a key)</td></tr>
+      <tr><td>Budget & Resources</td><td>Plan campaign costs</td><td>You can add and total a budget</td></tr>
+      <tr><td>Dashboard</td><td>Overview, setup status, approvals pending, Singapore prompts</td><td>It reflects what you have entered</td></tr>
+    </table>
+
+    <div class="note">
+      <strong>About the AI features.</strong> Anything marked <span class="aitag">Needs OpenAI</span> only fully works once an OpenAI key is added (in Settings, or during the setup guide). Without a key these show simpler offline drafts labelled "Offline draft, AI not connected". That is expected, not a fault. The rule-based compliance check, approving a brief, and an offline calendar all work without a key.
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <div class="section">
+    <div class="kicker">Section 5</div>
+    <h2>Known limitations and open items</h2>
+    <div class="rule"></div>
+    <p>Being straight about what is not finished:</p>
+    <ul class="limit">
+      <li><strong>Metricool gives brand-level totals, not per-network numbers.</strong> For per-platform detail, use the CSV import instead.</li>
+      <li><strong>Platform connections other than Metricool store your keys but do not sync data yet.</strong> Use CSV or type numbers in for those.</li>
+      <li><strong>Social listening needs a hosted background worker when the app is deployed.</strong> It may not run on a simple serverless host without one. The PDF text extraction and one compliance extraction route use similar small helpers.</li>
+      <li><strong>The app is not yet on a public web address.</strong> It runs on your own computer for now.</li>
+      <li><strong>There is no login and no user roles yet.</strong> Anyone with the link, and the Supabase key if that is connected, can read and write the data. Fine for a prototype, but not for real student data.</li>
+      <li><strong>The live AI, Supabase and Metricool paths were checked by simulation during development.</strong> They still need a final test with real keys on a real machine.</li>
+      <li><strong>The approver name is free text for now,</strong> so the audit trail records a typed name rather than a verified login.</li>
+    </ul>
+  </div>
+
+  <!-- 6 -->
+  <div class="section">
+    <div class="kicker">Section 6</div>
+    <h2>How to give feedback</h2>
+    <div class="rule"></div>
+    <p>If anything looks wrong, confusing, or missing, please note these four things. They make it quick to fix:</p>
+    <ul>
+      <li><strong>Which screen</strong> you were on</li>
+      <li><strong>What you expected</strong> to happen</li>
+      <li><strong>What actually happened</strong></li>
+      <li><strong>A screenshot</strong> if you can</li>
+    </ul>
+    <div class="note">One extra line that helps a lot: <strong>was AI connected</strong> (an OpenAI key added) at the time? Some buttons behave differently with and without a key, so knowing this saves a lot of guessing.</div>
+    <p class="muted" style="margin-top:18px;">Thank you for testing. Your notes go straight into making it clearer and more reliable.</p>
+  </div>
+
+</body>
+</html>
