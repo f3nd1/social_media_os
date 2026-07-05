@@ -115,6 +115,10 @@ import {
   appendApprovalLog,
   deriveApprovalLogEntries,
 } from "@/lib/approvals-log";
+import {
+  downloadApprovalsLogCsv,
+  downloadApprovalsLogPdf,
+} from "@/lib/approvals-log-export";
 import { buildTrendContext } from "@/lib/trend-ai";
 import {
   deleteAssetFile,
@@ -6276,7 +6280,7 @@ function ApprovalsLogPanel({
           title="Approvals Log"
           description="A permanent record of every approval and rejection: what was decided, in which module, by whom, and when. Entries are written automatically and cannot be edited."
         />
-        <div className="w-full sm:w-[260px]">
+        <div className="flex w-full flex-col gap-3 sm:w-[260px]">
           <Field label="Your name (stamped on decisions)">
             <Input
               placeholder="e.g. Felix"
@@ -6284,6 +6288,28 @@ function ApprovalsLogPanel({
               onChange={(event) => onApproverNameChange(event.target.value)}
             />
           </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={approvalsLog.length === 0}
+              onClick={() => downloadApprovalsLogPdf(approvalsLog)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <FileText className="h-4 w-4" />
+              Export PDF
+            </Button>
+            <Button
+              disabled={approvalsLog.length === 0}
+              onClick={() => downloadApprovalsLogCsv(approvalsLog)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
