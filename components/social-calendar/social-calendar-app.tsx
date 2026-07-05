@@ -1264,6 +1264,7 @@ export function SocialCalendarApp() {
 
             {activeView === "brief" ? (
               <StrategyBriefView
+                acceptedTrends={acceptedTrendLines(data.trendInsights)}
                 aiIntegration={data.aiIntegration}
                 audits={data.audits}
                 brand={data.brand}
@@ -9786,6 +9787,7 @@ function CompetitorIntelligenceView({
 }
 
 function StrategyBriefView({
+  acceptedTrends,
   aiIntegration,
   audits,
   brand,
@@ -9797,6 +9799,7 @@ function StrategyBriefView({
   onBriefChange,
   onRecordUsage,
 }: {
+  acceptedTrends: string[];
   aiIntegration: AiIntegrationSettings;
   audits: SocialAudit[];
   brand: BrandProfile;
@@ -9879,6 +9882,7 @@ function StrategyBriefView({
       acceptedListeningInsights: listeningResults
         .filter((result) => result.status === "accepted")
         .map((result) => `${result.topic}: ${result.insight}`),
+      acceptedTrends,
       platforms: [...platforms],
     };
   }
@@ -10336,6 +10340,7 @@ function CalendarBuilderView({
       brand,
       calendar[0]?.date ?? "2026-07-01",
       socialGoals,
+      ucc,
     );
     onReplaceCalendar(items, hasPerformanceData);
     setGenerationMode("offline");

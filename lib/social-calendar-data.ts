@@ -2521,7 +2521,15 @@ export function generateCalendarFromBrief(
   brand: BrandProfile,
   startDate = "2026-07-01",
   socialGoals?: SocialGoalSettings,
+  // The owner's real strategy data. When provided, offline items link to the
+  // owner's approved campaigns (and their course and audience), matching the
+  // AI path's approval gate. When omitted (seed generation), the built-in demo
+  // links are used instead.
+  ucc?: UccStrategyData,
 ): CalendarItem[] {
+  const approvedCampaigns = ucc
+    ? ucc.campaigns.filter(isCampaignApproved)
+    : [];
   const statusCycle: CalendarStatus[] = [
     "approved",
     "scheduled",
@@ -2550,6 +2558,12 @@ export function generateCalendarFromBrief(
       pillarCycle[index % Math.max(pillarCycle.length, 1)] ??
       topic.pillar;
     const platformCopy = buildPlatformNativeCopy(platform, topic, brand);
+    // With real strategy data, link to an approved campaign (and inherit its
+    // course and audience); without it, fall back to the demo links.
+    const linkedCampaign =
+      approvedCampaigns.length > 0
+        ? approvedCampaigns[index % approvedCampaigns.length]
+        : undefined;
 
     return {
       id: `day-${String(index + 1).padStart(2, "0")}`,
@@ -2558,9 +2572,21 @@ export function generateCalendarFromBrief(
       actualPostDate: "",
       date,
       platform,
-      campaignId: socialGoals ? seedUccStrategy.campaigns[index % seedUccStrategy.campaigns.length]?.id : "",
-      courseId: socialGoals ? seedUccStrategy.courses[index % seedUccStrategy.courses.length]?.id : "",
-      audienceId: socialGoals ? seedUccStrategy.audiences[index % seedUccStrategy.audiences.length]?.id : "",
+      campaignId: ucc
+        ? linkedCampaign?.id ?? ""
+        : socialGoals
+          ? seedUccStrategy.campaigns[index % seedUccStrategy.campaigns.length]?.id ?? ""
+          : "",
+      courseId: ucc
+        ? linkedCampaign?.courseId ?? ""
+        : socialGoals
+          ? seedUccStrategy.courses[index % seedUccStrategy.courses.length]?.id ?? ""
+          : "",
+      audienceId: ucc
+        ? linkedCampaign?.audienceId ?? ""
+        : socialGoals
+          ? seedUccStrategy.audiences[index % seedUccStrategy.audiences.length]?.id ?? ""
+          : "",
       contentPillar,
       contentTopic: topic.topic,
       format: platformCopy.format,

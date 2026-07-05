@@ -47,6 +47,8 @@ export type BriefAiContext = {
   // Accepted social listening findings (Module D3), phrased "topic: insight".
   // Internal research signals only; never marketing copy and no quotes.
   acceptedListeningInsights: string[];
+  // Accepted Trend Radar cards (Module D1), so the brief reflects live trends.
+  acceptedTrends: string[];
   platforms: Platform[];
 };
 

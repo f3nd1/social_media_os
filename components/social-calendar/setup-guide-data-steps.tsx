@@ -509,6 +509,9 @@ export function BriefStepBody({
       acceptedListeningInsights: (data.listeningResults ?? [])
         .filter((result) => result.status === "accepted")
         .map((result) => `${result.topic}: ${result.insight}`),
+      acceptedTrends: (data.trendInsights ?? [])
+        .filter((trend) => trend.status === "accepted")
+        .map((trend) => `${trend.title}. Suggested angle: ${trend.contentAngle}`),
       platforms: [...platforms],
     };
   }
