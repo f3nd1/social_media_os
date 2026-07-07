@@ -1112,32 +1112,36 @@ export function SocialCalendarApp() {
               />
             ) : null}
 
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <SummaryMetric
-                icon={Target}
-                label="Audit goal"
-                value={data.socialGoals.northStarMetric}
-                detail={data.socialGoals.primaryObjective}
-              />
-              <SummaryMetric
-                icon={Gauge}
-                label="Audit score"
-                value={`${auditAverage}%`}
-                detail={`${data.audits.length} platforms scored`}
-              />
-              <SummaryMetric
-                icon={CalendarDays}
-                label="Calendar"
-                value={`${data.calendar.length} days`}
-                detail={`${productionReadyCount} production-ready items`}
-              />
-              <SummaryMetric
-                icon={ShieldCheck}
-                label="Compliance"
-                value={`${data.brief.complianceReminders.length} checks`}
-                detail="Education claims stay factual and proof-based"
-              />
-            </section>
+            {activeView === "objectives" ? (
+              // Analytics summary lives with Insights, not on every screen:
+              // one module, one responsibility, no duplicated analytics.
+              <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <SummaryMetric
+                  icon={Target}
+                  label="Audit goal"
+                  value={data.socialGoals.northStarMetric}
+                  detail={data.socialGoals.primaryObjective}
+                />
+                <SummaryMetric
+                  icon={Gauge}
+                  label="Audit score"
+                  value={`${auditAverage}%`}
+                  detail={`${data.audits.length} platforms scored`}
+                />
+                <SummaryMetric
+                  icon={CalendarDays}
+                  label="Calendar"
+                  value={`${data.calendar.length} days`}
+                  detail={`${productionReadyCount} production-ready items`}
+                />
+                <SummaryMetric
+                  icon={ShieldCheck}
+                  label="Compliance"
+                  value={`${data.brief.complianceReminders.length} checks`}
+                  detail="Education claims stay factual and proof-based"
+                />
+              </section>
+            ) : null}
 
             <ScreenHelpHint
               dismissed={data.dismissedHelpScreens ?? []}
@@ -2157,6 +2161,62 @@ function SgMomentNudgePanel({
   );
 }
 
+// A transparent Marketing Health Score computed only from data already in the
+// workspace: audit strength, KPI channels on track, production readiness, and
+// setup completion. Components with no data yet are left out rather than
+// invented, and the contributing parts are shown next to the number.
+function computeMarketingHealth(data: MarketingWorkspaceData): {
+  score: number;
+  parts: string[];
+} {
+  const components: Array<{ label: string; value: number }> = [];
+
+  if (data.audits.length > 0) {
+    const auditAverage = Math.round(
+      data.audits.reduce((sum, audit) => sum + calculateAuditScore(audit), 0) /
+        data.audits.length,
+    );
+    components.push({ label: `audit ${auditAverage}%`, value: auditAverage });
+  }
+
+  const decidedKpis = data.ucc.kpiRecords.filter((row) =>
+    ["on track", "exceeded target", "behind target", "needs attention"].includes(
+      row.status,
+    ),
+  );
+
+  if (decidedKpis.length > 0) {
+    const strong = decidedKpis.filter(
+      (row) => row.status === "on track" || row.status === "exceeded target",
+    ).length;
+    const kpiScore = Math.round((strong / decidedKpis.length) * 100);
+    components.push({ label: `KPIs on track ${kpiScore}%`, value: kpiScore });
+  }
+
+  if (data.calendar.length > 0) {
+    const ready = data.calendar.filter((item) =>
+      ["approved", "scheduled", "posted"].includes(item.status),
+    ).length;
+    const productionScore = Math.round((ready / data.calendar.length) * 100);
+    components.push({
+      label: `production ${productionScore}%`,
+      value: productionScore,
+    });
+  }
+
+  const setupRows = buildSetupStatus(data);
+  const setupScore = Math.round(
+    (setupRows.filter((row) => row.done).length / setupRows.length) * 100,
+  );
+  components.push({ label: `setup ${setupScore}%`, value: setupScore });
+
+  const score = Math.round(
+    components.reduce((sum, part) => sum + part.value, 0) / components.length,
+  );
+
+  return { score, parts: components.map((part) => part.label) };
+}
+
 function ManagementDashboardView({
   data,
   onNavigate,
@@ -2184,41 +2244,176 @@ function ManagementDashboardView({
     (row) => row.status === "behind target" || row.status === "needs attention",
   );
   const pendingApprovals = buildPendingApprovals(data);
+  const pendingApprovalCount = pendingApprovals.reduce(
+    (sum, row) => sum + row.count,
+    0,
+  );
+  const health = computeMarketingHealth(data);
+  const productionReady = data.calendar.filter((item) =>
+    ["approved", "scheduled", "posted"].includes(item.status),
+  ).length;
+  const productionPercent =
+    data.calendar.length > 0
+      ? Math.round((productionReady / data.calendar.length) * 100)
+      : 0;
+  const quickActions: Array<{ label: string; view: ViewId }> = [
+    { label: "Create campaign", view: "campaigns" },
+    { label: "Generate strategy", view: "brief" },
+    { label: "Add product or audience", view: "courses" },
+    { label: "View calendar", view: "calendar" },
+    { label: "Generate report", view: "reports" },
+    { label: "Update brand", view: "brand" },
+  ];
 
   return (
     <section className="space-y-4">
       <SetupStatusPanel data={data} onNavigate={onNavigate} />
       <SgMomentNudgePanel onNavigate={onNavigate} />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Marketing health score
+            </p>
+            <p className="mt-2 text-3xl font-semibold">{health.score}%</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Computed from {health.parts.join(", ")}. No numbers are invented.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Active campaigns
+            </p>
+            <p className="mt-2 text-3xl font-semibold">
+              {data.ucc.campaigns.filter((item) => item.status === "active").length}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              {data.ucc.campaigns.length} total,{" "}
+              {data.ucc.campaigns.filter(isCampaignApproved).length} approved.
+              Campaigns are strategic containers, not task boards.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Production progress
+            </p>
+            <p className="mt-2 text-3xl font-semibold">{productionPercent}%</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              {productionReady} of {data.calendar.length} items approved,
+              scheduled, or posted. {delayedItems.length} in draft, review, or
+              revision.
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Pending approvals
+            </p>
+            <p className="mt-2 text-3xl font-semibold">{pendingApprovalCount}</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Waiting for your decision. AI never approves or publishes.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle>Current Monthly Strategy</CardTitle>
+                <CardDescription>
+                  The approved brief drives campaigns and the calendar.
+                </CardDescription>
+              </div>
+              <Badge variant={data.brief.approved ? "success" : "warning"}>
+                {data.brief.approved ? "Approved" : "Needs review"}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm leading-6">
+              {data.brief.monthlyCampaignGoal.trim() ||
+                "No strategy written yet. Open Strategic Planning to draft and approve one."}
+            </p>
+            {data.brief.contentPillars.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {data.brief.contentPillars.slice(0, 4).map((pillar) => (
+                  <Badge key={pillar} variant="outline">
+                    {pillar}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+            <Button
+              onClick={() => onNavigate("brief")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Open Strategic Planning
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>KPI Snapshot</CardTitle>
+            <CardDescription>
+              Live totals from the KPI Tracker and budget plans.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <LearningMetric
+              label="Leads generated"
+              value={formatNumber(totalLeads)}
+              detail={`${formatNumber(data.ucc.kpiRecords.reduce((sum, row) => sum + row.applications, 0))} applications tracked`}
+            />
+            <LearningMetric
+              label="Budget used"
+              value={`${formatNumber(totalSpend)} / ${formatNumber(totalBudget)}`}
+              detail="Actual spend versus planned campaign cost"
+            />
+            <LearningMetric
+              label="Channels on track"
+              value={String(strongKpis.length)}
+              detail={`${weakKpis.length} behind target or needing attention`}
+            />
+            <LearningMetric
+              label="Approval watch"
+              value={String(delayedItems.length)}
+              detail="Items in draft, review, or revision"
+            />
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
-          <SectionTitle
-            icon={BarChart3}
-            kicker="Management"
-            title="UCC Marketing Command Dashboard"
-            description="Objective-first overview across campaigns, channels, budget, approvals, leads, applications, enrolments, and next actions."
-          />
+          <CardTitle>Quick Actions</CardTitle>
+          <CardDescription>
+            Jump straight to the next piece of work.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <LearningMetric
-            label="Active campaigns"
-            value={String(data.ucc.campaigns.filter((item) => item.status === "active").length)}
-            detail={`${data.ucc.campaigns.length} total campaigns`}
-          />
-          <LearningMetric
-            label="Leads generated"
-            value={formatNumber(totalLeads)}
-            detail={`${formatNumber(data.ucc.kpiRecords.reduce((sum, row) => sum + row.applications, 0))} applications tracked`}
-          />
-          <LearningMetric
-            label="Budget used"
-            value={`${formatNumber(totalSpend)} / ${formatNumber(totalBudget)}`}
-            detail="Actual spend versus planned campaign cost"
-          />
-          <LearningMetric
-            label="Approval watch"
-            value={String(delayedItems.length)}
-            detail="Items in draft, review, or revision"
-          />
+        <CardContent className="flex flex-wrap gap-2">
+          {quickActions.map((action) => (
+            <Button
+              key={action.view + action.label}
+              onClick={() => onNavigate(action.view)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {action.label}
+            </Button>
+          ))}
         </CardContent>
       </Card>
 
