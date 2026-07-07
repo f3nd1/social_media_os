@@ -16,8 +16,6 @@ import {
   BookOpenText,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   ClipboardCheck,
   Database,
   Download,
@@ -271,55 +269,91 @@ export type ViewId =
 
 type NavItem = { id: ViewId; label: string; icon: LucideIcon };
 
-// The navigation grouped into the phases of the real journey, so related
-// screens sit together instead of a flat list of fifteen. Order within each
-// group follows the data dependencies (brand and data before AI, an approved
-// brief before a calendar, production before results). "Home" has no heading.
-const navGroups: Array<{ phase: string; items: NavItem[] }> = [
+// Marketing Strategy OS v2 information architecture: six sidebar modules,
+// each a workspace with horizontal tabs. Every existing screen is re-homed
+// into a module tab; nothing is removed, only reorganised. The workflow reads
+// Foundation, Insights, Planning, Operations, Reporting, with Dashboard as
+// the command centre.
+type ModuleId =
+  | "dashboard"
+  | "foundation"
+  | "insights"
+  | "planning"
+  | "operations"
+  | "reporting";
+
+const modules: Array<{
+  id: ModuleId;
+  label: string;
+  subtitle: string;
+  icon: LucideIcon;
+  tabs: NavItem[];
+}> = [
   {
-    phase: "Home",
-    items: [{ id: "dashboard", label: "Dashboard", icon: BarChart3 }],
+    id: "dashboard",
+    label: "Dashboard",
+    subtitle: "Command centre: what needs your attention today?",
+    icon: BarChart3,
+    tabs: [{ id: "dashboard", label: "Overview", icon: BarChart3 }],
   },
   {
-    phase: "Set up",
-    items: [
-      { id: "brand", label: "Brand", icon: Palette },
-      { id: "courses", label: "Courses & Audiences", icon: GraduationCap },
-      { id: "settings", label: "Settings", icon: Settings2 },
+    id: "foundation",
+    label: "Foundation",
+    subtitle: "Business knowledge that powers every AI recommendation.",
+    icon: GraduationCap,
+    tabs: [
+      { id: "brand", label: "Brand Hub", icon: Palette },
+      { id: "courses", label: "Products & Audiences", icon: GraduationCap },
+      { id: "settings", label: "Integrations & Settings", icon: Settings2 },
     ],
   },
   {
-    phase: "Plan",
-    items: [
-      { id: "objectives", label: "Objectives & Audit", icon: Target },
-      { id: "competitors", label: "Competitors", icon: UsersRound },
-      { id: "platform", label: "Platform Strategy", icon: Gauge },
-      { id: "brief", label: "Strategy Brief", icon: SearchCheck },
-      { id: "campaigns", label: "Campaigns", icon: ClipboardCheck },
+    id: "insights",
+    label: "Insights",
+    subtitle: "What is happening in performance and the market?",
+    icon: Gauge,
+    tabs: [
+      { id: "objectives", label: "Marketing Intelligence", icon: Target },
+      { id: "competitors", label: "Competitor Intelligence", icon: UsersRound },
+      { id: "platform", label: "Market Intelligence", icon: Gauge },
+      { id: "kpi", label: "KPI Tracking", icon: TrendingUp },
     ],
   },
   {
-    phase: "Create",
-    items: [
-      { id: "calendar", label: "Content Calendar", icon: CalendarDays },
-      { id: "production", label: "Production Board", icon: ListChecks },
-      { id: "assets", label: "Asset Library", icon: FileText },
+    id: "planning",
+    label: "Planning",
+    subtitle: "Turn intelligence into approved strategy and campaigns.",
+    icon: SearchCheck,
+    tabs: [
+      { id: "brief", label: "Strategic Planning", icon: SearchCheck },
+      { id: "campaigns", label: "Campaign Management", icon: ClipboardCheck },
+      { id: "budget", label: "Budget", icon: FileSpreadsheet },
+      { id: "compliance", label: "Approvals & Compliance", icon: ShieldCheck },
     ],
   },
   {
-    phase: "Measure",
-    items: [
-      { id: "kpi", label: "KPI Tracker", icon: TrendingUp },
-      { id: "reports", label: "Reports", icon: Download },
-      { id: "compliance", label: "Compliance", icon: ShieldCheck },
-      { id: "budget", label: "Budget & Resources", icon: FileSpreadsheet },
+    id: "operations",
+    label: "Operations",
+    subtitle: "Production execution only: calendar, queue, and assets.",
+    icon: ListChecks,
+    tabs: [
+      { id: "calendar", label: "Calendar", icon: CalendarDays },
+      { id: "production", label: "Production Queue", icon: ListChecks },
+      { id: "assets", label: "Assets", icon: FileText },
     ],
+  },
+  {
+    id: "reporting",
+    label: "Reporting",
+    subtitle: "Did the strategy work? Reports, exports, and learnings.",
+    icon: Download,
+    tabs: [{ id: "reports", label: "Performance & Reports", icon: Download }],
   },
 ];
 
-// Flat list derived from the groups, kept for lookups (active screen label)
+// Flat list derived from the modules, kept for lookups (active screen label)
 // and anywhere that still iterates every screen.
-const navItems: NavItem[] = navGroups.flatMap((group) => group.items);
+const navItems: NavItem[] = modules.flatMap((module) => module.tabs);
 
 const scoreFields: Array<{ key: keyof AuditScores; label: string }> = [
   { key: "profileCompleteness", label: "Profile completeness" },
@@ -343,12 +377,25 @@ export function SocialCalendarApp() {
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
   const [myDayMode, setMyDayMode] = useState(false);
-  // Collapsible left-nav sections. By default the section holding the current
-  // screen is open; on a fresh workspace only Set up is open so a beginner is
-  // not faced with everything at once. A manual click overrides the default.
-  const [navSectionToggles, setNavSectionToggles] = useState<
-    Record<string, boolean>
+  // Remembers the tab last used inside each module, so switching between
+  // modules returns to where the user left off.
+  const [moduleLastTab, setModuleLastTab] = useState<
+    Partial<Record<ModuleId, ViewId>>
   >({});
+
+  useEffect(() => {
+    const holder = modules.find((module) =>
+      module.tabs.some((tab) => tab.id === activeView),
+    );
+
+    if (holder) {
+      setModuleLastTab((current) =>
+        current[holder.id] === activeView
+          ? current
+          : { ...current, [holder.id]: activeView },
+      );
+    }
+  }, [activeView]);
 
   // Undo for destructive deletes (Module E5). Deleting keeps a snapshot of
   // the workspace for ten seconds; Undo restores it, expiry runs any
@@ -396,25 +443,24 @@ export function SocialCalendarApp() {
   ).length;
   const activeNav = navItems.find((item) => item.id === activeView) ?? navItems[0];
 
-  const activeSectionPhase =
-    navGroups.find((group) => group.items.some((item) => item.id === activeView))
-      ?.phase ?? "Home";
-  const isBeginnerWorkspace =
-    !data.brand.brandName.trim() && data.calendar.length === 0;
+  // The module whose workspace holds the current screen, and the last tab the
+  // user was on inside each module, so switching modules returns you to where
+  // you left off rather than always resetting to the first tab.
+  const activeModule =
+    modules.find((module) => module.tabs.some((tab) => tab.id === activeView)) ??
+    modules[0];
 
-  function isNavSectionOpen(phase: string) {
-    if (phase in navSectionToggles) {
-      return navSectionToggles[phase];
+  function openModule(moduleId: ModuleId) {
+    const target = modules.find((module) => module.id === moduleId);
+
+    if (!target) {
+      return;
     }
 
-    return phase === activeSectionPhase || (isBeginnerWorkspace && phase === "Set up");
-  }
-
-  function toggleNavSection(phase: string) {
-    setNavSectionToggles((current) => ({
-      ...current,
-      [phase]: !isNavSectionOpen(phase),
-    }));
+    const remembered = moduleLastTab[moduleId];
+    const tab =
+      target.tabs.find((candidate) => candidate.id === remembered) ?? target.tabs[0];
+    setActiveView(tab.id);
   }
 
   function updateWorkspace(
@@ -851,59 +897,29 @@ export function SocialCalendarApp() {
             </div>
           </div>
 
-          <nav className="mt-8 space-y-4">
-            {navGroups.map((group) => {
-              if (group.phase === "Home") {
-                return (
-                  <div className="space-y-1" key={group.phase}>
-                    {group.items.map((item) => (
-                      <NavButton
-                        active={activeView === item.id}
-                        item={item}
-                        key={item.id}
-                        onClick={() => setActiveView(item.id)}
-                      />
-                    ))}
-                  </div>
-                );
-              }
-
-              const open = isNavSectionOpen(group.phase);
-              const holdsActive = group.items.some((item) => item.id === activeView);
+          <nav className="mt-8 space-y-1">
+            <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+              Workspace
+            </p>
+            {modules.map((module) => {
+              const Icon = module.icon;
+              const active = activeModule.id === module.id;
 
               return (
-                <div className="space-y-1" key={group.phase}>
-                  <button
-                    aria-expanded={open}
-                    className="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 transition-colors hover:text-foreground"
-                    onClick={() => toggleNavSection(group.phase)}
-                    type="button"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      {group.phase}
-                      {!open && holdsActive ? (
-                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                      ) : null}
-                    </span>
-                    {open ? (
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                  {open ? (
-                    <div className="space-y-1">
-                      {group.items.map((item) => (
-                        <NavButton
-                          active={activeView === item.id}
-                          item={item}
-                          key={item.id}
-                          onClick={() => setActiveView(item.id)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                <button
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium transition-colors",
+                    active
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  key={module.id}
+                  onClick={() => openModule(module.id)}
+                  type="button"
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span>{module.label}</span>
+                </button>
               );
             })}
           </nav>
@@ -960,35 +976,27 @@ export function SocialCalendarApp() {
               ) : null}
             </div>
             <nav className="flex max-w-full gap-2 overflow-x-auto pb-1">
-              {navGroups.map((group) => (
-                <div className="flex shrink-0 items-center gap-2" key={group.phase}>
-                  {group.phase !== "Home" ? (
-                    <span className="shrink-0 pl-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-                      {group.phase}
-                    </span>
-                  ) : null}
-                  {group.items.map((item) => {
-                    const Icon = item.icon;
+              {modules.map((module) => {
+                const Icon = module.icon;
+                const active = activeModule.id === module.id;
 
-                    return (
-                      <button
-                        className={cn(
-                          "flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors",
-                          activeView === item.id
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-card text-muted-foreground",
-                        )}
-                        key={item.id}
-                        onClick={() => setActiveView(item.id)}
-                        type="button"
-                      >
-                        <Icon className="h-4 w-4" />
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+                return (
+                  <button
+                    className={cn(
+                      "flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card text-muted-foreground",
+                    )}
+                    key={module.id}
+                    onClick={() => openModule(module.id)}
+                    type="button"
+                  >
+                    <Icon className="h-4 w-4" />
+                    {module.label}
+                  </button>
+                );
+              })}
             </nav>
           </div>
 
@@ -1003,12 +1011,12 @@ export function SocialCalendarApp() {
                   <SyncStatusBadge isHydrated={isHydrated} sync={sync} />
                 </div>
                 <h1 className="text-2xl font-semibold leading-tight text-foreground sm:text-3xl">
-                  UCC Marketing Strategy OS
+                  {myDayMode ? "My day" : activeModule.label}
                 </h1>
                 <p className="mt-2 max-w-4xl text-sm leading-6 text-muted-foreground sm:text-base">
-                  {data.brand.brandName} objective-first marketing operations
-                  workspace for digital, offline, campaign, content, budget, KPI,
-                  compliance, and management reporting.
+                  {myDayMode
+                    ? `${data.brand.brandName} tasks and decisions for today.`
+                    : activeModule.subtitle}
                 </p>
               </div>
 
@@ -1041,6 +1049,31 @@ export function SocialCalendarApp() {
                 ) : null}
               </div>
             </header>
+
+            {!myDayMode && activeModule.tabs.length > 1 ? (
+              <div
+                className="-mt-1 flex max-w-full gap-1 overflow-x-auto border-b"
+                role="tablist"
+              >
+                {activeModule.tabs.map((tab) => (
+                  <button
+                    aria-selected={activeView === tab.id}
+                    className={cn(
+                      "shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors",
+                      activeView === tab.id
+                        ? "border-primary text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}
+                    key={tab.id}
+                    onClick={() => setActiveView(tab.id)}
+                    role="tab"
+                    type="button"
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             {sync.needsMigration ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-info-border bg-info p-3 text-sm text-info-foreground">
@@ -1450,34 +1483,6 @@ export function SocialCalendarApp() {
         </div>
       ) : null}
     </main>
-  );
-}
-
-function NavButton({
-  active,
-  item,
-  onClick,
-}: {
-  active: boolean;
-  item: (typeof navItems)[number];
-  onClick: () => void;
-}) {
-  const Icon = item.icon;
-
-  return (
-    <button
-      className={cn(
-        "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium transition-colors",
-        active
-          ? "bg-primary text-primary-foreground"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      <Icon className="h-4 w-4 shrink-0" />
-      <span>{item.label}</span>
-    </button>
   );
 }
 
