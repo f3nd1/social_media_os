@@ -222,6 +222,18 @@ import {
 import { SetupGuide } from "@/components/social-calendar/setup-guide";
 import { AiDirectorPanel } from "@/components/social-calendar/ai-director-panel";
 import {
+  PlatformIntelligenceView,
+  SeasonalIntelligenceView,
+  TeamView,
+} from "@/components/social-calendar/v2-foundation-insights";
+import {
+  CampaignReportsView,
+  ContentPillarsView,
+  ExecutiveDashboardView,
+  LearningsView,
+  PlatformReportsView,
+} from "@/components/social-calendar/v2-planning-reporting";
+import {
   buildExportSheets,
   downloadCsvPack,
   downloadExcelWorkbook,
@@ -253,6 +265,14 @@ type PdfExtractionResponse = {
 export type ViewId =
   | "dashboard"
   | "brand"
+  | "team"
+  | "platformIntel"
+  | "seasonal"
+  | "pillars"
+  | "campaignReports"
+  | "platformReports"
+  | "executive"
+  | "learnings"
   | "objectives"
   | "courses"
   | "campaigns"
@@ -305,6 +325,7 @@ const modules: Array<{
     tabs: [
       { id: "brand", label: "Brand Hub", icon: Palette },
       { id: "courses", label: "Products & Audiences", icon: GraduationCap },
+      { id: "team", label: "Team", icon: UsersRound },
       { id: "settings", label: "Integrations & Settings", icon: Settings2 },
     ],
   },
@@ -317,6 +338,8 @@ const modules: Array<{
       { id: "objectives", label: "Marketing Intelligence", icon: Target },
       { id: "competitors", label: "Competitor Intelligence", icon: UsersRound },
       { id: "platform", label: "Market Intelligence", icon: Gauge },
+      { id: "platformIntel", label: "Platform Intelligence", icon: Gauge },
+      { id: "seasonal", label: "Seasonal Intelligence", icon: CalendarDays },
       { id: "kpi", label: "KPI Tracking", icon: TrendingUp },
     ],
   },
@@ -328,6 +351,7 @@ const modules: Array<{
     tabs: [
       { id: "brief", label: "Strategic Planning", icon: SearchCheck },
       { id: "campaigns", label: "Campaign Management", icon: ClipboardCheck },
+      { id: "pillars", label: "Content Pillars", icon: ListChecks },
       { id: "budget", label: "Budget", icon: FileSpreadsheet },
       { id: "compliance", label: "Approvals & Compliance", icon: ShieldCheck },
     ],
@@ -348,7 +372,13 @@ const modules: Array<{
     label: "Reporting",
     subtitle: "Did the strategy work? Reports, exports, and learnings.",
     icon: Download,
-    tabs: [{ id: "reports", label: "Performance & Reports", icon: Download }],
+    tabs: [
+      { id: "reports", label: "Performance Review", icon: Download },
+      { id: "campaignReports", label: "Campaign Reports", icon: ClipboardCheck },
+      { id: "platformReports", label: "Platform Reports", icon: Gauge },
+      { id: "executive", label: "Executive Dashboard", icon: BarChart3 },
+      { id: "learnings", label: "Learnings", icon: BookOpenText },
+    ],
   },
 ];
 
@@ -383,6 +413,9 @@ export function SocialCalendarApp() {
   const [moduleLastTab, setModuleLastTab] = useState<
     Partial<Record<ModuleId, ViewId>>
   >({});
+  // Role view (v2): which team member's lens Operations is filtered to.
+  // Selecting a role opens the Production Queue filtered to that role's work.
+  const [globalRole, setGlobalRole] = useState<Role>("marketing manager");
 
   useEffect(() => {
     const holder = modules.find((module) =>
@@ -923,6 +956,34 @@ export function SocialCalendarApp() {
                 </button>
               );
             })}
+
+            <p className="px-3 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+              Role view
+            </p>
+            {roles.map((role) => (
+              <button
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm capitalize transition-colors",
+                  globalRole === role
+                    ? "bg-muted font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+                key={role}
+                onClick={() => {
+                  setGlobalRole(role);
+                  setActiveView("production");
+                }}
+                type="button"
+              >
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    globalRole === role ? "bg-primary" : "bg-muted-foreground/40",
+                  )}
+                />
+                {role}
+              </button>
+            ))}
           </nav>
 
           <div className="mt-auto space-y-5 px-2">
@@ -1214,6 +1275,38 @@ export function SocialCalendarApp() {
               />
             ) : null}
 
+            {activeView === "team" ? <TeamView data={data} /> : null}
+
+            {activeView === "platformIntel" ? (
+              <PlatformIntelligenceView data={data} />
+            ) : null}
+
+            {activeView === "seasonal" ? <SeasonalIntelligenceView /> : null}
+
+            {activeView === "pillars" ? <ContentPillarsView data={data} /> : null}
+
+            {activeView === "campaignReports" ? (
+              <CampaignReportsView data={data} />
+            ) : null}
+
+            {activeView === "platformReports" ? (
+              <PlatformReportsView data={data} />
+            ) : null}
+
+            {activeView === "executive" ? (
+              <ExecutiveDashboardView
+                data={data}
+                health={computeMarketingHealth(data)}
+              />
+            ) : null}
+
+            {activeView === "learnings" ? (
+              <LearningsView
+                acceptedActions={acceptedInsightLines(data)}
+                data={data}
+              />
+            ) : null}
+
             {activeView === "objectives" ? (
               <SocialAuditView
                 aiIntegration={data.aiIntegration}
@@ -1351,6 +1444,7 @@ export function SocialCalendarApp() {
                 brand={data.brand}
                 brief={data.brief}
                 calendar={data.calendar}
+                externalRole={globalRole}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onRecordUsage={recordAiUsage}
@@ -11756,6 +11850,7 @@ function ContentProductionView({
   brand,
   brief,
   calendar,
+  externalRole,
   socialGoals,
   ucc,
   onCalendarChange,
@@ -11766,13 +11861,22 @@ function ContentProductionView({
   brand: BrandProfile;
   brief: StrategyBrief;
   calendar: CalendarItem[];
+  // The sidebar Role view selection. The queue follows it, while the local
+  // role buttons still allow a quick peek at another role's work.
+  externalRole?: Role;
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onUccChange: (ucc: UccStrategyData) => void;
 }) {
-  const [roleView, setRoleView] = useState<Role>("copywriter");
+  const [roleView, setRoleView] = useState<Role>(externalRole ?? "copywriter");
+
+  useEffect(() => {
+    if (externalRole) {
+      setRoleView(externalRole);
+    }
+  }, [externalRole]);
   const [selectedItemId, setSelectedItemId] = useState(calendar[0]?.id ?? "");
   const [aiBusy, setAiBusy] = useState<"" | "copy" | "video-script" | "guidance" | "remix">("");
   const [guidance, setGuidance] = useState("");
