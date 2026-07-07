@@ -30,6 +30,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/base-path";
 import type {
   AiIntegrationSettings,
   BrandProfile,
@@ -247,7 +248,7 @@ export function SetupGuide({
     setOaMsg("");
 
     try {
-      const response = await fetch("/api/openai/models", {
+      const response = await fetch(apiUrl("/api/openai/models"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey: oaKey.trim() }),
@@ -327,7 +328,7 @@ export function SetupGuide({
     setMcMsg("");
 
     try {
-      const response = await fetch("/api/metricool", {
+      const response = await fetch(apiUrl("/api/metricool"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

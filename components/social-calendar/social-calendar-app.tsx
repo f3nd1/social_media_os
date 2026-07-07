@@ -51,6 +51,7 @@ import {
   useWorkspaceSync,
   type WorkspaceSync,
 } from "@/components/social-calendar/use-workspace-sync";
+import { apiUrl } from "@/lib/base-path";
 import { isLiveAiEnabled, resolveModelForTask } from "@/lib/ai-settings";
 import {
   appendAiUsage,
@@ -668,7 +669,7 @@ export function SocialCalendarApp() {
         const formData = new FormData();
         formData.append("file", file);
 
-        const response = await fetch("/api/pdf-data/extract", {
+        const response = await fetch(apiUrl("/api/pdf-data/extract"), {
           method: "POST",
           body: formData,
         });
@@ -3481,7 +3482,7 @@ function CampaignPlanningView({
     setSuggestError("");
 
     try {
-      const response = await fetch("/api/ai/campaigns", {
+      const response = await fetch(apiUrl("/api/ai/campaigns"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -4034,7 +4035,7 @@ function TrendRadarPanel({
     setListeningError("");
 
     try {
-      const response = await fetch("/api/social-listening", {
+      const response = await fetch(apiUrl("/api/social-listening"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -4103,7 +4104,7 @@ function TrendRadarPanel({
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/ai/trends", {
+      const response = await fetch(apiUrl("/api/ai/trends"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5460,7 +5461,7 @@ function AiRecommendationPanel({
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/ai/insights", {
+      const response = await fetch(apiUrl("/api/ai/insights"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5985,7 +5986,7 @@ function ComplianceCheckerView({
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const response = await fetch("/api/compliance/extract", {
+      const response = await fetch(apiUrl("/api/compliance/extract"), {
         method: "POST",
         body: formData,
       });
@@ -6049,7 +6050,7 @@ function ComplianceCheckerView({
     setReviewError("");
 
     try {
-      const response = await fetch("/api/ai/compliance", {
+      const response = await fetch(apiUrl("/api/ai/compliance"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6450,7 +6451,7 @@ function WeeklyNarrativePanel({
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/ai/report", {
+      const response = await fetch(apiUrl("/api/ai/report"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -7148,7 +7149,7 @@ function AiIntegrationPanel({
     setFetchMessage("");
 
     try {
-      const response = await fetch("/api/openai/models", {
+      const response = await fetch(apiUrl("/api/openai/models"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey: keyDraft.trim() }),
@@ -9156,7 +9157,7 @@ function SocialAuditView({
   }
 
   async function generateForPlatform(audit: SocialAudit): Promise<string> {
-    const response = await fetch("/api/ai/audit", {
+    const response = await fetch(apiUrl("/api/ai/audit"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -9705,7 +9706,7 @@ function CompetitorIntelligenceView({
     setAnalyseError("");
 
     try {
-      const response = await fetch("/api/ai/competitors", {
+      const response = await fetch(apiUrl("/api/ai/competitors"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -10197,7 +10198,7 @@ function StrategyBriefView({
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/ai/brief", {
+      const response = await fetch(apiUrl("/api/ai/brief"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -10668,7 +10669,7 @@ function CalendarBuilderView({
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/ai/calendar", {
+      const response = await fetch(apiUrl("/api/ai/calendar"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -10800,7 +10801,7 @@ function CalendarBuilderView({
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/ai/calendar", {
+      const response = await fetch(apiUrl("/api/ai/calendar"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -11903,7 +11904,7 @@ function ContentProductionView({
       const campaign = ucc.campaigns.find((row) => row.id === item.campaignId) ?? null;
       const audience = ucc.audiences.find((row) => row.id === item.audienceId) ?? null;
       const rule = platformRules[item.platform];
-      const response = await fetch("/api/ai/copy", {
+      const response = await fetch(apiUrl("/api/ai/copy"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -12031,7 +12032,7 @@ function ContentProductionView({
     setGenMessage(null);
 
     try {
-      const response = await fetch("/api/ai/remix", {
+      const response = await fetch(apiUrl("/api/ai/remix"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

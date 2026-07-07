@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/base-path";
 import {
   platforms,
   type BrandProfile,
@@ -545,7 +546,7 @@ export function BriefStepBody({
     setMessage(null);
 
     try {
-      const response = await fetch("/api/ai/brief", {
+      const response = await fetch(apiUrl("/api/ai/brief"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

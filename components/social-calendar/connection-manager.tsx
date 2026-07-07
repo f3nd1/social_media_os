@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { apiUrl } from "@/lib/base-path";
 import {
   buildPdfMetricReviewRows,
   countDetectedPdfMetrics,
@@ -130,7 +131,7 @@ export function ConnectionManagerPanel({
     setPendingAction((current) => ({ ...current, [connection.id]: "testing" }));
 
     try {
-      const response = await fetch("/api/metricool", {
+      const response = await fetch(apiUrl("/api/metricool"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "test", credentials: connection.credentials }),
@@ -181,7 +182,7 @@ export function ConnectionManagerPanel({
     setSyncReports((current) => ({ ...current, [connection.id]: [] }));
 
     try {
-      const response = await fetch("/api/metricool", {
+      const response = await fetch(apiUrl("/api/metricool"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
