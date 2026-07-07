@@ -220,6 +220,7 @@ import {
   reviewRowsToApprovedMetrics,
 } from "@/components/social-calendar/connection-manager";
 import { SetupGuide } from "@/components/social-calendar/setup-guide";
+import { AiDirectorPanel } from "@/components/social-calendar/ai-director-panel";
 import {
   buildExportSheets,
   downloadCsvPack,
@@ -1462,6 +1463,16 @@ export function SocialCalendarApp() {
             )}
           </div>
         </section>
+
+        {!myDayMode ? (
+          <aside className="sticky top-8 hidden max-h-[calc(100vh-4rem)] w-[300px] shrink-0 overflow-auto rounded-lg border bg-card p-4 2xl:block">
+            <AiDirectorPanel
+              data={data}
+              moduleId={activeModule.id}
+              onNavigate={setActiveView}
+            />
+          </aside>
+        ) : null}
       </div>
 
       {undoToast ? (
