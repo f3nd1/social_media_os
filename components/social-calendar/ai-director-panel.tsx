@@ -27,7 +27,8 @@ type DirectorModuleId =
   | "insights"
   | "planning"
   | "operations"
-  | "reporting";
+  | "reporting"
+  | "system";
 
 type DirectorNavView =
   | "brand"
@@ -253,9 +254,8 @@ function buildNotes(data: MarketingWorkspaceData, moduleId: DirectorModuleId): N
 
 // Where each module's real live-AI feature lives, so the panel's action
 // button always lands on genuine functionality.
-const MODULE_AI_ACTION: Record<
-  DirectorModuleId,
-  { label: string; view: DirectorNavView }
+const MODULE_AI_ACTION: Partial<
+  Record<DirectorModuleId, { label: string; view: DirectorNavView }>
 > = {
   dashboard: { label: "Draft strategy with AI", view: "brief" },
   foundation: { label: "Run a platform audit review", view: "objectives" },
@@ -263,6 +263,8 @@ const MODULE_AI_ACTION: Record<
   planning: { label: "Suggest campaigns with AI", view: "campaigns" },
   operations: { label: "Generate calendar from brief", view: "calendar" },
   reporting: { label: "Draft weekly report with AI", view: "reports" },
+  // The System module (settings, changelog) has no AI feature, so no action
+  // button is shown for it.
 };
 
 export function AiDirectorPanel({
@@ -318,15 +320,17 @@ export function AiDirectorPanel({
         </div>
       </div>
 
-      <Button
-        className="w-full"
-        onClick={() => onNavigate(action.view)}
-        size="sm"
-        type="button"
-      >
-        {action.label}
-      </Button>
-      {!liveAi ? (
+      {action ? (
+        <Button
+          className="w-full"
+          onClick={() => onNavigate(action.view)}
+          size="sm"
+          type="button"
+        >
+          {action.label}
+        </Button>
+      ) : null}
+      {action && !liveAi ? (
         <p className="text-xs leading-5 text-muted-foreground">
           Live AI is off, so AI buttons on that screen use the offline
           rule-based drafts. Connect OpenAI in Foundation to go live.

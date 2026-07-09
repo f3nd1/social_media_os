@@ -21,6 +21,7 @@ import {
   ClipboardCheck,
   Database,
   Download,
+  FileClock,
   FileSpreadsheet,
   FileText,
   FileUp,
@@ -224,6 +225,7 @@ import {
 } from "@/components/social-calendar/connection-manager";
 import { SetupGuide } from "@/components/social-calendar/setup-guide";
 import { AiDirectorPanel } from "@/components/social-calendar/ai-director-panel";
+import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import {
   PlatformIntelligenceView,
   SeasonalIntelligenceView,
@@ -289,7 +291,8 @@ export type ViewId =
   | "kpi"
   | "compliance"
   | "reports"
-  | "settings";
+  | "settings"
+  | "changelog";
 
 type NavItem = { id: ViewId; label: string; icon: LucideIcon };
 
@@ -304,7 +307,8 @@ type ModuleId =
   | "insights"
   | "planning"
   | "operations"
-  | "reporting";
+  | "reporting"
+  | "system";
 
 const modules: Array<{
   id: ModuleId;
@@ -329,7 +333,6 @@ const modules: Array<{
       { id: "brand", label: "Brand Hub", icon: Palette },
       { id: "courses", label: "Products & Audiences", icon: GraduationCap },
       { id: "team", label: "Team", icon: UsersRound },
-      { id: "settings", label: "Integrations & Settings", icon: Settings2 },
     ],
   },
   {
@@ -381,6 +384,16 @@ const modules: Array<{
       { id: "platformReports", label: "Platform Reports", icon: Gauge },
       { id: "executive", label: "Executive Dashboard", icon: BarChart3 },
       { id: "learnings", label: "Learnings", icon: BookOpenText },
+    ],
+  },
+  {
+    id: "system",
+    label: "System",
+    subtitle: "Settings and the record of what was built.",
+    icon: Settings2,
+    tabs: [
+      { id: "settings", label: "Integrations & Settings", icon: Settings2 },
+      { id: "changelog", label: "Changelog", icon: FileClock },
     ],
   },
 ];
@@ -1556,6 +1569,8 @@ export function SocialCalendarApp() {
                 }
               />
             ) : null}
+
+            {activeView === "changelog" ? <ChangelogView /> : null}
               </>
             )}
           </div>
