@@ -1943,7 +1943,7 @@ const SCREEN_HELP: Partial<Record<ViewId, ReactNode>> = {
   dashboard: (
     <>
       Your overview of everything. New here? Follow the Setup status checklist
-      below to connect the whole system, one step at a time.
+      in the side panel to connect the whole system, one step at a time.
     </>
   ),
   brand: (
@@ -2382,6 +2382,29 @@ function ManagementDashboardView({
     data.calendar.length > 0
       ? Math.round((productionReady / data.calendar.length) * 100)
       : 0;
+
+  // Data-honesty gates. In sample mode every business figure is demo, so it is
+  // shown with a "Sample" tag and a banner rather than passed off as real. In
+  // live mode a figure is only shown when there is real data behind it;
+  // otherwise it reads "No data yet" instead of a stale or zero-implying value.
+  const isSample = (data.datasetMode ?? "sample") === "sample";
+  const hasKpiData = data.ucc.kpiRecords.length > 0;
+  const hasBudgetData = data.ucc.budgetPlans.length > 0 || totalSpend > 0;
+  const totalApplications = data.ucc.kpiRecords.reduce(
+    (sum, row) => sum + row.applications,
+    0,
+  );
+  // Only approved campaigns appear in the Objective Cascade; unapproved drafts
+  // are never shown with budget or recommendation as if they were decided.
+  const approvedCampaigns = data.ucc.campaigns.filter(isCampaignApproved);
+  const postedCount = data.calendar.filter(
+    (item) => item.status === "posted" || item.approvalStage === "published",
+  ).length;
+  const acceptedActionLines = acceptedInsightLines(data);
+  // KPI-derived report lines are demo in sample mode; suffix them so nobody
+  // reads a seed recommendation as a real next action.
+  const sampleSuffix = isSample ? " (sample)" : "";
+
   const quickActions: Array<{ label: string; view: ViewId }> = [
     { label: "Create campaign", view: "campaigns" },
     { label: "Generate strategy", view: "brief" },
@@ -2393,6 +2416,17 @@ function ManagementDashboardView({
 
   return (
     <section className="space-y-4">
+      {isSample ? (
+        <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning p-3 text-warning-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p className="text-sm leading-5">
+            You are viewing sample data. Figures marked <SampleTag /> are a demo,
+            not real UCC results. Go to Integrations &amp; Settings and choose
+            &quot;Start empty&quot; to enter your own data.
+          </p>
+        </div>
+      ) : null}
+
       {/* CHANGE 2: the four summary cards are the first thing on the Dashboard. */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
@@ -2468,10 +2502,12 @@ function ManagementDashboardView({
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm leading-6">
-                  {data.brief.monthlyCampaignGoal.trim() ||
-                    "No strategy written yet. Open Strategic Planning to draft and approve one."}
+                  {data.brief.approved
+                    ? data.brief.monthlyCampaignGoal.trim() ||
+                      "The approved brief has no monthly goal written yet."
+                    : "Awaiting approval. Open Strategic Planning to review and approve the brief before it drives campaigns and the calendar."}
                 </p>
-                {data.brief.contentPillars.length > 0 ? (
+                {data.brief.approved && data.brief.contentPillars.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {data.brief.contentPillars.slice(0, 4).map((pillar) => (
                       <Badge key={pillar} variant="outline">
@@ -2501,18 +2537,41 @@ function ManagementDashboardView({
               <CardContent className="grid gap-3 sm:grid-cols-2">
                 <LearningMetric
                   label="Leads generated"
-                  value={formatNumber(totalLeads)}
-                  detail={`${formatNumber(data.ucc.kpiRecords.reduce((sum, row) => sum + row.applications, 0))} applications tracked`}
+                  sample={isSample}
+                  value={
+                    isSample || hasKpiData ? formatNumber(totalLeads) : "No data yet"
+                  }
+                  detail={
+                    isSample || hasKpiData
+                      ? `${formatNumber(totalApplications)} applications tracked`
+                      : "Add KPI results in the KPI Tracker"
+                  }
                 />
                 <LearningMetric
                   label="Budget used"
-                  value={`${formatNumber(totalSpend)} / ${formatNumber(totalBudget)}`}
-                  detail="Actual spend versus planned campaign cost"
+                  sample={isSample}
+                  value={
+                    isSample || hasBudgetData
+                      ? `${formatNumber(totalSpend)} / ${formatNumber(totalBudget)}`
+                      : "No data yet"
+                  }
+                  detail={
+                    isSample || hasBudgetData
+                      ? "Actual spend versus planned campaign cost"
+                      : "Add budget plans and campaign spend"
+                  }
                 />
                 <LearningMetric
                   label="Channels on track"
-                  value={String(strongKpis.length)}
-                  detail={`${weakKpis.length} behind target or needing attention`}
+                  sample={isSample}
+                  value={
+                    isSample || hasKpiData ? String(strongKpis.length) : "No data yet"
+                  }
+                  detail={
+                    isSample || hasKpiData
+                      ? `${weakKpis.length} behind target or needing attention`
+                      : "Record KPI results to track channels"
+                  }
                 />
                 <LearningMetric
                   label="Approval watch"
@@ -2554,39 +2613,54 @@ function ManagementDashboardView({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {data.ucc.campaigns.slice(0, 4).map((campaign) => {
-                const course = findCourse(data.ucc, campaign.courseId);
-                const audience = findAudience(data.ucc, campaign.audienceId);
-                const budget = data.ucc.budgetPlans.find(
-                  (row) => row.campaignId === campaign.id,
-                );
-                const campaignKpis = data.ucc.kpiRecords.filter(
-                  (row) => row.campaignId === campaign.id,
-                );
+              {approvedCampaigns.length === 0 ? (
+                <p className="text-sm leading-6 text-muted-foreground">
+                  No approved campaigns yet. Approve a campaign on the Campaigns
+                  screen and it will appear here with its objective cascade.
+                </p>
+              ) : (
+                approvedCampaigns.slice(0, 4).map((campaign) => {
+                  const course = findCourse(data.ucc, campaign.courseId);
+                  const audience = findAudience(data.ucc, campaign.audienceId);
+                  const budget = data.ucc.budgetPlans.find(
+                    (row) => row.campaignId === campaign.id,
+                  );
+                  const campaignKpis = data.ucc.kpiRecords.filter(
+                    (row) => row.campaignId === campaign.id,
+                  );
+                  const recommendation = campaignKpis[0]?.recommendation;
 
-                return (
-                  <div className="rounded-lg border bg-muted/20 p-3" key={campaign.id}>
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold">{campaign.name}</p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          {campaign.objective}
+                  return (
+                    <div className="rounded-lg border bg-muted/20 p-3" key={campaign.id}>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold">{campaign.name}</p>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                            {campaign.objective}
+                          </p>
+                        </div>
+                        <StatusLabel status={getCampaignStatus(campaign)} />
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs leading-5 md:grid-cols-2">
+                        <p><span className="font-medium">Audience:</span> {audience?.name}</p>
+                        <p><span className="font-medium">Course:</span> {course?.category}</p>
+                        <p><span className="font-medium">Channels:</span> {campaign.platformMix.join(", ")}</p>
+                        <p>
+                          <span className="font-medium">Budget:</span>{" "}
+                          {formatNumber(budget?.totalCost ?? campaign.budget)}
+                          {isSample ? <SampleTag /> : null}
                         </p>
                       </div>
-                      <StatusLabel status={getCampaignStatus(campaign)} />
+                      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                        Recommendation:{" "}
+                        {recommendation
+                          ? `${recommendation}${sampleSuffix}`
+                          : "Add KPI results to generate the next action."}
+                      </p>
                     </div>
-                    <div className="mt-3 grid gap-2 text-xs leading-5 md:grid-cols-2">
-                      <p><span className="font-medium">Audience:</span> {audience?.name}</p>
-                      <p><span className="font-medium">Course:</span> {course?.category}</p>
-                      <p><span className="font-medium">Channels:</span> {campaign.platformMix.join(", ")}</p>
-                      <p><span className="font-medium">Budget:</span> {formatNumber(budget?.totalCost ?? campaign.budget)}</p>
-                    </div>
-                    <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                      Recommendation: {campaignKpis[0]?.recommendation ?? "Add KPI results to generate the next action."}
-                    </p>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </CardContent>
           </Card>
 
@@ -2633,22 +2707,22 @@ function ManagementDashboardView({
               <CardContent className="space-y-3">
                 <InsightList
                   items={[
-                    `${data.calendar.filter((item) => item.status === "posted" || item.approvalStage === "published").length} items posted or published`,
+                    `${postedCount} items posted or published`,
                     `${delayedItems.length} items delayed or still in review`,
-                    `${strongKpis.length} channels on track or exceeding target`,
+                    `${strongKpis.length} channels on track or exceeding target${sampleSuffix}`,
                   ]}
                   title="What happened"
                   variant="info"
                 />
                 <InsightList
                   items={[
-                    ...weakKpis.map((row) => row.recommendation),
-                    ...acceptedInsightLines(data),
+                    ...weakKpis.map((row) => `${row.recommendation}${sampleSuffix}`),
+                    ...acceptedActionLines,
                   ].slice(0, 6)}
                   title="Next actions"
                   variant="warning"
                 />
-                {weakKpis.length === 0 && acceptedInsightLines(data).length === 0 ? (
+                {weakKpis.length === 0 && acceptedActionLines.length === 0 ? (
                   <p className="text-xs leading-5 text-muted-foreground">
                     Next actions appear here from KPI records that need attention
                     and from any AI suggestion you accept (budget, KPI, audit,
@@ -13636,18 +13710,34 @@ function ProductionBlock({
 function LearningMetric({
   detail,
   label,
+  sample,
   value,
 }: {
   detail: string;
   label: string;
+  sample?: boolean;
   value: string;
 }) {
   return (
     <div className="rounded-lg border bg-muted/20 p-3">
       <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
-      <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5">{value}</p>
+      <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5">
+        {value}
+        {sample ? <SampleTag /> : null}
+      </p>
       <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
     </div>
+  );
+}
+
+// A small pill that marks a figure as demo content, so a sample number is
+// never mistaken for a real UCC result. Shown only while the workspace is in
+// sample mode; live data is never tagged.
+function SampleTag() {
+  return (
+    <span className="ml-1.5 inline-flex items-center rounded-full border border-warning-border bg-warning px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-warning-foreground">
+      Sample
+    </span>
   );
 }
 
