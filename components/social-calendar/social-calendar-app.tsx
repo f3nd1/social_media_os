@@ -16,6 +16,8 @@ import {
   BookOpenText,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   ClipboardCheck,
   Database,
   Download,
@@ -2162,7 +2164,10 @@ function FirstRunChecklist({
   );
 }
 
-function SetupStatusPanel({
+// The "Is the system connected?" checklist, in a compact collapsible card that
+// sits in the Dashboard side rail rather than dominating the top. Every row and
+// the click-to-jump behaviour are unchanged; only the footprint is smaller.
+function DashboardSetupStatus({
   data,
   onNavigate,
 }: {
@@ -2171,48 +2176,63 @@ function SetupStatusPanel({
 }) {
   const rows = buildSetupStatus(data);
   const doneCount = rows.filter((row) => row.done).length;
+  const [open, setOpen] = useState(true);
 
   return (
     <Card>
-      <CardHeader className="flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <SectionTitle
-          icon={ListChecks}
-          kicker="Setup status"
-          title="Is the system connected?"
-          description="One glance at whether each part of the workspace is ready. Select a row to jump to the screen that completes it."
-        />
-        <Badge variant={doneCount === rows.length ? "success" : "info"}>
-          {doneCount}/{rows.length} done
-        </Badge>
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <CardTitle className="truncate text-sm">Setup status</CardTitle>
+          <Badge variant={doneCount === rows.length ? "success" : "info"}>
+            {doneCount}/{rows.length}
+          </Badge>
+        </div>
+        <button
+          aria-expanded={open}
+          aria-label={open ? "Collapse setup status" : "Expand setup status"}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:bg-muted/40"
+          onClick={() => setOpen((value) => !value)}
+          type="button"
+        >
+          {open ? (
+            <ChevronUp className="h-4 w-4" />
+          ) : (
+            <ChevronDown className="h-4 w-4" />
+          )}
+        </button>
       </CardHeader>
-      <CardContent className="grid gap-2 sm:grid-cols-2">
-        {rows.map((row) => (
-          <button
-            className="flex items-start gap-3 rounded-lg border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/40"
-            key={row.label}
-            onClick={() => onNavigate(row.view)}
-            type="button"
-          >
-            <span
-              className={cn(
-                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-bold",
-                row.done
-                  ? "border-success-border bg-success text-success-foreground"
-                  : "border-warning-border bg-warning text-warning-foreground",
-              )}
-              aria-hidden="true"
+      {open ? (
+        <CardContent className="space-y-1.5 pt-0">
+          {rows.map((row) => (
+            <button
+              className="flex w-full items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted/40"
+              key={row.label}
+              onClick={() => onNavigate(row.view)}
+              title={row.done ? "Ready" : row.next}
+              type="button"
             >
-              {row.done ? "✓" : "✗"}
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-medium">{row.label}</span>
-              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                {row.done ? "Ready" : row.next}
+              <span
+                className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold",
+                  row.done
+                    ? "border-success-border bg-success text-success-foreground"
+                    : "border-warning-border bg-warning text-warning-foreground",
+                )}
+                aria-hidden="true"
+              >
+                {row.done ? "✓" : "✗"}
               </span>
-            </span>
-          </button>
-        ))}
-      </CardContent>
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {row.label}
+              </span>
+            </button>
+          ))}
+          <p className="pt-1 text-[11px] leading-4 text-muted-foreground">
+            Select a row to jump to the screen that completes it.
+          </p>
+        </CardContent>
+      ) : null}
     </Card>
   );
 }
@@ -2373,9 +2393,7 @@ function ManagementDashboardView({
 
   return (
     <section className="space-y-4">
-      <SetupStatusPanel data={data} onNavigate={onNavigate} />
-      <SgMomentNudgePanel onNavigate={onNavigate} />
-
+      {/* CHANGE 2: the four summary cards are the first thing on the Dashboard. */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="pt-5">
@@ -2429,214 +2447,223 @@ function ManagementDashboardView({
         </Card>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <CardTitle>Current Monthly Strategy</CardTitle>
-                <CardDescription>
-                  The approved brief drives campaigns and the calendar.
-                </CardDescription>
-              </div>
-              <Badge variant={data.brief.approved ? "success" : "warning"}>
-                {data.brief.approved ? "Approved" : "Needs review"}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm leading-6">
-              {data.brief.monthlyCampaignGoal.trim() ||
-                "No strategy written yet. Open Strategic Planning to draft and approve one."}
-            </p>
-            {data.brief.contentPillars.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {data.brief.contentPillars.slice(0, 4).map((pillar) => (
-                  <Badge key={pillar} variant="outline">
-                    {pillar}
+      {/* CHANGE 1: main content on the left, a compact Setup status card and
+          the Singapore moments in a slimmer side rail on the right. */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <CardTitle>Current Monthly Strategy</CardTitle>
+                    <CardDescription>
+                      The approved brief drives campaigns and the calendar.
+                    </CardDescription>
+                  </div>
+                  <Badge variant={data.brief.approved ? "success" : "warning"}>
+                    {data.brief.approved ? "Approved" : "Needs review"}
                   </Badge>
-                ))}
-              </div>
-            ) : null}
-            <Button
-              onClick={() => onNavigate("brief")}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Open Strategic Planning
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>KPI Snapshot</CardTitle>
-            <CardDescription>
-              Live totals from the KPI Tracker and budget plans.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <LearningMetric
-              label="Leads generated"
-              value={formatNumber(totalLeads)}
-              detail={`${formatNumber(data.ucc.kpiRecords.reduce((sum, row) => sum + row.applications, 0))} applications tracked`}
-            />
-            <LearningMetric
-              label="Budget used"
-              value={`${formatNumber(totalSpend)} / ${formatNumber(totalBudget)}`}
-              detail="Actual spend versus planned campaign cost"
-            />
-            <LearningMetric
-              label="Channels on track"
-              value={String(strongKpis.length)}
-              detail={`${weakKpis.length} behind target or needing attention`}
-            />
-            <LearningMetric
-              label="Approval watch"
-              value={String(delayedItems.length)}
-              detail="Items in draft, review, or revision"
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>
-            Jump straight to the next piece of work.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          {quickActions.map((action) => (
-            <Button
-              key={action.view + action.label}
-              onClick={() => onNavigate(action.view)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              {action.label}
-            </Button>
-          ))}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Objective Cascade</CardTitle>
-            <CardDescription>
-              Business objective to audience, course, platform, campaign, content,
-              budget, KPI, actual result, and recommendation.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.ucc.campaigns.slice(0, 4).map((campaign) => {
-              const course = findCourse(data.ucc, campaign.courseId);
-              const audience = findAudience(data.ucc, campaign.audienceId);
-              const budget = data.ucc.budgetPlans.find(
-                (row) => row.campaignId === campaign.id,
-              );
-              const campaignKpis = data.ucc.kpiRecords.filter(
-                (row) => row.campaignId === campaign.id,
-              );
-
-              return (
-                <div className="rounded-lg border bg-muted/20 p-3" key={campaign.id}>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold">{campaign.name}</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        {campaign.objective}
-                      </p>
-                    </div>
-                    <StatusLabel status={getCampaignStatus(campaign)} />
-                  </div>
-                  <div className="mt-3 grid gap-2 text-xs leading-5 md:grid-cols-2">
-                    <p><span className="font-medium">Audience:</span> {audience?.name}</p>
-                    <p><span className="font-medium">Course:</span> {course?.category}</p>
-                    <p><span className="font-medium">Channels:</span> {campaign.platformMix.join(", ")}</p>
-                    <p><span className="font-medium">Budget:</span> {formatNumber(budget?.totalCost ?? campaign.budget)}</p>
-                  </div>
-                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                    Recommendation: {campaignKpis[0]?.recommendation ?? "Add KPI results to generate the next action."}
-                  </p>
                 </div>
-              );
-            })}
-          </CardContent>
-        </Card>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm leading-6">
+                  {data.brief.monthlyCampaignGoal.trim() ||
+                    "No strategy written yet. Open Strategic Planning to draft and approve one."}
+                </p>
+                {data.brief.contentPillars.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {data.brief.contentPillars.slice(0, 4).map((pillar) => (
+                      <Badge key={pillar} variant="outline">
+                        {pillar}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+                <Button
+                  onClick={() => onNavigate("brief")}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Open Strategic Planning
+                </Button>
+              </CardContent>
+            </Card>
 
-        <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>KPI Snapshot</CardTitle>
+                <CardDescription>
+                  Live totals from the KPI Tracker and budget plans.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 sm:grid-cols-2">
+                <LearningMetric
+                  label="Leads generated"
+                  value={formatNumber(totalLeads)}
+                  detail={`${formatNumber(data.ucc.kpiRecords.reduce((sum, row) => sum + row.applications, 0))} applications tracked`}
+                />
+                <LearningMetric
+                  label="Budget used"
+                  value={`${formatNumber(totalSpend)} / ${formatNumber(totalBudget)}`}
+                  detail="Actual spend versus planned campaign cost"
+                />
+                <LearningMetric
+                  label="Channels on track"
+                  value={String(strongKpis.length)}
+                  detail={`${weakKpis.length} behind target or needing attention`}
+                />
+                <LearningMetric
+                  label="Approval watch"
+                  value={String(delayedItems.length)}
+                  detail="Items in draft, review, or revision"
+                />
+              </CardContent>
+            </Card>
+          </div>
+
           <Card>
             <CardHeader>
-              <CardTitle>Approvals Pending</CardTitle>
+              <CardTitle>Quick Actions</CardTitle>
               <CardDescription>
-                Everything waiting for your decision. AI never approves or
-                publishes anything; these stay drafts until you act.
+                Jump straight to the next piece of work.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {pendingApprovals.length === 0 ? (
-                <p className="text-sm leading-6 text-muted-foreground">
-                  Nothing is waiting for your decision right now.
-                </p>
-              ) : (
-                pendingApprovals.map((row) => (
-                  <div
-                    className="flex items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3 text-sm"
-                    key={row.label}
-                  >
-                    <div>
-                      <p className="font-medium">{row.label}</p>
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        Decide on the {row.where}
-                      </p>
-                    </div>
-                    <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-semibold text-warning-foreground">
-                      {row.count}
-                    </span>
-                  </div>
-                ))
-              )}
+            <CardContent className="flex flex-wrap gap-2">
+              {quickActions.map((action) => (
+                <Button
+                  key={action.view + action.label}
+                  onClick={() => onNavigate(action.view)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {action.label}
+                </Button>
+              ))}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Weekly Report Snapshot</CardTitle>
-              <CardDescription>Management summary for this working week.</CardDescription>
+              <CardTitle>Objective Cascade</CardTitle>
+              <CardDescription>
+                Business objective to audience, course, platform, campaign, content,
+                budget, KPI, actual result, and recommendation.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <InsightList
-                items={[
-                  `${data.calendar.filter((item) => item.status === "posted" || item.approvalStage === "published").length} items posted or published`,
-                  `${delayedItems.length} items delayed or still in review`,
-                  `${strongKpis.length} channels on track or exceeding target`,
-                ]}
-                title="What happened"
-                variant="info"
-              />
-              <InsightList
-                items={[
-                  ...weakKpis.map((row) => row.recommendation),
-                  ...acceptedInsightLines(data),
-                ].slice(0, 6)}
-                title="Next actions"
-                variant="warning"
-              />
-              {weakKpis.length === 0 && acceptedInsightLines(data).length === 0 ? (
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Next actions appear here from KPI records that need attention
-                  and from any AI suggestion you accept (budget, KPI, audit,
-                  competitor, or trend).
-                </p>
-              ) : null}
+              {data.ucc.campaigns.slice(0, 4).map((campaign) => {
+                const course = findCourse(data.ucc, campaign.courseId);
+                const audience = findAudience(data.ucc, campaign.audienceId);
+                const budget = data.ucc.budgetPlans.find(
+                  (row) => row.campaignId === campaign.id,
+                );
+                const campaignKpis = data.ucc.kpiRecords.filter(
+                  (row) => row.campaignId === campaign.id,
+                );
+
+                return (
+                  <div className="rounded-lg border bg-muted/20 p-3" key={campaign.id}>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold">{campaign.name}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {campaign.objective}
+                        </p>
+                      </div>
+                      <StatusLabel status={getCampaignStatus(campaign)} />
+                    </div>
+                    <div className="mt-3 grid gap-2 text-xs leading-5 md:grid-cols-2">
+                      <p><span className="font-medium">Audience:</span> {audience?.name}</p>
+                      <p><span className="font-medium">Course:</span> {course?.category}</p>
+                      <p><span className="font-medium">Channels:</span> {campaign.platformMix.join(", ")}</p>
+                      <p><span className="font-medium">Budget:</span> {formatNumber(budget?.totalCost ?? campaign.budget)}</p>
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                      Recommendation: {campaignKpis[0]?.recommendation ?? "Add KPI results to generate the next action."}
+                    </p>
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Approvals Pending</CardTitle>
+                <CardDescription>
+                  Everything waiting for your decision. AI never approves or
+                  publishes anything; these stay drafts until you act.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {pendingApprovals.length === 0 ? (
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    Nothing is waiting for your decision right now.
+                  </p>
+                ) : (
+                  pendingApprovals.map((row) => (
+                    <div
+                      className="flex items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3 text-sm"
+                      key={row.label}
+                    >
+                      <div>
+                        <p className="font-medium">{row.label}</p>
+                        <p className="text-xs leading-5 text-muted-foreground">
+                          Decide on the {row.where}
+                        </p>
+                      </div>
+                      <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-semibold text-warning-foreground">
+                        {row.count}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Weekly Report Snapshot</CardTitle>
+                <CardDescription>Management summary for this working week.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <InsightList
+                  items={[
+                    `${data.calendar.filter((item) => item.status === "posted" || item.approvalStage === "published").length} items posted or published`,
+                    `${delayedItems.length} items delayed or still in review`,
+                    `${strongKpis.length} channels on track or exceeding target`,
+                  ]}
+                  title="What happened"
+                  variant="info"
+                />
+                <InsightList
+                  items={[
+                    ...weakKpis.map((row) => row.recommendation),
+                    ...acceptedInsightLines(data),
+                  ].slice(0, 6)}
+                  title="Next actions"
+                  variant="warning"
+                />
+                {weakKpis.length === 0 && acceptedInsightLines(data).length === 0 ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Next actions appear here from KPI records that need attention
+                    and from any AI suggestion you accept (budget, KPI, audit,
+                    competitor, or trend).
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
         </div>
+
+        <aside className="space-y-4">
+          <DashboardSetupStatus data={data} onNavigate={onNavigate} />
+          <SgMomentNudgePanel onNavigate={onNavigate} />
+        </aside>
       </div>
     </section>
   );
