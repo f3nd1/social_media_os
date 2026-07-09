@@ -26,3 +26,6 @@ pnpm-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Generated changelog data (regenerated on every build/dev; never commit)
+/public/changelog.json
