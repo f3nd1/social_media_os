@@ -69,6 +69,11 @@ import {
   type AuditAiDraft,
 } from "@/lib/audit-ai";
 import {
+  platformPlaybookDraftToFields,
+  type PlatformPlaybookAiContext,
+  type PlatformPlaybookAiDraft,
+} from "@/lib/platform-playbook-ai";
+import {
   briefDraftToPatch,
   type BriefAiContext,
   type BriefAiDraft,
@@ -148,6 +153,7 @@ import {
   approvalStages,
   calculateAuditScore,
   calendarItemKinds,
+  createDefaultPlatformPlaybook,
   createDefaultSetupGuide,
   createEmptyWorkspaceData,
   createSeedWorkspaceData,
@@ -155,6 +161,7 @@ import {
   funnelStages,
   generateCalendarFromBrief,
   generateCopywritingForItem,
+  getApprovedPlaybookFields,
   getDailyContentMasterMeta,
   getAuditIssues,
   getAuditRecommendations,
@@ -189,6 +196,9 @@ import {
   type PerformanceResult,
   type Platform,
   type PlatformConnection,
+  type PlatformPlaybook,
+  type PlatformPlaybookEntry,
+  type PlatformPlaybookFields,
   type Role,
   type SocialAudit,
   type SocialGoalSettings,
@@ -227,7 +237,6 @@ import { SetupGuide } from "@/components/social-calendar/setup-guide";
 import { AiDirectorPanel } from "@/components/social-calendar/ai-director-panel";
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import {
-  PlatformIntelligenceView,
   SeasonalIntelligenceView,
   TeamView,
 } from "@/components/social-calendar/v2-foundation-insights";
@@ -1332,7 +1341,16 @@ export function SocialCalendarApp() {
             {activeView === "team" ? <TeamView data={data} /> : null}
 
             {activeView === "platformIntel" ? (
-              <PlatformIntelligenceView data={data} />
+              <PlatformIntelligenceView
+                aiIntegration={data.aiIntegration}
+                approverName={data.approverName}
+                data={data}
+                globalRole={globalRole}
+                onPlatformPlaybookChange={(platformPlaybook) =>
+                  updateWorkspace((current) => ({ ...current, platformPlaybook }))
+                }
+                onRecordUsage={recordAiUsage}
+              />
             ) : null}
 
             {activeView === "seasonal" ? <SeasonalIntelligenceView /> : null}
@@ -10562,6 +10580,507 @@ function CompetitorIntelligenceView({
         </Card>
       </div>
     </section>
+  );
+}
+
+// Platform Intelligence (Insights module): the per-platform playbook the
+// calendar and copywriting engines actually use, as an AI-draft-then-Manager-
+// approve workflow. A pending draft (AI-generated or hand-edited) is shown
+// clearly and never overwrites the approved fields until the manager
+// explicitly approves it, so the engines (wired via getApprovedPlaybookFields)
+// never silently read unapproved content.
+function PlatformIntelligenceView({
+  aiIntegration,
+  approverName,
+  data,
+  globalRole,
+  onPlatformPlaybookChange,
+  onRecordUsage,
+}: {
+  aiIntegration: AiIntegrationSettings;
+  approverName: string;
+  data: MarketingWorkspaceData;
+  globalRole: Role;
+  onPlatformPlaybookChange: (platformPlaybook: PlatformPlaybook) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
+}) {
+  const [generatingPlatform, setGeneratingPlatform] = useState<Platform | "">("");
+  const [generatingAll, setGeneratingAll] = useState(false);
+  const [genProgress, setGenProgress] = useState<Record<string, string>>({});
+  const [errorMessage, setErrorMessage] = useState("");
+  const playbook: PlatformPlaybook = data.platformPlaybook ?? createDefaultPlatformPlaybook();
+  // Local mirror so a sequential "Generate all" run does not lose earlier
+  // platforms' drafts to stale prop closures between state updates.
+  const playbookRef = useRef(playbook);
+  playbookRef.current = playbook;
+
+  const liveAi = isLiveAiEnabled(aiIntegration);
+  const canApprove = globalRole === "marketing manager";
+
+  function buildContext(
+    platform: Platform,
+    entry: PlatformPlaybookEntry,
+  ): PlatformPlaybookAiContext {
+    const audit = data.audits.find((row) => row.platform === platform);
+    const audiences = data.ucc.audiences.filter((audience) =>
+      audience.recommendedChannels.includes(platform),
+    );
+
+    return {
+      platform,
+      brand: {
+        name: data.brand.brandName,
+        industry: data.brand.industry,
+        toneOfVoice: data.brand.toneOfVoice,
+        offers: data.brand.offers,
+      },
+      audit: {
+        hasData: Boolean(audit && auditHasData(audit)),
+        followers: audit?.followers ?? 0,
+        averageReach: audit?.averageReach ?? 0,
+        engagementRate: audit?.engagementRate ?? 0,
+        score: audit ? calculateAuditScore(audit) : 0,
+      },
+      audiences: audiences.map((audience) => ({
+        name: audience.name,
+        languages: audience.languages,
+        motivations: audience.motivations,
+        painPoints: audience.concerns,
+      })),
+      acceptedTrends: acceptedTrendLines(data.trendInsights),
+      acceptedCompetitorInsights: data.competitorInsights
+        .filter((insight) => insight.status === "accepted")
+        .map((insight) => `${insight.competitorName}: ${insight.insight}`),
+      acceptedListeningInsights: data.listeningResults
+        .filter((result) => result.status === "accepted")
+        .map((result) => `${result.topic}: ${result.insight}`),
+      currentPlaybook: entry.approved,
+    };
+  }
+
+  function updatePlaybookEntry(
+    platform: Platform,
+    updater: (entry: PlatformPlaybookEntry) => PlatformPlaybookEntry,
+  ) {
+    const base = playbookRef.current;
+    const next: PlatformPlaybook = { ...base, [platform]: updater(base[platform]) };
+    playbookRef.current = next;
+    onPlatformPlaybookChange(next);
+  }
+
+  async function generateForPlatform(platform: Platform): Promise<string> {
+    const entry = playbookRef.current[platform];
+    const response = await fetch(apiUrl("/api/ai/platform-playbook"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey: aiIntegration.apiKey,
+        model: resolveModelForTask(aiIntegration, "analysis"),
+        context: buildContext(platform, entry),
+      }),
+    });
+    const result = (await response.json()) as
+      | { ok: true; draft: PlatformPlaybookAiDraft; usage?: OpenAiUsage; model?: string }
+      | { ok: false; error: string };
+
+    if (!result.ok) {
+      return result.error;
+    }
+
+    const fields = platformPlaybookDraftToFields(result.draft, entry.approved);
+    updatePlaybookEntry(platform, (current) => ({
+      ...current,
+      draft: fields,
+      draftSource: "ai",
+      draftModel: result.model ?? "unknown",
+      draftGeneratedAt: new Date().toISOString(),
+    }));
+
+    if (result.usage) {
+      onRecordUsage("Platform playbook", result.model ?? "unknown", result.usage);
+    }
+
+    return "";
+  }
+
+  async function generateOne(platform: Platform) {
+    setGeneratingPlatform(platform);
+    setErrorMessage("");
+
+    try {
+      const error = await generateForPlatform(platform);
+
+      if (error) {
+        setErrorMessage(error);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGeneratingPlatform("");
+    }
+  }
+
+  async function generateAll() {
+    setGeneratingAll(true);
+    setErrorMessage("");
+    setGenProgress({});
+
+    for (const platform of platforms) {
+      if (playbookRef.current[platform].draft) {
+        // Skip a platform with a pending draft so an in-progress review or
+        // manual edit is never silently discarded.
+        setGenProgress((current) => ({ ...current, [platform]: "skipped: pending draft" }));
+        continue;
+      }
+
+      setGenProgress((current) => ({ ...current, [platform]: "generating" }));
+
+      try {
+        const error = await generateForPlatform(platform);
+        setGenProgress((current) => ({
+          ...current,
+          [platform]: error ? `failed: ${error}` : "done",
+        }));
+      } catch (error) {
+        setGenProgress((current) => ({
+          ...current,
+          [platform]: `failed: ${error instanceof Error ? error.message : String(error)}`,
+        }));
+      }
+    }
+
+    setGeneratingAll(false);
+  }
+
+  function startManualEdit(platform: Platform) {
+    const entry = playbookRef.current[platform];
+
+    if (entry.draft) {
+      return;
+    }
+
+    updatePlaybookEntry(platform, (current) => ({
+      ...current,
+      draft: { ...current.approved },
+      draftSource: "manual",
+      draftModel: "",
+      draftGeneratedAt: new Date().toISOString(),
+    }));
+  }
+
+  function updateDraftField(
+    platform: Platform,
+    field: keyof PlatformPlaybookFields,
+    value: string,
+  ) {
+    updatePlaybookEntry(platform, (entry) => ({
+      ...entry,
+      draft: { ...(entry.draft ?? entry.approved), [field]: value },
+    }));
+  }
+
+  function discardDraft(platform: Platform) {
+    updatePlaybookEntry(platform, (entry) => ({
+      ...entry,
+      draft: null,
+      draftSource: "none",
+      draftModel: "",
+      draftGeneratedAt: "",
+    }));
+  }
+
+  function approveDraft(platform: Platform) {
+    updatePlaybookEntry(platform, (entry) => {
+      if (!entry.draft) {
+        return entry;
+      }
+
+      return {
+        approved: entry.draft,
+        approvedBy: approverName.trim() || "Marketing Manager",
+        approvedAt: new Date().toISOString(),
+        approvedSource: entry.draftSource === "ai" ? "ai" : "manual",
+        draft: null,
+        draftSource: "none",
+        draftModel: "",
+        draftGeneratedAt: "",
+      };
+    });
+  }
+
+  return (
+    <section className="space-y-4">
+      <Card>
+        <CardHeader className="flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
+              <Gauge className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle>Platform Intelligence</CardTitle>
+              <CardDescription className="mt-2 leading-6">
+                The per-platform playbook the calendar and copywriting engines
+                actually use: role in the mix, voice, content style, call to
+                action, posting time, and success metric. AI drafts a
+                playbook here; only the Marketing Manager&apos;s approved
+                version feeds those engines.
+              </CardDescription>
+            </div>
+          </div>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <Button
+              disabled={!liveAi || generatingAll}
+              onClick={() => void generateAll()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Sparkles className="h-4 w-4" />
+              {generatingAll ? "Generating all" : "Generate all with AI"}
+            </Button>
+            {!liveAi ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                Connect OpenAI in Settings to generate with AI. You can still
+                edit each playbook by hand below.
+              </p>
+            ) : null}
+          </div>
+        </CardHeader>
+        {Object.keys(genProgress).length > 0 || errorMessage ? (
+          <CardContent className="space-y-3">
+            {Object.keys(genProgress).length > 0 ? (
+              <div className="space-y-1 rounded-lg border bg-muted/20 p-3">
+                {platforms.map((platform) => {
+                  const state = genProgress[platform];
+
+                  if (!state) {
+                    return null;
+                  }
+
+                  return (
+                    <p className="text-xs leading-5" key={platform}>
+                      <span className="font-medium">{platform}:</span>{" "}
+                      <span
+                        className={cn(
+                          state.startsWith("failed") && "text-warning-foreground",
+                          state === "done" && "text-success-foreground",
+                        )}
+                      >
+                        {state}
+                      </span>
+                    </p>
+                  );
+                })}
+              </div>
+            ) : null}
+            {errorMessage ? (
+              <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+                {errorMessage}
+              </div>
+            ) : null}
+          </CardContent>
+        ) : null}
+      </Card>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {platforms.map((platform) => {
+          const entry = playbook[platform];
+          const fields = entry.draft ?? entry.approved;
+          const hasDraft = Boolean(entry.draft);
+          const audited = data.audits.some((audit) => audit.platform === platform);
+          const itemCount = data.calendar.filter((item) => item.platform === platform).length;
+
+          return (
+            <Card key={platform}>
+              <CardContent className="space-y-3 pt-5">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-sm font-semibold">{platform}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge variant={audited ? "success" : "secondary"}>
+                      {audited ? "Audited" : "No audit yet"}
+                    </Badge>
+                    <Badge variant="outline">{itemCount} planned</Badge>
+                  </div>
+                </div>
+
+                {hasDraft ? (
+                  <Badge variant="warning">
+                    {entry.draftSource === "ai"
+                      ? "AI draft, not yet approved"
+                      : "Manual edit, not yet approved"}
+                  </Badge>
+                ) : entry.approvedSource === "template" ? (
+                  <Badge variant="secondary">Default template, not yet reviewed</Badge>
+                ) : (
+                  <Badge variant="success">
+                    Approved
+                    {entry.approvedBy ? ` by ${entry.approvedBy}` : ""}
+                    {entry.approvedAt ? `, ${formatDateTime(entry.approvedAt)}` : ""}
+                  </Badge>
+                )}
+
+                {hasDraft ? (
+                  <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                    <PlaybookField
+                      label="Role"
+                      onChange={(value) => updateDraftField(platform, "role", value)}
+                      value={fields.role}
+                    />
+                    <PlaybookField
+                      label="Voice"
+                      onChange={(value) => updateDraftField(platform, "persona", value)}
+                      value={fields.persona}
+                    />
+                    <PlaybookField
+                      label="Content"
+                      multiline
+                      onChange={(value) => updateDraftField(platform, "content", value)}
+                      value={fields.content}
+                    />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <PlaybookField
+                        label="Format"
+                        onChange={(value) => updateDraftField(platform, "defaultFormat", value)}
+                        value={fields.defaultFormat}
+                      />
+                      <PlaybookField
+                        label="Best posting time"
+                        onChange={(value) => updateDraftField(platform, "bestPostingTime", value)}
+                        value={fields.bestPostingTime}
+                      />
+                    </div>
+                    <PlaybookField
+                      label="CTA"
+                      onChange={(value) => updateDraftField(platform, "cta", value)}
+                      value={fields.cta}
+                    />
+                    <PlaybookField
+                      label="Measure"
+                      onChange={(value) => updateDraftField(platform, "metrics", value)}
+                      value={fields.metrics}
+                    />
+                    <PlaybookField
+                      label="Guardrail"
+                      multiline
+                      onChange={(value) => updateDraftField(platform, "guardrail", value)}
+                      value={fields.guardrail}
+                    />
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        disabled={!canApprove}
+                        onClick={() => approveDraft(platform)}
+                        size="sm"
+                        type="button"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Approve
+                      </Button>
+                      <Button
+                        onClick={() => discardDraft(platform)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Discard draft
+                      </Button>
+                    </div>
+                    {!canApprove ? (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        Only the Marketing Manager role view can approve here.
+                        This is a role-appropriate display setting, not secure
+                        access control; there is no sign-in yet, so it does
+                        not stop someone switching role views.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="space-y-1 text-xs leading-5 text-muted-foreground">
+                    <p>
+                      <span className="font-medium text-foreground">Role:</span> {fields.role}.
+                      Voice: {fields.persona}.
+                    </p>
+                    <p>
+                      <span className="font-medium text-foreground">Content:</span>{" "}
+                      {fields.content}
+                    </p>
+                    <p>
+                      <span className="font-medium text-foreground">Format and time:</span>{" "}
+                      {fields.defaultFormat}, best at {fields.bestPostingTime}.
+                    </p>
+                    <p>
+                      <span className="font-medium text-foreground">CTA:</span> {fields.cta}
+                    </p>
+                    <p>
+                      <span className="font-medium text-foreground">Measure:</span>{" "}
+                      {fields.metrics}
+                    </p>
+                    <p>
+                      <span className="font-medium text-foreground">Guardrail:</span>{" "}
+                      {fields.guardrail}
+                    </p>
+                  </div>
+                )}
+
+                {!hasDraft ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      disabled={!liveAi || generatingPlatform === platform || generatingAll}
+                      onClick={() => void generateOne(platform)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      {generatingPlatform === platform ? "Generating" : "Generate with AI"}
+                    </Button>
+                    <Button
+                      onClick={() => startManualEdit(platform)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Edit
+                    </Button>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function PlaybookField({
+  label,
+  multiline,
+  onChange,
+  value,
+}: {
+  label: string;
+  multiline?: boolean;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {multiline ? (
+        <Textarea
+          className="mt-1"
+          onChange={(event) => onChange(event.target.value)}
+          value={value}
+        />
+      ) : (
+        <Input
+          className="mt-1"
+          onChange={(event) => onChange(event.target.value)}
+          value={value}
+        />
+      )}
+    </label>
   );
 }
 

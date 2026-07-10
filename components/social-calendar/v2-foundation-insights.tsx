@@ -1,12 +1,13 @@
 "use client";
 
-// New v2 tabs for Foundation and Insights: Team, Platform Intelligence, and
-// Seasonal Intelligence. All three are read-only composition views over data
-// that already exists in the workspace (roles and their real workloads, the
-// built-in platform playbooks, and the Singapore marketing calendar). Nothing
-// here invents numbers or duplicates another module's workflow.
+// New v2 tabs for Foundation and Insights: Team and Seasonal Intelligence.
+// Both are read-only composition views over data that already exists in the
+// workspace (roles and their real workloads, and the Singapore marketing
+// calendar). Nothing here invents numbers or duplicates another module's
+// workflow. Platform Intelligence lives in social-calendar-app.tsx alongside
+// its sibling AI-draft-then-approve views (Social Audit, Competitors).
 
-import { CalendarDays, Gauge, UsersRound } from "lucide-react";
+import { CalendarDays, UsersRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -17,8 +18,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  platformRules,
-  platforms,
   roles,
   type MarketingWorkspaceData,
   type Role,
@@ -88,80 +87,6 @@ export function TeamView({ data }: { data: MarketingWorkspaceData }) {
         views, not access control. The approver name on decisions is still
         free text.
       </p>
-    </section>
-  );
-}
-
-export function PlatformIntelligenceView({
-  data,
-}: {
-  data: MarketingWorkspaceData;
-}) {
-  return (
-    <section className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-              <Gauge className="h-5 w-5" />
-            </div>
-            <div>
-              <CardTitle>Platform Intelligence</CardTitle>
-              <CardDescription className="mt-2 leading-6">
-                The per-platform playbook the calendar and copywriting engines
-                actually use: role in the mix, voice, content style, call to
-                action, posting time, and success metric.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2">
-          {platforms.map((platform) => {
-            const rule = platformRules[platform];
-            const audited = data.audits.some(
-              (audit) => audit.platform === platform,
-            );
-            const itemCount = data.calendar.filter(
-              (item) => item.platform === platform,
-            ).length;
-
-            return (
-              <div className="rounded-lg border bg-muted/20 p-4" key={platform}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="text-sm font-semibold">{platform}</p>
-                  <div className="flex gap-1.5">
-                    <Badge variant={audited ? "success" : "secondary"}>
-                      {audited ? "Audited" : "No audit yet"}
-                    </Badge>
-                    <Badge variant="outline">{itemCount} planned</Badge>
-                  </div>
-                </div>
-                <div className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
-                  <p>
-                    <span className="font-medium text-foreground">Role:</span>{" "}
-                    {rule.role}. Voice: {rule.persona}.
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">Content:</span>{" "}
-                    {rule.content}
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">Format and time:</span>{" "}
-                    {rule.defaultFormat}, best at {rule.bestPostingTime}.
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">CTA:</span> {rule.cta}
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">Measure:</span>{" "}
-                    {rule.metrics}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
     </section>
   );
 }
