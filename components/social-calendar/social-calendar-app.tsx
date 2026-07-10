@@ -432,6 +432,20 @@ export function SocialCalendarApp() {
   // Role view (v2): which team member's lens Operations is filtered to.
   // Selecting a role opens the Production Queue filtered to that role's work.
   const [globalRole, setGlobalRole] = useState<Role>("marketing manager");
+  // After approving synced platform metrics, which row to scroll to and
+  // briefly highlight on the Social Audit or KPI Tracker screen. Cleared a
+  // few seconds after arriving, or when the screen is left.
+  const [highlightAuditPlatform, setHighlightAuditPlatform] = useState<Platform | null>(
+    null,
+  );
+  const [highlightKpiChannel, setHighlightKpiChannel] = useState<Platform | null>(null);
+  // Kept at this level (not inside SettingsWorkspaceView) so the confirmation
+  // and its two "View in..." links survive navigating away and back, in case
+  // the manager checks one screen then wants to check the other.
+  const [applyConfirmation, setApplyConfirmation] = useState<{
+    appliedPlatforms: AppliedPlatformSummary[];
+    label: string;
+  } | null>(null);
 
   useEffect(() => {
     const holder = modules.find((module) =>
@@ -511,6 +525,19 @@ export function SocialCalendarApp() {
     const tab =
       target.tabs.find((candidate) => candidate.id === remembered) ?? target.tabs[0];
     setActiveView(tab.id);
+  }
+
+  // Jumps straight to where an approved sync row landed: the Social Audit
+  // screen (Objectives) or the KPI Tracker, scrolled to and briefly
+  // highlighting the platform just updated.
+  function viewAppliedData(target: "audit" | "kpi", platform: Platform) {
+    if (target === "audit") {
+      setActiveView("objectives");
+      setHighlightAuditPlatform(platform);
+    } else {
+      setActiveView("kpi");
+      setHighlightKpiChannel(platform);
+    }
   }
 
   function updateWorkspace(
@@ -628,15 +655,25 @@ export function SocialCalendarApp() {
     approvedBy: string,
     source: { label: string; noteLabel: string; rangeLabel: string; editedCount: number },
   ) {
-    updateWorkspace((current) =>
-      applyPlatformMetricsImport(
+    const importedAt = new Date().toISOString();
+    let appliedPlatforms: AppliedPlatformSummary[] = [];
+
+    updateWorkspace((current) => {
+      const result = applyPlatformMetricsImport(
         current,
         metrics,
-        new Date().toISOString(),
+        importedAt,
         approvedBy,
         source,
-      ),
-    );
+      );
+      appliedPlatforms = result.appliedPlatforms;
+      return result.workspace;
+    });
+
+    // Kept at the app level, not inside SettingsWorkspaceView, so the
+    // confirmation and its "View in..." links survive navigating away and
+    // back (the settings screen unmounts when you leave it).
+    setApplyConfirmation({ appliedPlatforms, label: source.label });
   }
 
   async function addPdfReports(files: FileList | null) {
@@ -846,19 +883,20 @@ export function SocialCalendarApp() {
     const importedAt = new Date().toISOString();
     const approvedMetrics = reviewRowsToPlatformMetrics(approvedRows);
 
-    updateWorkspace((current) =>
-      applyPlatformMetricsImport(
-        current,
-        approvedMetrics,
-        importedAt,
-        selectedUpload.approvedBy ?? "Marketing Manager",
-        {
-          label: selectedUpload.fileName,
-          noteLabel: "PDF data import",
-          rangeLabel: `${selectedUpload.startDate} to ${selectedUpload.endDate}`,
-          uploadId: selectedUpload.id,
-        },
-      ),
+    updateWorkspace(
+      (current) =>
+        applyPlatformMetricsImport(
+          current,
+          approvedMetrics,
+          importedAt,
+          selectedUpload.approvedBy ?? "Marketing Manager",
+          {
+            label: selectedUpload.fileName,
+            noteLabel: "PDF data import",
+            rangeLabel: `${selectedUpload.startDate} to ${selectedUpload.endDate}`,
+            uploadId: selectedUpload.id,
+          },
+        ).workspace,
     );
 
     setPdfImportState({
@@ -1328,6 +1366,7 @@ export function SocialCalendarApp() {
                 aiIntegration={data.aiIntegration}
                 auditInsights={data.auditInsights}
                 audits={data.audits}
+                highlightPlatform={highlightAuditPlatform}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onAuditInsightsChange={(auditInsights) =>
@@ -1336,6 +1375,7 @@ export function SocialCalendarApp() {
                 onAuditsChange={(audits) =>
                   updateWorkspace((current) => ({ ...current, audits }))
                 }
+                onHighlightConsumed={() => setHighlightAuditPlatform(null)}
                 onRecordUsage={recordAiUsage}
                 onSocialGoalsChange={(socialGoals) =>
                   updateWorkspace((current) => ({ ...current, socialGoals }))
@@ -1501,9 +1541,11 @@ export function SocialCalendarApp() {
             {activeView === "kpi" ? (
               <KpiTrackerView
                 data={data}
+                highlightChannel={highlightKpiChannel}
                 onAiRecommendationsChange={(aiRecommendations) =>
                   updateWorkspace((current) => ({ ...current, aiRecommendations }))
                 }
+                onHighlightConsumed={() => setHighlightKpiChannel(null)}
                 onPerformanceChange={(performanceResults) =>
                   updateWorkspace((current) => ({
                     ...current,
@@ -1551,7 +1593,10 @@ export function SocialCalendarApp() {
                 ucc={data.ucc}
                 competitors={data.competitors}
                 calendar={data.calendar}
+                applyConfirmation={applyConfirmation}
                 onApplyMetrics={applyApprovedMetrics}
+                onDismissApplyConfirmation={() => setApplyConfirmation(null)}
+                onViewAppliedData={viewAppliedData}
                 onAiIntegrationChange={(aiIntegration) =>
                   updateWorkspace((current) => ({ ...current, aiIntegration }))
                 }
@@ -5969,15 +6014,45 @@ function BudgetResourcesView({
 
 function KpiTrackerView({
   data,
+  highlightChannel,
   onAiRecommendationsChange,
+  onHighlightConsumed,
   onPerformanceChange,
   onRecordUsage,
 }: {
   data: MarketingWorkspaceData;
+  highlightChannel?: Platform | null;
   onAiRecommendationsChange: (aiRecommendations: AiRecommendation[]) => void;
+  onHighlightConsumed?: () => void;
   onPerformanceChange: (performanceResults: PerformanceResult[]) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
+  // Just arrived from "View in KPI Tracker": scroll to the first row for that
+  // channel, then clear the highlight after a few seconds.
+  useEffect(() => {
+    if (!highlightChannel) {
+      return;
+    }
+
+    const firstMatch = data.ucc.kpiRecords.find((row) => row.channel === highlightChannel);
+    const scrollTimer = setTimeout(() => {
+      if (firstMatch) {
+        document
+          .getElementById(`kpi-row-${firstMatch.id}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 50);
+    const clearTimer = setTimeout(() => {
+      onHighlightConsumed?.();
+    }, 4000);
+
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(clearTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightChannel]);
+
   return (
     <section className="space-y-4">
       <Card>
@@ -6008,7 +6083,14 @@ function KpiTrackerView({
               </thead>
               <tbody className="divide-y">
                 {data.ucc.kpiRecords.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    className={cn(
+                      highlightChannel === row.channel &&
+                        "ring-2 ring-inset ring-primary bg-primary/5",
+                    )}
+                    id={`kpi-row-${row.id}`}
+                    key={row.id}
+                  >
                     <td className="min-w-[220px] py-3 pr-4">
                       {findCampaign(data.ucc, row.campaignId)?.name}
                     </td>
@@ -7986,11 +8068,13 @@ function WorkspaceDataModePanel({
 function SettingsWorkspaceView({
   aiIntegration,
   aiUsage,
+  applyConfirmation,
   calendar,
   competitors,
   connections,
   onAiIntegrationChange,
   onApplyMetrics,
+  onDismissApplyConfirmation,
   onRestoreWorkspace,
   workspaceData,
   onCalendarChange,
@@ -7998,11 +8082,13 @@ function SettingsWorkspaceView({
   onConnectionsChange,
   onRunSetupGuide,
   onUccChange,
+  onViewAppliedData,
   sync,
   ucc,
 }: {
   aiIntegration: AiIntegrationSettings;
   aiUsage: AiUsageEntry[];
+  applyConfirmation: { appliedPlatforms: AppliedPlatformSummary[]; label: string } | null;
   calendar: CalendarItem[];
   competitors: Competitor[];
   connections: PlatformConnection[];
@@ -8018,7 +8104,9 @@ function SettingsWorkspaceView({
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
   onConnectionsChange: (connections: PlatformConnection[]) => void;
+  onDismissApplyConfirmation: () => void;
   onUccChange: (ucc: UccStrategyData) => void;
+  onViewAppliedData: (target: "audit" | "kpi", platform: Platform) => void;
   sync: WorkspaceSync;
   ucc: UccStrategyData;
 }) {
@@ -8096,7 +8184,10 @@ function SettingsWorkspaceView({
       <ConnectionManagerPanel
         connections={connections}
         onConnectionsChange={onConnectionsChange}
-        onSyncReview={setPendingReview}
+        onSyncReview={(review) => {
+          onDismissApplyConfirmation();
+          setPendingReview(review);
+        }}
       />
       {pendingReview ? (
         <MetricReviewPanel
@@ -8106,6 +8197,14 @@ function SettingsWorkspaceView({
           onDiscard={() => setPendingReview(null)}
           onRowChange={handleRowChange}
           pending={pendingReview}
+        />
+      ) : null}
+      {applyConfirmation ? (
+        <ApplyConfirmationPanel
+          appliedPlatforms={applyConfirmation.appliedPlatforms}
+          label={applyConfirmation.label}
+          onDismiss={onDismissApplyConfirmation}
+          onViewAppliedData={onViewAppliedData}
         />
       ) : null}
       <CsvImportPanel
@@ -8133,6 +8232,87 @@ function SettingsWorkspaceView({
   );
 }
 
+// Shown once approved metrics have been applied. Only offers a "View in..."
+// link for a screen the data genuinely reached, so nothing points at a
+// screen that will show no change.
+function ApplyConfirmationPanel({
+  appliedPlatforms,
+  label,
+  onDismiss,
+  onViewAppliedData,
+}: {
+  appliedPlatforms: AppliedPlatformSummary[];
+  label: string;
+  onDismiss: () => void;
+  onViewAppliedData: (target: "audit" | "kpi", platform: Platform) => void;
+}) {
+  return (
+    <Card className="border-success-border">
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Applied: {label}</CardTitle>
+            <CardDescription className="mt-2 leading-6">
+              Jump straight to where this landed.
+            </CardDescription>
+          </div>
+          <Button onClick={onDismiss} size="icon" type="button" variant="outline">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {appliedPlatforms.length === 0 ? (
+          <p className="text-sm leading-6 text-muted-foreground">
+            No approved rows were applied.
+          </p>
+        ) : (
+          appliedPlatforms.map((row) => (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3"
+              key={row.platform}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <PlatformBadge platform={row.platform} />
+                {row.label ? (
+                  <span className="text-xs text-muted-foreground">{row.label}</span>
+                ) : null}
+              </div>
+              {row.auditUpdated || row.kpiUpdated ? (
+                <div className="flex flex-wrap gap-2">
+                  {row.auditUpdated ? (
+                    <Button
+                      onClick={() => onViewAppliedData("audit", row.platform)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      View in Social Audit
+                    </Button>
+                  ) : null}
+                  {row.kpiUpdated ? (
+                    <Button
+                      onClick={() => onViewAppliedData("kpi", row.platform)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      View in KPI Tracker
+                    </Button>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  No Social Audit row or KPI record for {row.platform} yet.
+                </p>
+              )}
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function CsvImportPanel({
   calendar,
@@ -9212,20 +9392,24 @@ function SocialAuditView({
   aiIntegration,
   auditInsights,
   audits,
+  highlightPlatform,
   socialGoals,
   ucc,
   onAuditInsightsChange,
   onAuditsChange,
+  onHighlightConsumed,
   onRecordUsage,
   onSocialGoalsChange,
 }: {
   aiIntegration: AiIntegrationSettings;
   auditInsights: AuditInsight[];
   audits: SocialAudit[];
+  highlightPlatform?: Platform | null;
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onAuditInsightsChange: (auditInsights: AuditInsight[]) => void;
   onAuditsChange: (audits: SocialAudit[]) => void;
+  onHighlightConsumed?: () => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onSocialGoalsChange: (socialGoals: SocialGoalSettings) => void;
 }) {
@@ -9234,6 +9418,32 @@ function SocialAuditView({
   );
   // Which platform row is expanded for hand-editing its scores and notes.
   const [expandedPlatform, setExpandedPlatform] = useState<Platform | "">("");
+
+  // Just arrived from "View in Social Audit": expand and scroll to the row,
+  // then clear the highlight after a few seconds so it does not linger.
+  useEffect(() => {
+    if (!highlightPlatform) {
+      return;
+    }
+
+    setExpandedPlatform(highlightPlatform);
+    setSelectedPlatform(highlightPlatform);
+
+    const scrollTimer = setTimeout(() => {
+      document
+        .getElementById(`audit-row-${highlightPlatform}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    const clearTimer = setTimeout(() => {
+      onHighlightConsumed?.();
+    }, 4000);
+
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(clearTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightPlatform]);
   const [generatingPlatform, setGeneratingPlatform] = useState<Platform | "">("");
   const [recalcProgress, setRecalcProgress] = useState<Record<string, string>>({});
   const [recalcRunning, setRecalcRunning] = useState(false);
@@ -9514,6 +9724,7 @@ function SocialAuditView({
                 {audits.map((audit) => {
                   const hasData = auditHasData(audit);
                   const isOpen = expandedPlatform === audit.platform;
+                  const isJustUpdated = highlightPlatform === audit.platform;
                   const craftScoreFields = scoreFields.filter(
                     (field) =>
                       field.key !== "engagementPerformance" &&
@@ -9522,7 +9733,13 @@ function SocialAuditView({
 
                   return (
                     <Fragment key={audit.platform}>
-                      <tr className={cn(isOpen && "bg-muted/40")}>
+                      <tr
+                        className={cn(
+                          isOpen && "bg-muted/40",
+                          isJustUpdated && "ring-2 ring-inset ring-primary bg-primary/5",
+                        )}
+                        id={`audit-row-${audit.platform}`}
+                      >
                         <td className="py-3 pr-4 align-top">
                           <div className="flex flex-wrap gap-1.5">
                             <PlatformBadge platform={audit.platform} />
@@ -9533,6 +9750,12 @@ function SocialAuditView({
                           {!hasData ? (
                             <p className="mt-1 text-xs text-muted-foreground">
                               No data yet
+                            </p>
+                          ) : null}
+                          {audit.lastMetricoolSyncAt ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Updated from Metricool,{" "}
+                              {formatMetricoolSyncStamp(audit.lastMetricoolSyncAt)}
                             </p>
                           ) : null}
                         </td>
@@ -14459,17 +14682,33 @@ type PlatformMetricsImportSource = {
   editedCount?: number;
 };
 
+// What actually happened to one applied platform row, so the confirmation
+// after approving a sync can offer only links that lead somewhere real: no
+// "View in..." button for a screen the data never reached.
+type AppliedPlatformSummary = {
+  platform: Platform;
+  label?: string;
+  auditUpdated: boolean;
+  kpiUpdated: boolean;
+};
+
 function applyPlatformMetricsImport(
   current: MarketingWorkspaceData,
   platformMetrics: PlatformDataMetrics[],
   importedAt: string,
   approvedBy: string,
   source: PlatformMetricsImportSource,
-): MarketingWorkspaceData {
+): { workspace: MarketingWorkspaceData; appliedPlatforms: AppliedPlatformSummary[] } {
   const selectedUpload = source.uploadId
     ? current.pdfDataSource.uploads.find((upload) => upload.id === source.uploadId)
     : undefined;
   const sourceFileLabel = selectedUpload?.fileName ?? source.label;
+  // Metricool (API sync or CSV import) gets a visible "last updated" tag on
+  // the audit row; other sources (PDF reports) do not, since the request was
+  // specifically to trace Metricool-sourced numbers.
+  const isMetricoolSource = source.noteLabel.startsWith("Metricool");
+  const existingAuditPlatforms = new Set(current.audits.map((audit) => audit.platform));
+  const kpiUpdatedByPlatform = new Set<Platform>();
   const metricsByPlatform = new Map(
     platformMetrics.map((metrics) => [metrics.platform, metrics]),
   );
@@ -14512,6 +14751,7 @@ function applyPlatformMetricsImport(
             ? scoreEngagementPerformance(engagementRate)
             : audit.scores.engagementPerformance,
       },
+      lastMetricoolSyncAt: isMetricoolSource ? importedAt : audit.lastMetricoolSyncAt,
       notes: mergeImportNote(
         audit.notes,
         `${source.noteLabel} ${formatDateTime(importedAt)}: ${formatNumber(
@@ -14594,6 +14834,8 @@ function applyPlatformMetricsImport(
       } else {
         nextKpiRecords.push(nextRecord);
       }
+
+      kpiUpdatedByPlatform.add(metrics.platform);
     }
   });
 
@@ -14609,7 +14851,14 @@ function applyPlatformMetricsImport(
     ? approvedUploadRows.filter((row) => row.edited).length
     : (source.editedCount ?? 0);
 
-  return {
+  const appliedPlatforms: AppliedPlatformSummary[] = platformMetrics.map((metrics) => ({
+    platform: metrics.platform,
+    label: metrics.label,
+    auditUpdated: existingAuditPlatforms.has(metrics.platform),
+    kpiUpdated: kpiUpdatedByPlatform.has(metrics.platform),
+  }));
+
+  const workspace: MarketingWorkspaceData = {
     ...current,
     audits: nextAudits,
     ucc: {
@@ -14654,6 +14903,8 @@ function applyPlatformMetricsImport(
       lastImportSummary: summary,
     },
   };
+
+  return { workspace, appliedPlatforms };
 }
 
 function selectPdfReportCalendarItem(
@@ -14905,6 +15156,28 @@ function formatDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+// British-style day and 24-hour time for the "Updated from Metricool" tag on
+// a Social Audit row, for example "10 Jul 11:05".
+function formatMetricoolSyncStamp(value: string) {
+  const date = new Date(value);
+
+  if (!value || Number.isNaN(date.getTime())) {
+    return "not yet";
+  }
+
+  const datePart = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+  }).format(date);
+  const timePart = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+
+  return `${datePart} ${timePart}`;
 }
 
 function formatEfficiency(value?: number) {

@@ -93,6 +93,10 @@ export type SocialAudit = {
   postingFrequency: string;
   scores: AuditScores;
   notes: string;
+  // When a Metricool sync (API or CSV) last wrote real numbers into this row,
+  // so the Social Audit screen can show where a figure came from. Unset for
+  // rows never touched by a Metricool sync (hand-entered or PDF-only).
+  lastMetricoolSyncAt?: string;
 };
 
 export type SocialGoalTargets = {
