@@ -441,12 +441,11 @@ export function SocialCalendarApp() {
   // Selecting a role opens the Production Queue filtered to that role's work.
   const [globalRole, setGlobalRole] = useState<Role>("marketing manager");
   // After approving synced platform metrics, which row to scroll to and
-  // briefly highlight on the Social Audit or KPI Tracker screen. Cleared a
-  // few seconds after arriving, or when the screen is left.
+  // briefly highlight on the Social Audit screen. Cleared a few seconds
+  // after arriving, or when the screen is left.
   const [highlightAuditPlatform, setHighlightAuditPlatform] = useState<Platform | null>(
     null,
   );
-  const [highlightKpiChannel, setHighlightKpiChannel] = useState<Platform | null>(null);
   // Kept at this level (not inside SettingsWorkspaceView) so the confirmation
   // and its two "View in..." links survive navigating away and back, in case
   // the manager checks one screen then wants to check the other.
@@ -540,16 +539,11 @@ export function SocialCalendarApp() {
   }
 
   // Jumps straight to where an approved sync row landed: the Social Audit
-  // screen (Objectives) or the KPI Tracker, scrolled to and briefly
-  // highlighting the platform just updated.
-  function viewAppliedData(target: "audit" | "kpi", platform: Platform) {
-    if (target === "audit") {
-      setActiveView("objectives");
-      setHighlightAuditPlatform(platform);
-    } else {
-      setActiveView("kpi");
-      setHighlightKpiChannel(platform);
-    }
+  // screen (Objectives), scrolled to and briefly highlighting the platform
+  // just updated.
+  function viewAppliedData(platform: Platform) {
+    setActiveView("objectives");
+    setHighlightAuditPlatform(platform);
   }
 
   function updateWorkspace(
@@ -1565,16 +1559,8 @@ export function SocialCalendarApp() {
             {activeView === "kpi" ? (
               <KpiTrackerView
                 data={data}
-                highlightChannel={highlightKpiChannel}
                 onAiRecommendationsChange={(aiRecommendations) =>
                   updateWorkspace((current) => ({ ...current, aiRecommendations }))
-                }
-                onHighlightConsumed={() => setHighlightKpiChannel(null)}
-                onPerformanceChange={(performanceResults) =>
-                  updateWorkspace((current) => ({
-                    ...current,
-                    performanceResults,
-                  }))
                 }
                 onRecordUsage={recordAiUsage}
               />
@@ -6038,108 +6024,15 @@ function BudgetResourcesView({
 
 function KpiTrackerView({
   data,
-  highlightChannel,
   onAiRecommendationsChange,
-  onHighlightConsumed,
-  onPerformanceChange,
   onRecordUsage,
 }: {
   data: MarketingWorkspaceData;
-  highlightChannel?: Platform | null;
   onAiRecommendationsChange: (aiRecommendations: AiRecommendation[]) => void;
-  onHighlightConsumed?: () => void;
-  onPerformanceChange: (performanceResults: PerformanceResult[]) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
-  // Just arrived from "View in KPI Tracker": scroll to the first row for that
-  // channel, then clear the highlight after a few seconds.
-  useEffect(() => {
-    if (!highlightChannel) {
-      return;
-    }
-
-    const firstMatch = data.ucc.kpiRecords.find((row) => row.channel === highlightChannel);
-    const scrollTimer = setTimeout(() => {
-      if (firstMatch) {
-        document
-          .getElementById(`kpi-row-${firstMatch.id}`)
-          ?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 50);
-    const clearTimer = setTimeout(() => {
-      onHighlightConsumed?.();
-    }, 4000);
-
-    return () => {
-      clearTimeout(scrollTimer);
-      clearTimeout(clearTimer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightChannel]);
-
   return (
     <section className="space-y-4">
-      <Card>
-        <CardHeader>
-          <SectionTitle
-            icon={TrendingUp}
-            kicker="KPI"
-            title="KPI Versus Target Tracker"
-            description="Campaign, course, platform, lead, application, enrolment, cost, conversion, and performance status tracking."
-          />
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] text-left text-sm">
-              <thead className="border-b text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="py-3 pr-4 font-medium">Campaign</th>
-                  <th className="py-3 pr-4 font-medium">Course</th>
-                  <th className="py-3 pr-4 font-medium">Channel</th>
-                  <th className="py-3 pr-4 font-medium">Leads</th>
-                  <th className="py-3 pr-4 font-medium">Applications</th>
-                  <th className="py-3 pr-4 font-medium">Tours</th>
-                  <th className="py-3 pr-4 font-medium">Enrolments</th>
-                  <th className="py-3 pr-4 font-medium">CPL</th>
-                  <th className="py-3 pr-4 font-medium">Status</th>
-                  <th className="py-3 pr-4 font-medium">Recommendation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {data.ucc.kpiRecords.map((row) => (
-                  <tr
-                    className={cn(
-                      highlightChannel === row.channel &&
-                        "ring-2 ring-inset ring-primary bg-primary/5",
-                    )}
-                    id={`kpi-row-${row.id}`}
-                    key={row.id}
-                  >
-                    <td className="min-w-[220px] py-3 pr-4">
-                      {findCampaign(data.ucc, row.campaignId)?.name}
-                    </td>
-                    <td className="min-w-[190px] py-3 pr-4">
-                      {findCourse(data.ucc, row.courseId)?.category}
-                    </td>
-                    <td className="py-3 pr-4">{row.channel}</td>
-                    <td className="py-3 pr-4">{row.leads}</td>
-                    <td className="py-3 pr-4">{row.applications}</td>
-                    <td className="py-3 pr-4">{row.campusTourBookings}</td>
-                    <td className="py-3 pr-4">{row.enrolments}</td>
-                    <td className="py-3 pr-4">{formatNumber(calculateCostPerLead(row))}</td>
-                    <td className="py-3 pr-4">
-                      <StatusLabel status={row.status} />
-                    </td>
-                    <td className="min-w-[320px] py-3 pr-4 text-muted-foreground">
-                      {row.recommendation}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
       <AiRecommendationPanel
         buttonLabel="Generate insights with AI"
         data={data}
@@ -6149,7 +6042,7 @@ function KpiTrackerView({
         onRecordUsage={onRecordUsage}
         usageLabel="KPI insights"
       />
-      <PerformanceLearningView data={data} onPerformanceChange={onPerformanceChange} />
+      <PerformanceLearningView data={data} />
     </section>
   );
 }
@@ -8130,7 +8023,7 @@ function SettingsWorkspaceView({
   onConnectionsChange: (connections: PlatformConnection[]) => void;
   onDismissApplyConfirmation: () => void;
   onUccChange: (ucc: UccStrategyData) => void;
-  onViewAppliedData: (target: "audit" | "kpi", platform: Platform) => void;
+  onViewAppliedData: (platform: Platform) => void;
   sync: WorkspaceSync;
   ucc: UccStrategyData;
 }) {
@@ -8257,9 +8150,10 @@ function SettingsWorkspaceView({
   );
 }
 
-// Shown once approved metrics have been applied. Only offers a "View in..."
-// link for a screen the data genuinely reached, so nothing points at a
-// screen that will show no change.
+// Shown once approved metrics have been applied. Only offers a "View in
+// Social Audit" link for a platform the data genuinely reached there, so
+// nothing points at a screen that will show no change. KPI records are also
+// updated but have no dedicated jump target, so that is noted as text.
 function ApplyConfirmationPanel({
   appliedPlatforms,
   label,
@@ -8269,7 +8163,7 @@ function ApplyConfirmationPanel({
   appliedPlatforms: AppliedPlatformSummary[];
   label: string;
   onDismiss: () => void;
-  onViewAppliedData: (target: "audit" | "kpi", platform: Platform) => void;
+  onViewAppliedData: (platform: Platform) => void;
 }) {
   return (
     <Card className="border-success-border">
@@ -8304,10 +8198,10 @@ function ApplyConfirmationPanel({
                 ) : null}
               </div>
               {row.auditUpdated || row.kpiUpdated ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {row.auditUpdated ? (
                     <Button
-                      onClick={() => onViewAppliedData("audit", row.platform)}
+                      onClick={() => onViewAppliedData(row.platform)}
                       size="sm"
                       type="button"
                       variant="outline"
@@ -8316,14 +8210,9 @@ function ApplyConfirmationPanel({
                     </Button>
                   ) : null}
                   {row.kpiUpdated ? (
-                    <Button
-                      onClick={() => onViewAppliedData("kpi", row.platform)}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      View in KPI Tracker
-                    </Button>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      KPI record also updated (see Dashboard or Reports).
+                    </p>
                   ) : null}
                 </div>
               ) : (
@@ -14034,35 +13923,8 @@ function PlatformPlaybookGuide({ platformPlaybook }: { platformPlaybook: Platfor
   );
 }
 
-function PerformanceLearningView({
-  data,
-  onPerformanceChange,
-}: {
-  data: MarketingWorkspaceData;
-  onPerformanceChange: (performanceResults: PerformanceResult[]) => void;
-}) {
-  const [selectedItemId, setSelectedItemId] = useState(data.calendar[0]?.id ?? "");
+function PerformanceLearningView({ data }: { data: MarketingWorkspaceData }) {
   const analytics = analyzePerformance(data);
-  const selectedItem = data.calendar.find((item) => item.id === selectedItemId);
-  const selectedResult =
-    data.performanceResults.find(
-      (result) => result.calendarItemId === selectedItemId,
-    ) ?? emptyPerformanceResult(selectedItemId);
-
-  function updateResult(patch: Partial<PerformanceResult>) {
-    const nextResult = { ...selectedResult, ...patch };
-    const exists = data.performanceResults.some(
-      (result) => result.calendarItemId === selectedItemId,
-    );
-
-    onPerformanceChange(
-      exists
-        ? data.performanceResults.map((result) =>
-            result.calendarItemId === selectedItemId ? nextResult : result,
-          )
-        : [...data.performanceResults, nextResult],
-    );
-  }
 
   return (
     <section className="space-y-4">
@@ -14072,7 +13934,7 @@ function PerformanceLearningView({
             icon={TrendingUp}
             kicker="Review"
             title="Performance Learning Layer"
-            description="Enter post results, then repeat, improve, or stop content based on platform, hook, pillar, and format signals."
+            description="Best-performing platform, pillar, hook, and weakest format, drawn from post results recorded so far."
           />
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -14100,144 +13962,6 @@ function PerformanceLearningView({
       </Card>
 
       <GoalProgressPanel data={data} />
-
-      <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Post Result Entry</CardTitle>
-            <CardDescription>
-              Add impressions, reach, engagement, clicks, watch time, and follows.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="Calendar item">
-              <NativeSelect
-                value={selectedItemId}
-                onChange={(event) => setSelectedItemId(event.target.value)}
-              >
-                {data.calendar.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.date} / {item.platform} / {item.contentTopic}
-                  </option>
-                ))}
-              </NativeSelect>
-            </Field>
-
-            {selectedItem ? (
-              <div className="rounded-lg border bg-muted/30 p-3">
-                <p className="text-sm font-medium">{selectedItem.hook}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {selectedItem.contentPillar} / {selectedItem.format}
-                </p>
-              </div>
-            ) : null}
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                "impressions",
-                "reach",
-                "engagement",
-                "comments",
-                "shares",
-                "saves",
-                "watchTime",
-                "clicks",
-                "followsGained",
-              ].map((field) => (
-                <Field key={field} label={metricLabel(field)}>
-                  <Input
-                    type="number"
-                    value={selectedResult[field as keyof PerformanceResult] as number}
-                    onChange={(event) =>
-                      updateResult({
-                        [field]: toNumber(event.target.value),
-                      } as Partial<PerformanceResult>)
-                    }
-                  />
-                </Field>
-              ))}
-            </div>
-
-            <Field label="Notes">
-              <Textarea
-                value={selectedResult.notes}
-                onChange={(event) => updateResult({ notes: event.target.value })}
-              />
-            </Field>
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-3">
-            <RecommendationColumn
-              items={analytics.repeat.map((row) => row.item.contentTopic)}
-              title="Repeat"
-              variant="success"
-            />
-            <RecommendationColumn
-              items={analytics.improve.map((row) => row.item.contentTopic)}
-              title="Improve"
-              variant="warning"
-            />
-            <RecommendationColumn
-              items={analytics.stop.map((row) => row.item.contentTopic)}
-              title="Stop"
-              variant="outline"
-            />
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Performance Review</CardTitle>
-              <CardDescription>
-                Joined post results with platform, hook, pillar, and format.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {analytics.rows.length === 0 ? (
-                <EmptyState
-                  action="Enter post results to unlock learning"
-                  icon={BarChart3}
-                  title="No performance results yet"
-                />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[980px] text-left text-sm">
-                    <thead className="border-b text-xs uppercase text-muted-foreground">
-                      <tr>
-                        <th className="py-3 pr-4 font-medium">Post</th>
-                        <th className="py-3 pr-4 font-medium">Platform</th>
-                        <th className="py-3 pr-4 font-medium">Pillar</th>
-                        <th className="py-3 pr-4 font-medium">Reach</th>
-                        <th className="py-3 pr-4 font-medium">Saves</th>
-                        <th className="py-3 pr-4 font-medium">Clicks</th>
-                        <th className="py-3 pr-4 font-medium">Learning score</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {analytics.rows.map(({ item, result, efficiency }) => (
-                        <tr key={item.id}>
-                          <td className="max-w-[260px] py-3 pr-4">
-                            {item.contentTopic}
-                          </td>
-                          <td className="py-3 pr-4">
-                            <PlatformBadge platform={item.platform} />
-                          </td>
-                          <td className="py-3 pr-4">{item.contentPillar}</td>
-                          <td className="py-3 pr-4">{formatNumber(result.reach)}</td>
-                          <td className="py-3 pr-4">{formatNumber(result.saves)}</td>
-                          <td className="py-3 pr-4">{formatNumber(result.clicks)}</td>
-                          <td className="py-3 pr-4">{formatEfficiency(efficiency)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
     </section>
   );
 }
@@ -14669,40 +14393,6 @@ function SampleTag() {
   );
 }
 
-function RecommendationColumn({
-  items,
-  title,
-  variant,
-}: {
-  items: string[];
-  title: string;
-  variant: BadgeVariant;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2">
-          {title}
-          <Badge variant={variant}>{items.length}</Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {items.length === 0 ? (
-          <p className="text-sm leading-6 text-muted-foreground">
-            Add more post results for this recommendation.
-          </p>
-        ) : (
-          items.map((item) => (
-            <div className="rounded-lg border bg-muted/20 p-3 text-sm" key={item}>
-              {item}
-            </div>
-          ))
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 function StatusLabel({
   status,
 }: {
@@ -14748,10 +14438,6 @@ function getCampaignStatus(campaign: UccCampaign) {
 
 function percentOf(value: number, target: number) {
   return target > 0 ? Math.round((value / target) * 100) : 0;
-}
-
-function calculateCostPerLead(row: UccKpiRecord) {
-  return row.leads > 0 ? Math.round(row.spend / row.leads) : 0;
 }
 
 function getKpiStatusFromTarget(
@@ -15558,22 +15244,6 @@ function mergeImportNote(existing: string, note: string) {
 
 function roundOne(value: number) {
   return Math.round(value * 10) / 10;
-}
-
-function emptyPerformanceResult(calendarItemId: string): PerformanceResult {
-  return {
-    calendarItemId,
-    impressions: 0,
-    reach: 0,
-    engagement: 0,
-    comments: 0,
-    shares: 0,
-    saves: 0,
-    watchTime: 0,
-    clicks: 0,
-    followsGained: 0,
-    notes: "",
-  };
 }
 
 function listToText(value: string[]) {
