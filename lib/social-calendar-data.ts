@@ -875,6 +875,9 @@ export type MarketingWorkspaceData = {
   // Saved in the workspace so the guide is resumable and every green tick
   // (which only appears after a genuine live test) survives a reload.
   setupGuide?: SetupGuideProgress;
+  // Per-platform playbook (Platform Intelligence): AI-draft-then-approve.
+  // Optional so older saves upgrade safely via normalizeWorkspaceData.
+  platformPlaybook?: PlatformPlaybook;
 };
 
 // One resumable run of the interactive setup guide. Numbered steps are keyed
@@ -989,6 +992,71 @@ export const platformRules: Record<
       "Sound like a person starting a useful hallway conversation.",
   },
 };
+
+// Per-platform playbook: an AI-draft-then-Manager-approve workflow (see
+// PlatformIntelligenceView), matching "AI recommends, humans decide"
+// elsewhere in the app. platformRules above remains the fallback default for
+// any workspace that predates this field, and supplies the starting "template"
+// content before anyone customises it.
+export type PlatformPlaybookFields = {
+  role: string;
+  persona: string;
+  content: string;
+  defaultFormat: string;
+  bestPostingTime: string;
+  cta: string;
+  metrics: string;
+  guardrail: string;
+};
+
+export type PlatformPlaybookEntry = {
+  // What the calendar and copywriting engines actually read. Never holds a
+  // pending, unapproved edit.
+  approved: PlatformPlaybookFields;
+  approvedBy: string;
+  approvedAt: string;
+  // "template": the shipped default, never explicitly reviewed by a person,
+  // so approvedBy/approvedAt stay blank rather than claiming a fake approval.
+  approvedSource: "template" | "ai" | "manual";
+  // A pending AI draft or manual edit awaiting the Marketing Manager's
+  // approval. Null when nothing is pending.
+  draft: PlatformPlaybookFields | null;
+  draftSource: "ai" | "manual" | "none";
+  draftModel: string;
+  draftGeneratedAt: string;
+};
+
+export type PlatformPlaybook = Record<Platform, PlatformPlaybookEntry>;
+
+function platformPlaybookTemplateEntry(platform: Platform): PlatformPlaybookEntry {
+  return {
+    approved: { ...platformRules[platform] },
+    approvedBy: "",
+    approvedAt: "",
+    approvedSource: "template",
+    draft: null,
+    draftSource: "none",
+    draftModel: "",
+    draftGeneratedAt: "",
+  };
+}
+
+export function createDefaultPlatformPlaybook(): PlatformPlaybook {
+  return platforms.reduce((record, platform) => {
+    record[platform] = platformPlaybookTemplateEntry(platform);
+    return record;
+  }, {} as PlatformPlaybook);
+}
+
+// The fields the calendar and copywriting engines must use: the approved
+// snapshot only, never a pending draft. Falls back to the static defaults for
+// any workspace that predates this field or is missing an entry.
+export function getApprovedPlaybookFields(
+  playbook: PlatformPlaybook | undefined,
+  platform: Platform,
+): PlatformPlaybookFields {
+  return playbook?.[platform]?.approved ?? platformRules[platform];
+}
 
 export const dailyPublishingRhythm = {
   Monday: {
@@ -2677,6 +2745,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     guidedSetupActive: false,
     dismissedHelpScreens: [],
     setupGuide: createDefaultSetupGuide(),
+    platformPlaybook: createDefaultPlatformPlaybook(),
   };
 }
 
@@ -2788,6 +2857,7 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
     guidedSetupActive: false,
     dismissedHelpScreens: [],
     setupGuide: { active: true, completed: false, stepIndex: 0, skipped: [] },
+    platformPlaybook: createDefaultPlatformPlaybook(),
   };
 }
 

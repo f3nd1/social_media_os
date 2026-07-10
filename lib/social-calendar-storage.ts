@@ -1,9 +1,12 @@
 import {
   approvalStages,
+  createDefaultPlatformPlaybook,
   createDefaultSetupGuide,
   createSeedWorkspaceData,
+  platforms,
   type ApprovalStage,
   type MarketingWorkspaceData,
+  type PlatformPlaybook,
   type SetupGuideProgress,
 } from "@/lib/social-calendar-data";
 
@@ -172,6 +175,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
       ? data.dismissedHelpScreens
       : [],
     setupGuide: normalizeSetupGuide(data.setupGuide),
+    platformPlaybook: normalizePlatformPlaybook(data.platformPlaybook),
     competitors: Array.isArray(data.competitors)
       ? data.competitors
       : seed.competitors,
@@ -258,6 +262,29 @@ function normalizeApprovalStage(stage: unknown): ApprovalStage {
 // Upgrade any saved setup-guide progress to the current shape with safe
 // defaults. Older saves have no setupGuide at all, so they get a fresh,
 // inactive one and the guide simply does not open.
+// Fills in any missing platform (an old save, a corrupt entry, or a platform
+// added after the save was made) with the template default, so the workspace
+// always has a complete playbook and the engines never read undefined.
+function normalizePlatformPlaybook(raw: PlatformPlaybook | undefined): PlatformPlaybook {
+  const fallback = createDefaultPlatformPlaybook();
+
+  if (!raw || typeof raw !== "object") {
+    return fallback;
+  }
+
+  const merged = { ...fallback };
+
+  for (const platform of platforms) {
+    const entry = raw[platform];
+
+    if (entry && typeof entry === "object" && entry.approved) {
+      merged[platform] = entry;
+    }
+  }
+
+  return merged;
+}
+
 function normalizeSetupGuide(raw: SetupGuideProgress | undefined): SetupGuideProgress {
   if (!raw || typeof raw !== "object") {
     return createDefaultSetupGuide();
