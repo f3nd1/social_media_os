@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  ExternalLink,
   Plug,
   Plus,
   RefreshCcw,
@@ -515,12 +516,33 @@ function ConnectionRow({
 
       {syncReport.length > 0 ? (
         <div className="space-y-1 rounded-md border bg-background p-3">
-          <p className="text-xs font-semibold">What Metricool returned</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold">What Metricool returned</p>
+            {connection.source === "metricool" ? (
+              <a
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
+                href="https://app.metricool.com/"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open Metricool to cross-check
+              </a>
+            ) : null}
+          </div>
           {syncReport.map((line, index) => (
             <p className="text-xs leading-5 text-muted-foreground" key={index}>
               {line}
             </p>
           ))}
+          {connection.source === "metricool" ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              This opens Metricool&apos;s app. Sign in and pick the brand shown
+              above (Blog ID {connection.credentials.blogId || "shown above"})
+              to see these same numbers in Metricool&apos;s own Analytics
+              section.
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>
