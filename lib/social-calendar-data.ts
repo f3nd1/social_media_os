@@ -1112,14 +1112,18 @@ const weeklyCampaignThemes = [
   "Looking Back, Moving Forward",
 ];
 
-export function getDailyContentMasterMeta(item: CalendarItem, index: number) {
+export function getDailyContentMasterMeta(
+  item: CalendarItem,
+  index: number,
+  platformPlaybook?: PlatformPlaybook,
+) {
   const date = new Date(`${item.date}T00:00:00`);
   const dayName = date.toLocaleDateString("en-US", { weekday: "long" }) as
     | keyof typeof dailyPublishingRhythm;
   const rhythm = dailyPublishingRhythm[dayName] ?? dailyPublishingRhythm.Monday;
   const weekNumber = Math.floor(index / 7) + 1;
   const campaign = weeklyCampaignThemes[(weekNumber - 1) % weeklyCampaignThemes.length];
-  const playbook = platformRules[item.platform];
+  const playbook = getApprovedPlaybookFields(platformPlaybook, item.platform);
 
   return {
     week: `W${weekNumber}`,
@@ -1139,9 +1143,10 @@ export function generateCopywritingForItem(
   brand: BrandProfile,
   index: number,
   socialGoals?: SocialGoalSettings,
+  platformPlaybook?: PlatformPlaybook,
 ): Partial<CalendarItem> {
-  const meta = getDailyContentMasterMeta(item, index);
-  const playbook = platformRules[item.platform];
+  const meta = getDailyContentMasterMeta(item, index, platformPlaybook);
+  const playbook = getApprovedPlaybookFields(platformPlaybook, item.platform);
   const painPoint =
     brief.audiencePainPoints[index % Math.max(brief.audiencePainPoints.length, 1)] ??
     "Students and parents need a clearer next step.";
@@ -2601,6 +2606,9 @@ export function generateCalendarFromBrief(
   // AI path's approval gate. When omitted (seed generation), the built-in demo
   // links are used instead.
   ucc?: UccStrategyData,
+  // The Marketing Manager's approved playbook (Platform Intelligence). Falls
+  // back to the static defaults when not supplied.
+  platformPlaybook?: PlatformPlaybook,
 ): CalendarItem[] {
   const approvedCampaigns = ucc
     ? ucc.campaigns.filter(isCampaignApproved)
@@ -2627,7 +2635,7 @@ export function generateCalendarFromBrief(
   return topicSeeds.slice(0, 30).map((topic, index) => {
     const platform = platformCycle[index % platformCycle.length];
     const date = addDays(startDate, index);
-    const rule = platformRules[platform];
+    const rule = getApprovedPlaybookFields(platformPlaybook, platform);
     const contentPillar =
       pillarCycle.find((pillar) => pillar === topic.pillar) ??
       pillarCycle[index % Math.max(pillarCycle.length, 1)] ??

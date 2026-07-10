@@ -165,7 +165,6 @@ import {
   getDailyContentMasterMeta,
   getAuditIssues,
   getAuditRecommendations,
-  platformRules,
   platforms,
   roles,
   statuses,
@@ -515,6 +514,10 @@ export function SocialCalendarApp() {
     ["approved", "scheduled", "posted"].includes(item.status),
   ).length;
   const activeNav = navItems.find((item) => item.id === activeView) ?? navItems[0];
+  // The Marketing Manager's approved playbook (Platform Intelligence). Falls
+  // back to the template defaults for any workspace saved before this field
+  // existed; normalizeWorkspaceData already guarantees this in practice.
+  const platformPlaybook = data.platformPlaybook ?? createDefaultPlatformPlaybook();
 
   // The module whose workspace holds the current screen, and the last tab the
   // user was on inside each module, so switching modules returns you to where
@@ -1476,6 +1479,7 @@ export function SocialCalendarApp() {
                 brief={data.brief}
                 competitorInsights={data.competitorInsights}
                 listeningResults={data.listeningResults}
+                platformPlaybook={platformPlaybook}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onBriefChange={(brief) =>
@@ -1494,6 +1498,7 @@ export function SocialCalendarApp() {
                 brief={data.brief}
                 calendar={data.calendar}
                 performanceResults={data.performanceResults}
+                platformPlaybook={platformPlaybook}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onCalendarChange={(calendar) =>
@@ -1519,6 +1524,7 @@ export function SocialCalendarApp() {
                 brief={data.brief}
                 calendar={data.calendar}
                 externalRole={globalRole}
+                platformPlaybook={platformPlaybook}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onRecordUsage={recordAiUsage}
@@ -8228,6 +8234,7 @@ function SettingsWorkspaceView({
       <CsvImportPanel
         calendar={calendar}
         competitors={competitors}
+        platformPlaybook={workspaceData.platformPlaybook ?? createDefaultPlatformPlaybook()}
         onCalendarChange={onCalendarChange}
         onCompetitorsChange={onCompetitorsChange}
         onMetricoolCsvParsed={(result) => {
@@ -8335,6 +8342,7 @@ function ApplyConfirmationPanel({
 function CsvImportPanel({
   calendar,
   competitors,
+  platformPlaybook,
   onCalendarChange,
   onCompetitorsChange,
   onMetricoolCsvParsed,
@@ -8343,6 +8351,7 @@ function CsvImportPanel({
 }: {
   calendar: CalendarItem[];
   competitors: Competitor[];
+  platformPlaybook: PlatformPlaybook;
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
   onMetricoolCsvParsed: (
@@ -8406,7 +8415,10 @@ function CsvImportPanel({
     }
 
     if (target === "calendar") {
-      onCalendarChange([...calendar, ...rows.map((row) => csvToCalendarItem(row, ucc))]);
+      onCalendarChange([
+        ...calendar,
+        ...rows.map((row) => csvToCalendarItem(row, ucc, platformPlaybook)),
+      ]);
     }
 
     if (target === "kpi") {
@@ -11092,6 +11104,7 @@ function StrategyBriefView({
   brief,
   competitorInsights,
   listeningResults,
+  platformPlaybook,
   socialGoals,
   ucc,
   onBriefChange,
@@ -11104,6 +11117,7 @@ function StrategyBriefView({
   brief: StrategyBrief;
   competitorInsights: CompetitorInsight[];
   listeningResults: ListeningResult[];
+  platformPlaybook: PlatformPlaybook;
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onBriefChange: (brief: StrategyBrief) => void;
@@ -11432,17 +11446,21 @@ function StrategyBriefView({
             <CardDescription>Native voice rules for each channel.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {platforms.map((platform) => (
-              <div className="rounded-lg border bg-muted/20 p-3" key={platform}>
-                <div className="flex items-center justify-between gap-3">
-                  <PlatformBadge platform={platform} />
-                  <Badge variant="outline">{platformRules[platform].persona}</Badge>
+            {platforms.map((platform) => {
+              const rule = getApprovedPlaybookFields(platformPlaybook, platform);
+
+              return (
+                <div className="rounded-lg border bg-muted/20 p-3" key={platform}>
+                  <div className="flex items-center justify-between gap-3">
+                    <PlatformBadge platform={platform} />
+                    <Badge variant="outline">{rule.persona}</Badge>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    {rule.guardrail}
+                  </p>
                 </div>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  {platformRules[platform].guardrail}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       </div>
@@ -11548,6 +11566,7 @@ function CalendarBuilderView({
   brief,
   calendar,
   performanceResults,
+  platformPlaybook,
   socialGoals,
   ucc,
   onCalendarChange,
@@ -11561,6 +11580,7 @@ function CalendarBuilderView({
   brief: StrategyBrief;
   calendar: CalendarItem[];
   performanceResults: PerformanceResult[];
+  platformPlaybook: PlatformPlaybook;
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onCalendarChange: (calendar: CalendarItem[]) => void;
@@ -11639,6 +11659,7 @@ function CalendarBuilderView({
       calendar[0]?.date ?? "2026-07-01",
       socialGoals,
       ucc,
+      platformPlaybook,
     );
     onReplaceCalendar(items, hasPerformanceData);
     setGenerationMode("offline");
@@ -11682,6 +11703,7 @@ function CalendarBuilderView({
       const items = calendarDraftToItems(result.items, {
         startDate: calendar[0]?.date ?? "2026-07-01",
         campaigns: ucc.campaigns,
+        platformPlaybook,
       });
       onReplaceCalendar(items, hasPerformanceData);
       setGenerationMode("ai");
@@ -11707,7 +11729,7 @@ function CalendarBuilderView({
       brief.contentPillars[0] ??
       "Admissions Confidence",
     contentTopic: "",
-    format: platformRules[defaultGoalPlatform].defaultFormat,
+    format: getApprovedPlaybookFields(platformPlaybook, defaultGoalPlatform).defaultFormat,
     campaignId: ucc.campaigns[0]?.id ?? "",
     courseId: ucc.courses[0]?.id ?? "",
     audienceId: ucc.audiences[0]?.id ?? "",
@@ -11820,7 +11842,7 @@ function CalendarBuilderView({
 
       if (draft) {
         updateItem(id, {
-          ...calendarDraftToPatch(draft),
+          ...calendarDraftToPatch(draft, platformPlaybook),
           status: "idea",
           approvalStage: "idea",
         });
@@ -11844,14 +11866,14 @@ function CalendarBuilderView({
         next.format =
           current.itemKind === "event"
             ? "Event promotion"
-            : platformRules[patch.platform].defaultFormat;
+            : getApprovedPlaybookFields(platformPlaybook, patch.platform).defaultFormat;
       }
 
       if (patch.itemKind) {
         next.format =
           patch.itemKind === "event"
             ? "Event promotion"
-            : platformRules[next.platform].defaultFormat;
+            : getApprovedPlaybookFields(platformPlaybook, next.platform).defaultFormat;
       }
 
       return next;
@@ -11860,7 +11882,7 @@ function CalendarBuilderView({
 
   function addManagerCalendarItem() {
     const platform = newCalendarItem.platform;
-    const playbook = platformRules[platform];
+    const playbook = getApprovedPlaybookFields(platformPlaybook, platform);
     const itemKind = newCalendarItem.itemKind;
     const contentTopic =
       newCalendarItem.contentTopic.trim() ||
@@ -12844,6 +12866,7 @@ function ContentProductionView({
   brief,
   calendar,
   externalRole,
+  platformPlaybook,
   socialGoals,
   ucc,
   onCalendarChange,
@@ -12857,6 +12880,7 @@ function ContentProductionView({
   // The sidebar Role view selection. The queue follows it, while the local
   // role buttons still allow a quick peek at another role's work.
   externalRole?: Role;
+  platformPlaybook: PlatformPlaybook;
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onCalendarChange: (calendar: CalendarItem[]) => void;
@@ -12895,7 +12919,7 @@ function ContentProductionView({
     try {
       const campaign = ucc.campaigns.find((row) => row.id === item.campaignId) ?? null;
       const audience = ucc.audiences.find((row) => row.id === item.audienceId) ?? null;
-      const rule = platformRules[item.platform];
+      const rule = getApprovedPlaybookFields(platformPlaybook, item.platform);
       const response = await fetch(apiUrl("/api/ai/copy"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -13044,7 +13068,7 @@ function ContentProductionView({
               businessGoalConnection: item.businessGoalConnection,
             },
             targetPlatforms: targetPlatforms.map((platform) => {
-              const rule = platformRules[platform];
+              const rule = getApprovedPlaybookFields(platformPlaybook, platform);
 
               return {
                 platform,
@@ -13168,6 +13192,7 @@ function ContentProductionView({
       brand,
       itemIndex,
       socialGoals,
+      platformPlaybook,
     );
 
     updateItem(id, generatedOutput);
@@ -13193,11 +13218,12 @@ function ContentProductionView({
       return;
     }
 
+    const rule = getApprovedPlaybookFields(platformPlaybook, platform);
     const platformItem = {
       ...item,
       platform,
-      bestPostingTime: platformRules[platform].bestPostingTime,
-      format: platformRules[platform].defaultFormat,
+      bestPostingTime: rule.bestPostingTime,
+      format: rule.defaultFormat,
     };
 
     const generatedOutput = {
@@ -13208,6 +13234,7 @@ function ContentProductionView({
         brand,
         itemIndex,
         socialGoals,
+        platformPlaybook,
       ),
     };
 
@@ -13229,7 +13256,14 @@ function ContentProductionView({
   function generateAllCopy() {
     const nextCalendar = calendar.map((item, index) => ({
         ...item,
-        ...generateCopywritingForItem(item, brief, brand, index, socialGoals),
+        ...generateCopywritingForItem(
+          item,
+          brief,
+          brand,
+          index,
+          socialGoals,
+          platformPlaybook,
+        ),
       }));
     const historyRecords = nextCalendar.slice(0, 6).map((item) =>
       buildAiOutputRecord({
@@ -13307,12 +13341,13 @@ function ContentProductionView({
         selectedItemId={selectedItem?.id}
       />
 
-      <PlatformPlaybookGuide />
+      <PlatformPlaybookGuide platformPlaybook={platformPlaybook} />
 
       <DailyContentMasterTable
         brand={brand}
         brief={brief}
         calendar={calendar}
+        platformPlaybook={platformPlaybook}
         socialGoals={socialGoals}
         onGeneratePlatformCopy={generateCopyForPlatform}
         onSelectItem={setSelectedItemId}
@@ -13462,8 +13497,8 @@ function ContentProductionView({
             <div className="space-y-3">
               <ProductionBlock
                 eyebrow="Playbook guide"
-                primary={`${selectedItem.platform}: ${platformRules[selectedItem.platform].persona}`}
-                secondary={`${platformRules[selectedItem.platform].role}\n${platformRules[selectedItem.platform].guardrail}\nMetric focus: ${platformRules[selectedItem.platform].metrics}`}
+                primary={`${selectedItem.platform}: ${getApprovedPlaybookFields(platformPlaybook, selectedItem.platform).persona}`}
+                secondary={`${getApprovedPlaybookFields(platformPlaybook, selectedItem.platform).role}\n${getApprovedPlaybookFields(platformPlaybook, selectedItem.platform).guardrail}\nMetric focus: ${getApprovedPlaybookFields(platformPlaybook, selectedItem.platform).metrics}`}
               />
               <ProductionBlock
                 eyebrow="Visual and compliance"
@@ -13726,6 +13761,7 @@ function DailyContentMasterTable({
   brand,
   brief,
   calendar,
+  platformPlaybook,
   socialGoals,
   onGeneratePlatformCopy,
   onSelectItem,
@@ -13735,6 +13771,7 @@ function DailyContentMasterTable({
   brand: BrandProfile;
   brief: StrategyBrief;
   calendar: CalendarItem[];
+  platformPlaybook: PlatformPlaybook;
   socialGoals: SocialGoalSettings;
   onGeneratePlatformCopy: (id: string, platform: Platform) => void;
   onSelectItem: (id: string) => void;
@@ -13789,12 +13826,12 @@ function DailyContentMasterTable({
               </thead>
               <tbody className="divide-y">
                 {calendar.map((item, index) => {
-                  const meta = getDailyContentMasterMeta(item, index);
+                  const meta = getDailyContentMasterMeta(item, index, platformPlaybook);
                   const selected = selectedItemId === item.id;
                   const expanded = expandedItemId === item.id;
                   const selectedPlatform =
                     platformSelections[item.id] ?? item.platform;
-                  const playbook = platformRules[selectedPlatform];
+                  const playbook = getApprovedPlaybookFields(platformPlaybook, selectedPlatform);
 
                   return (
                     <Fragment key={item.id}>
@@ -13948,7 +13985,7 @@ function DailyContentMasterTable({
   );
 }
 
-function PlatformPlaybookGuide() {
+function PlatformPlaybookGuide({ platformPlaybook }: { platformPlaybook: PlatformPlaybook }) {
   return (
     <Card>
       <CardHeader>
@@ -13968,7 +14005,7 @@ function PlatformPlaybookGuide() {
       <CardContent>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {platforms.map((platform) => {
-            const playbook = platformRules[platform];
+            const playbook = getApprovedPlaybookFields(platformPlaybook, platform);
 
             return (
               <div className="rounded-lg border bg-muted/20 p-3" key={platform}>
@@ -14956,7 +14993,11 @@ function csvToCampaign(row: Record<string, string>, ucc: UccStrategyData): UccCa
   };
 }
 
-function csvToCalendarItem(row: Record<string, string>, ucc: UccStrategyData): CalendarItem {
+function csvToCalendarItem(
+  row: Record<string, string>,
+  ucc: UccStrategyData,
+  platformPlaybook?: PlatformPlaybook,
+): CalendarItem {
   const platform = (readCsv(row, ["platform"], "Instagram") || "Instagram") as Platform;
   const date = readCsv(row, ["planned_date", "date"], "2026-07-01");
 
@@ -14972,13 +15013,21 @@ function csvToCalendarItem(row: Record<string, string>, ucc: UccStrategyData): C
     audienceId: readCsv(row, ["audience_id", "audience"], ucc.audiences[0]?.id ?? ""),
     contentPillar: readCsv(row, ["pillar", "content_pillar"], "Course Proof"),
     contentTopic: readCsv(row, ["topic", "content_topic"], "Imported content item"),
-    format: readCsv(row, ["format"], platformRules[platform]?.defaultFormat ?? "Post"),
+    format: readCsv(
+      row,
+      ["format"],
+      getApprovedPlaybookFields(platformPlaybook, platform).defaultFormat,
+    ),
     hook: readCsv(row, ["hook"], "Proof-first UCC content hook"),
     caption: readCsv(row, ["caption", "copy"], ""),
     visualDirection: readCsv(row, ["visual_direction"], ""),
     cta: readCsv(row, ["cta"], "Submit an enquiry"),
     hashtags: textToList(readCsv(row, ["hashtags"])),
-    bestPostingTime: readCsv(row, ["best_time", "best_posting_time"], platformRules[platform]?.bestPostingTime ?? "10:00 AM"),
+    bestPostingTime: readCsv(
+      row,
+      ["best_time", "best_posting_time"],
+      getApprovedPlaybookFields(platformPlaybook, platform).bestPostingTime,
+    ),
     productionNotes: readCsv(row, ["production_notes"], ""),
     assignedRole: (readCsv(row, ["owner", "assigned_role"], "marketing manager") || "marketing manager") as Role,
     owner: readCsv(row, ["owner_name", "staff_owner"], "Marketing Manager"),

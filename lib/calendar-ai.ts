@@ -3,11 +3,12 @@
 // build context) and the server route (to build the prompt). No network here.
 
 import {
-  platformRules,
+  getApprovedPlaybookFields,
   platforms,
   roles,
   type CalendarItem,
   type Platform,
+  type PlatformPlaybook,
   type Role,
   type UccCampaign,
 } from "@/lib/social-calendar-data";
@@ -188,8 +189,12 @@ function findCampaignByName(
 
 // Build the shared content fields from a single AI draft item. Used both when
 // creating fresh items and when regenerating an existing one.
-function draftContentFields(draft: CalendarDraftItem, platform: Platform) {
-  const rule = platformRules[platform];
+function draftContentFields(
+  draft: CalendarDraftItem,
+  platform: Platform,
+  platformPlaybook?: PlatformPlaybook,
+) {
+  const rule = getApprovedPlaybookFields(platformPlaybook, platform);
   return {
     contentPillar: draft.contentPillar?.trim() || "Admissions Confidence",
     contentTopic: draft.contentTopic?.trim() || "New social post",
@@ -208,14 +213,18 @@ function draftContentFields(draft: CalendarDraftItem, platform: Platform) {
 // to a draft state (status idea, approval stage idea) so the manager approves.
 export function calendarDraftToItems(
   drafts: CalendarDraftItem[],
-  options: { startDate: string; campaigns: UccCampaign[] },
+  options: {
+    startDate: string;
+    campaigns: UccCampaign[];
+    platformPlaybook?: PlatformPlaybook;
+  },
 ): CalendarItem[] {
   return drafts.map((draft, index) => {
     const platform = matchPlatform(draft.platform);
-    const rule = platformRules[platform];
+    const rule = getApprovedPlaybookFields(options.platformPlaybook, platform);
     const date = addDaysIso(options.startDate, index);
     const assignedRole = matchRole(draft.owner, platform);
-    const content = draftContentFields(draft, platform);
+    const content = draftContentFields(draft, platform, options.platformPlaybook);
     // An AI item belongs to a campaign (matched by name); a campaign already
     // targets a course and an audience, so the item inherits both links. The
     // course link lets per-item course context and compliance work; the
@@ -257,7 +266,10 @@ export function calendarDraftToItems(
 
 // Content-only patch for regenerating one existing item, keeping its id, date,
 // platform links, and approval state untouched.
-export function calendarDraftToPatch(draft: CalendarDraftItem): Partial<CalendarItem> {
+export function calendarDraftToPatch(
+  draft: CalendarDraftItem,
+  platformPlaybook?: PlatformPlaybook,
+): Partial<CalendarItem> {
   const platform = matchPlatform(draft.platform);
-  return draftContentFields(draft, platform);
+  return draftContentFields(draft, platform, platformPlaybook);
 }
