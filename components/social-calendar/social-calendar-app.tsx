@@ -9129,6 +9129,14 @@ function SocialGoalSettingPanel({
   );
 }
 
+// A platform has real audience data once any headline metric is non-zero.
+// Those metrics are filled from the Metricool or CSV/PDF import approved in
+// Settings, or typed by hand. When all are zero there is nothing real to show,
+// so the audit reports "No data yet" rather than implying a genuine zero.
+function auditHasData(audit: SocialAudit): boolean {
+  return audit.followers > 0 || audit.averageReach > 0 || audit.engagementRate > 0;
+}
+
 function makeNewAudit(platform: Platform): SocialAudit {
   return {
     platform,
@@ -9224,6 +9232,8 @@ function SocialAuditView({
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(
     audits[0]?.platform ?? "TikTok",
   );
+  // Which platform row is expanded for hand-editing its scores and notes.
+  const [expandedPlatform, setExpandedPlatform] = useState<Platform | "">("");
   const [generatingPlatform, setGeneratingPlatform] = useState<Platform | "">("");
   const [recalcProgress, setRecalcProgress] = useState<Record<string, string>>({});
   const [recalcRunning, setRecalcRunning] = useState(false);
@@ -9477,291 +9487,421 @@ function SocialAuditView({
             </div>
           ) : null}
 
+          <p className="mb-3 text-xs leading-5 text-muted-foreground">
+            Numbers come from the Metricool or CSV/PDF data you approve in
+            Integrations &amp; Settings, or you can type them in below. The
+            Metricool API returns brand-level totals, so per-platform figures
+            come from its CSV export. Engagement and posting-consistency scores
+            are derived
+            from these numbers; the craft scores are set by hand. Where a
+            platform has no data yet, it says so rather than showing a false
+            zero.
+          </p>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="py-3 pr-4 font-medium">Platform</th>
-                  <th className="py-3 pr-4 font-medium">Score</th>
                   <th className="py-3 pr-4 font-medium">Followers</th>
                   <th className="py-3 pr-4 font-medium">Avg reach</th>
-                  <th className="py-3 pr-4 font-medium">Engagement</th>
-                  <th className="py-3 pr-4 font-medium">Priority issue</th>
+                  <th className="py-3 pr-4 font-medium">Engagement %</th>
+                  <th className="py-3 pr-4 font-medium">Frequency</th>
+                  <th className="py-3 pr-4 font-medium">Score</th>
+                  <th className="py-3 pr-4 font-medium">Details</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {audits.map((audit) => (
-                  <tr
-                    className={cn(
-                      "cursor-pointer transition-colors hover:bg-muted/40",
-                      selectedAudit.platform === audit.platform && "bg-muted/50",
-                    )}
-                    key={audit.platform}
-                    onClick={() => setSelectedPlatform(audit.platform)}
-                  >
-                    <td className="py-3 pr-4">
-                      <div className="flex flex-wrap gap-1.5">
-                        <PlatformBadge platform={audit.platform} />
-                        {socialGoals.priorityPlatforms.includes(audit.platform) ? (
-                          <Badge variant="success">Goal priority</Badge>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold">{calculateAuditScore(audit)}%</span>
-                        <Progress className="w-24" value={calculateAuditScore(audit)} />
-                      </div>
-                    </td>
-                    <td className="py-3 pr-4">{formatNumber(audit.followers)}</td>
-                    <td className="py-3 pr-4">{formatNumber(audit.averageReach)}</td>
-                    <td className="py-3 pr-4">{audit.engagementRate}%</td>
-                    <td className="max-w-[280px] py-3 pr-4 text-muted-foreground">
-                      {getAuditIssues(audit)[0]}
-                    </td>
-                  </tr>
-                ))}
+                {audits.map((audit) => {
+                  const hasData = auditHasData(audit);
+                  const isOpen = expandedPlatform === audit.platform;
+                  const craftScoreFields = scoreFields.filter(
+                    (field) =>
+                      field.key !== "engagementPerformance" &&
+                      field.key !== "postingConsistency",
+                  );
+
+                  return (
+                    <Fragment key={audit.platform}>
+                      <tr className={cn(isOpen && "bg-muted/40")}>
+                        <td className="py-3 pr-4 align-top">
+                          <div className="flex flex-wrap gap-1.5">
+                            <PlatformBadge platform={audit.platform} />
+                            {socialGoals.priorityPlatforms.includes(audit.platform) ? (
+                              <Badge variant="success">Goal priority</Badge>
+                            ) : null}
+                          </div>
+                          {!hasData ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              No data yet
+                            </p>
+                          ) : null}
+                        </td>
+                        <td className="py-2 pr-4 align-top">
+                          <Input
+                            className="w-28"
+                            type="number"
+                            value={audit.followers}
+                            onChange={(event) =>
+                              updateAudit(audit.platform, (row) => ({
+                                ...row,
+                                followers: toNumber(event.target.value),
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="py-2 pr-4 align-top">
+                          <Input
+                            className="w-28"
+                            type="number"
+                            value={audit.averageReach}
+                            onChange={(event) =>
+                              updateAudit(audit.platform, (row) => ({
+                                ...row,
+                                averageReach: toNumber(event.target.value),
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="py-2 pr-4 align-top">
+                          <Input
+                            className="w-24"
+                            step="0.1"
+                            type="number"
+                            value={audit.engagementRate}
+                            onChange={(event) => {
+                              const rate = toNumber(event.target.value);
+                              updateAudit(audit.platform, (row) => ({
+                                ...row,
+                                engagementRate: rate,
+                                scores: {
+                                  ...row.scores,
+                                  engagementPerformance:
+                                    rate > 0
+                                      ? scoreEngagementPerformance(rate)
+                                      : 0,
+                                },
+                              }));
+                            }}
+                          />
+                        </td>
+                        <td className="py-2 pr-4 align-top">
+                          <Input
+                            className="w-32"
+                            value={audit.postingFrequency}
+                            onChange={(event) =>
+                              updateAudit(audit.platform, (row) => ({
+                                ...row,
+                                postingFrequency: event.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="py-3 pr-4 align-top">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">
+                              {calculateAuditScore(audit)}%
+                            </span>
+                            <Progress className="w-20" value={calculateAuditScore(audit)} />
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4 align-top">
+                          <Button
+                            onClick={() =>
+                              setExpandedPlatform(isOpen ? "" : audit.platform)
+                            }
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            {isOpen ? "Close" : "Edit"}
+                          </Button>
+                        </td>
+                      </tr>
+                      {isOpen ? (
+                        <tr className="bg-muted/20">
+                          <td className="px-3 py-4" colSpan={7}>
+                            <div className="space-y-4">
+                              <Field label="Profile link">
+                                <Input
+                                  value={audit.url}
+                                  onChange={(event) =>
+                                    updateAudit(audit.platform, (row) => ({
+                                      ...row,
+                                      url: event.target.value,
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                {craftScoreFields.map((field) => (
+                                  <ScoreField
+                                    key={field.key}
+                                    label={field.label}
+                                    value={audit.scores[field.key]}
+                                    onChange={(value) =>
+                                      updateAudit(audit.platform, (row) => ({
+                                        ...row,
+                                        scores: { ...row.scores, [field.key]: value },
+                                      }))
+                                    }
+                                  />
+                                ))}
+                              </div>
+                              <p className="text-xs leading-5 text-muted-foreground">
+                                Engagement performance ({audit.scores.engagementPerformance}/10)
+                                and posting consistency ({audit.scores.postingConsistency}/10)
+                                are derived from the numbers above and the
+                                imported Metricool data, not edited by hand.
+                              </p>
+                              <Field label="Notes">
+                                <Textarea
+                                  value={audit.notes}
+                                  onChange={(event) =>
+                                    updateAudit(audit.platform, (row) => ({
+                                      ...row,
+                                      notes: event.target.value,
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  disabled={
+                                    !liveAi ||
+                                    generatingPlatform === audit.platform ||
+                                    recalcRunning
+                                  }
+                                  onClick={() => void generateOne(audit)}
+                                  size="sm"
+                                  type="button"
+                                  variant="outline"
+                                >
+                                  <Sparkles className="h-4 w-4" />
+                                  {generatingPlatform === audit.platform
+                                    ? "Generating"
+                                    : "Generate AI recommendation"}
+                                </Button>
+                                {!liveAi ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    Connect OpenAI in Settings to generate.
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.55fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>{selectedAudit.platform} Inputs</CardTitle>
-            <CardDescription>
-              Enter current links, performance data, and qualitative notes.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="Profile link">
-              <Input
-                value={selectedAudit.url}
-                onChange={(event) =>
-                  updateAudit(selectedAudit.platform, (audit) => ({
-                    ...audit,
-                    url: event.target.value,
-                  }))
-                }
-              />
-            </Field>
+      {(() => {
+        const auditsWithData = audits.filter(auditHasData);
+        const overallScore =
+          audits.length > 0
+            ? Math.round(
+                audits.reduce((sum, row) => sum + calculateAuditScore(row), 0) /
+                  audits.length,
+              )
+            : 0;
+        const totalFollowers = auditsWithData.reduce(
+          (sum, row) => sum + row.followers,
+          0,
+        );
+        const avgEngagement =
+          auditsWithData.length > 0
+            ? roundOne(
+                auditsWithData.reduce((sum, row) => sum + row.engagementRate, 0) /
+                  auditsWithData.length,
+              )
+            : 0;
+        const combinedIssues = Array.from(
+          new Set(auditsWithData.flatMap((row) => getAuditIssues(row))),
+        ).slice(0, 6);
+        const combinedRecommendations = Array.from(
+          new Set(
+            auditsWithData.flatMap((row) =>
+              buildGoalAwareAuditRecommendations(row, socialGoals),
+            ),
+          ),
+        ).slice(0, 6);
+        const platformsWithoutData = audits
+          .filter((row) => !auditHasData(row))
+          .map((row) => row.platform);
+        const insightsByPlatform = audits
+          .map((row) => ({
+            platform: row.platform,
+            insight: auditInsights.find((entry) => entry.platform === row.platform),
+          }))
+          .filter((row) => row.insight);
 
-            <div className="grid gap-3 md:grid-cols-4">
-              <Field label="Followers">
-                <Input
-                  type="number"
-                  value={selectedAudit.followers}
-                  onChange={(event) =>
-                    updateAudit(selectedAudit.platform, (audit) => ({
-                      ...audit,
-                      followers: toNumber(event.target.value),
-                    }))
-                  }
-                />
-              </Field>
-              <Field label="Avg reach">
-                <Input
-                  type="number"
-                  value={selectedAudit.averageReach}
-                  onChange={(event) =>
-                    updateAudit(selectedAudit.platform, (audit) => ({
-                      ...audit,
-                      averageReach: toNumber(event.target.value),
-                    }))
-                  }
-                />
-              </Field>
-              <Field label="Engagement %">
-                <Input
-                  step="0.1"
-                  type="number"
-                  value={selectedAudit.engagementRate}
-                  onChange={(event) =>
-                    updateAudit(selectedAudit.platform, (audit) => ({
-                      ...audit,
-                      engagementRate: toNumber(event.target.value),
-                    }))
-                  }
-                />
-              </Field>
-              <Field label="Frequency">
-                <Input
-                  value={selectedAudit.postingFrequency}
-                  onChange={(event) =>
-                    updateAudit(selectedAudit.platform, (audit) => ({
-                      ...audit,
-                      postingFrequency: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              {scoreFields.map((field) => (
-                <ScoreField
-                  key={field.key}
-                  label={field.label}
-                  value={selectedAudit.scores[field.key]}
-                  onChange={(value) =>
-                    updateAudit(selectedAudit.platform, (audit) => ({
-                      ...audit,
-                      scores: { ...audit.scores, [field.key]: value },
-                    }))
-                  }
-                />
-              ))}
-            </div>
-
-            <Field label="Notes">
-              <Textarea
-                value={selectedAudit.notes}
-                onChange={(event) =>
-                  updateAudit(selectedAudit.platform, (audit) => ({
-                    ...audit,
-                    notes: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Audit Output</CardTitle>
-            <CardDescription>
-              Platform score, issues, and priority recommendations.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="rounded-lg border bg-muted/30 p-4">
-              <div className="flex items-center justify-between">
-                <Gauge className="h-5 w-5 text-primary" />
-                <span className="text-2xl font-semibold">
-                  {calculateAuditScore(selectedAudit)}%
-                </span>
-              </div>
-              <Progress className="mt-4" value={calculateAuditScore(selectedAudit)} />
-            </div>
-
-            <InsightList
-              title="Issues"
-              items={getAuditIssues(selectedAudit)}
-              variant="warning"
-            />
-            <InsightList
-              title={
-                liveAi
-                  ? "Rule-based recommendations"
-                  : "Rule-based recommendations (Offline draft, AI not connected)"
-              }
-              items={buildGoalAwareAuditRecommendations(
-                selectedAudit,
-                socialGoals,
-              )}
-              variant="success"
-            />
-
-            <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold">AI recommendation</p>
-                <Button
-                  disabled={!liveAi || generatingPlatform === selectedAudit.platform || recalcRunning}
-                  onClick={() => void generateOne(selectedAudit)}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  {generatingPlatform === selectedAudit.platform
-                    ? "Generating"
-                    : "Generate AI recommendation"}
-                </Button>
-              </div>
-
-              {(() => {
-                const insight = auditInsights.find(
-                  (row) => row.platform === selectedAudit.platform,
-                );
-
-                if (!insight) {
-                  return (
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      No AI recommendation yet for {selectedAudit.platform}.
-                    </p>
-                  );
-                }
-
-                return (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant={
-                          insight.status === "accepted"
-                            ? "success"
-                            : insight.status === "dismissed"
-                              ? "secondary"
-                              : "warning"
-                        }
-                      >
-                        {insight.status === "accepted"
-                          ? "Accepted"
-                          : insight.status === "dismissed"
-                            ? "Dismissed"
-                            : "AI draft, not yet accepted"}
-                      </Badge>
-                      <Badge variant="outline">
-                        {insight.confidenceLevel} confidence
-                      </Badge>
-                      {insight.limitedData ? (
-                        <Badge variant="secondary">Limited data</Badge>
-                      ) : null}
-                    </div>
-                    <p className="text-sm leading-6">{insight.recommendation}</p>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Confidence: {insight.confidenceReason}
-                    </p>
-                    {insight.nextActions.length > 0 ? (
-                      <ul className="list-disc space-y-1 pl-4 text-sm leading-6">
-                        {insight.nextActions.map((action) => (
-                          <li key={action}>{action}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      {formatDateTime(insight.generatedAt)}, {insight.model}.{" "}
-                      {insight.inputSummary}
-                    </p>
-                    {insight.status === "draft" ? (
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          onClick={() => setInsightStatus(insight.id, "accepted")}
-                          size="sm"
-                          type="button"
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                          Accept
-                        </Button>
-                        <Button
-                          onClick={() => setInsightStatus(insight.id, "dismissed")}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          Dismiss
-                        </Button>
-                      </div>
-                    ) : null}
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle>Audit Output</CardTitle>
+              <CardDescription>
+                An overall view across every platform in the audit: combined
+                score, real audience numbers, issues, and recommendations.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <div className="flex items-center justify-between">
+                    <Gauge className="h-5 w-5 text-primary" />
+                    <span className="text-2xl font-semibold">{overallScore}%</span>
                   </div>
-                );
-              })()}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                  <Progress className="mt-3" value={overallScore} />
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    Average across {audits.length} platform
+                    {audits.length === 1 ? "" : "s"} ({auditsWithData.length} with
+                    data).
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-4">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">
+                    Total followers
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold">
+                    {auditsWithData.length > 0
+                      ? formatNumber(totalFollowers)
+                      : "No data yet"}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    From platforms with imported data.
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-4">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">
+                    Average engagement
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold">
+                    {auditsWithData.length > 0 ? `${avgEngagement}%` : "No data yet"}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Across platforms with data.
+                  </p>
+                </div>
+              </div>
+
+              {platformsWithoutData.length > 0 ? (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  No Metricool data yet for: {platformsWithoutData.join(", ")}.
+                  Import in Integrations &amp; Settings, or type figures into the
+                  table above.
+                </p>
+              ) : null}
+
+              {auditsWithData.length > 0 ? (
+                <>
+                  <InsightList
+                    title="Top issues across platforms"
+                    items={combinedIssues}
+                    variant="warning"
+                  />
+                  <InsightList
+                    title={
+                      liveAi
+                        ? "Rule-based recommendations"
+                        : "Rule-based recommendations (Offline draft, AI not connected)"
+                    }
+                    items={combinedRecommendations}
+                    variant="success"
+                  />
+                </>
+              ) : (
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Add real numbers to at least one platform to see combined
+                  issues and recommendations across the whole audit.
+                </p>
+              )}
+
+              <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                <p className="text-sm font-semibold">
+                  AI recommendations by platform
+                </p>
+                {insightsByPlatform.length === 0 ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    No AI recommendations yet. Use Recalculate all with AI above,
+                    or Generate on a platform row, to produce them.
+                  </p>
+                ) : (
+                  insightsByPlatform.map(({ platform, insight }) =>
+                    insight ? (
+                      <div
+                        className="space-y-2 rounded-md border bg-background p-3"
+                        key={platform}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <PlatformBadge platform={platform} />
+                          <Badge
+                            variant={
+                              insight.status === "accepted"
+                                ? "success"
+                                : insight.status === "dismissed"
+                                  ? "secondary"
+                                  : "warning"
+                            }
+                          >
+                            {insight.status === "accepted"
+                              ? "Accepted"
+                              : insight.status === "dismissed"
+                                ? "Dismissed"
+                                : "AI draft, not yet accepted"}
+                          </Badge>
+                          <Badge variant="outline">
+                            {insight.confidenceLevel} confidence
+                          </Badge>
+                          {insight.limitedData ? (
+                            <Badge variant="secondary">Limited data</Badge>
+                          ) : null}
+                        </div>
+                        <p className="text-sm leading-6">{insight.recommendation}</p>
+                        {insight.nextActions.length > 0 ? (
+                          <ul className="list-disc space-y-1 pl-4 text-sm leading-6">
+                            {insight.nextActions.map((action) => (
+                              <li key={action}>{action}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        <p className="text-xs leading-5 text-muted-foreground">
+                          {formatDateTime(insight.generatedAt)}, {insight.model}.{" "}
+                          {insight.inputSummary}
+                        </p>
+                        {insight.status === "draft" ? (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              onClick={() => setInsightStatus(insight.id, "accepted")}
+                              size="sm"
+                              type="button"
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              Accept
+                            </Button>
+                            <Button
+                              onClick={() => setInsightStatus(insight.id, "dismissed")}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              Dismiss
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null,
+                  )
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
     </section>
   );
 }
