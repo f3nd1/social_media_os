@@ -9015,7 +9015,7 @@ function SocialGoalSettingPanel({
           </Field>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Campaign window">
             <Input
               value={socialGoals.campaignWindow}
@@ -9035,12 +9035,6 @@ function SocialGoalSettingPanel({
                 </option>
               ))}
             </NativeSelect>
-          </Field>
-          <Field label="North-star metric">
-            <Input
-              value={socialGoals.northStarMetric}
-              onChange={(event) => onChange({ northStarMetric: event.target.value })}
-            />
           </Field>
           <Field label="Goal owner">
             <NativeSelect
@@ -10109,7 +10103,7 @@ function CompetitorIntelligenceView({
                             updateCompetitor(
                               competitor.id,
                               "platforms",
-                              textToList(event.target.value).filter(isPlatform),
+                              parsePlatformList(event.target.value),
                             )
                           }
                         />
@@ -14636,6 +14630,44 @@ function textToList(value: string) {
 
 function isPlatform(value: string): value is Platform {
   return platforms.includes(value as Platform);
+}
+
+// Common ways people write the seven known platforms, so a typed value like
+// "Twitter", "IG", or "YouTube" is not silently discarded. Anything that still
+// cannot be matched is dropped, but the common cases are preserved.
+const PLATFORM_ALIASES: Record<string, Platform> = {
+  tiktok: "TikTok",
+  "tik tok": "TikTok",
+  instagram: "Instagram",
+  insta: "Instagram",
+  ig: "Instagram",
+  "youtube shorts": "YouTube Shorts",
+  youtube: "YouTube Shorts",
+  shorts: "YouTube Shorts",
+  yt: "YouTube Shorts",
+  linkedin: "LinkedIn",
+  facebook: "Facebook",
+  fb: "Facebook",
+  "x/twitter": "X/Twitter",
+  x: "X/Twitter",
+  twitter: "X/Twitter",
+  threads: "Threads",
+};
+
+// Parse a free-text list of platforms into known Platform values, tolerating
+// case and common aliases, and de-duplicating while keeping order.
+function parsePlatformList(text: string): Platform[] {
+  const seen = new Set<Platform>();
+  const result: Platform[] = [];
+  for (const raw of textToList(text)) {
+    const key = raw.trim().toLowerCase();
+    const platform = isPlatform(raw) ? (raw as Platform) : PLATFORM_ALIASES[key];
+    if (platform && !seen.has(platform)) {
+      seen.add(platform);
+      result.push(platform);
+    }
+  }
+  return result;
 }
 
 function toNumber(value: string) {
