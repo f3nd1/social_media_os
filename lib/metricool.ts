@@ -8,8 +8,9 @@
 //   - Auth:  userToken, userId and blogId are QUERY PARAMETERS, not headers.
 //   - Brands: GET /brands
 //   - Metric timeline: GET /stats/timeline/{metric}?start=...&end=...
-//   - Dates: plain calendar dates YYYY-MM-DD only. A time component such as
-//     "T00:00:00" makes Metricool throw "For input string" and return HTTP 500.
+//   - Dates: compact 8-digit YYYYMMDD numbers (for example 20260703), matching
+//     the reference CLI. Dashes ("2026-07-03") or a time component ("T00:00:00")
+//     make Metricool throw "For input string" and return HTTP 500.
 // Earlier code called /v2/settings/brands and /v2/analytics/timelines with an
 // X-Mc-Auth header, which is why Metricool served its website HTML with a 404:
 // the request never reached the API router.
@@ -483,20 +484,29 @@ type TimelineOutcome =
       maskedUrl: string;
     };
 
-// Safeguard against the date-format regression: Metricool rejects a time
-// component on its date parameters, so any date still carrying a "T" must be
-// surfaced loudly rather than failing silently with a 500 later.
+// Convert a YYYY-MM-DD (or ISO datetime) date to the compact 8-digit YYYYMMDD
+// form Metricool's v1 stats endpoints require, matching the reference CLI's
+// toYYYYMMDD helper. Example: "2026-07-03" -> "20260703".
+function toMetricoolDate(value: string): string {
+  return value.slice(0, 10).replace(/-/g, "");
+}
+
+// Safeguard against the date-format regression: Metricool's v1 stats endpoints
+// parse these dates as numbers and reject anything that is not the compact
+// 8-digit YYYYMMDD form (dashes or a "T" time component throw "For input
+// string" and a 500). Surface a bad date loudly rather than failing silently.
 function assertPlainMetricoolDate(value: string, label: string) {
-  if (value.includes("T")) {
+  if (!/^\d{8}$/.test(value)) {
     console.warn(
-      `[metricool] ${label} date "${value}" still contains a time component. ` +
-        "Metricool rejects times (throws \"For input string\"); send YYYY-MM-DD only.",
+      `[metricool] ${label} date "${value}" is not the required YYYYMMDD (8-digit) form. ` +
+        "Metricool parses these dates as numbers and rejects dashes or a time component " +
+        '(throws "For input string" and returns HTTP 500).',
     );
   }
 }
 
-// Metricool date parameters must be plain dates (YYYY-MM-DD) with no time and no
-// timezone; a time component makes the API answer HTTP 500.
+// Metricool's v1 stats endpoints want the date parameters as compact YYYYMMDD
+// numbers; dashes or a time component make the API throw and answer HTTP 500.
 function timelineUrl(credentials: MetricoolCredentials, metric: string, start: string, end: string) {
   assertPlainMetricoolDate(start, "timeline start");
   assertPlainMetricoolDate(end, "timeline end");
@@ -651,17 +661,20 @@ export async function syncMetricoolMetrics(
     ? rangeDays
     : 30;
   const { from, to } = lastNDayRange(days);
-  // Metricool's timeline API rejects any time component on these dates: a value
-  // like "2026-07-03T00:00:00" throws "For input string: 2026-07-03T00:00:00"
-  // and returns HTTP 500. Send plain YYYY-MM-DD dates only, with no T portion.
-  const start = from;
-  const end = to;
+  // Metricool's v1 stats endpoints parse these date parameters as numbers, so
+  // they must be the compact 8-digit YYYYMMDD form (for example 20260703).
+  // A value with dashes ("2026-07-03") or a time component ("2026-07-03T00:00:00")
+  // makes Metricool throw "For input string" and return HTTP 500.
+  const start = toMetricoolDate(from);
+  const end = toMetricoolDate(to);
 
   const report: string[] = [];
   const brandRow = brandCheck.value.row as Record<string, unknown>;
   const connectedNetworks = extractConnectedNetworks(brandRow);
 
-  report.push(`Date range requested: ${start} to ${end} (last ${days} days).`);
+  report.push(
+    `Date range requested: ${from} to ${to} (sent to Metricool as ${start} and ${end}, last ${days} days).`,
+  );
   report.push(`Brand found: "${brandCheck.value.label}" (Blog ID ${credentials.blogId}).`);
 
   if (connectedNetworks.length > 0) {
