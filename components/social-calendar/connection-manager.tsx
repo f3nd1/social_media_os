@@ -914,7 +914,7 @@ export function MetricReviewPanel({
                   <tr key={row.id}>
                     <td className="py-2 pr-3">
                       <input
-                        aria-label={`Approve ${row.platform} metrics`}
+                        aria-label={`Approve ${row.label ?? row.platform} metrics`}
                         checked={row.approved}
                         onChange={(event) =>
                           onRowChange(row.id, { approved: event.target.checked })
@@ -922,7 +922,7 @@ export function MetricReviewPanel({
                         type="checkbox"
                       />
                     </td>
-                    <td className="whitespace-nowrap py-2 pr-3 font-medium">{row.platform}</td>
+                    <td className="whitespace-nowrap py-2 pr-3 font-medium">{row.label ?? row.platform}</td>
                     <td className="whitespace-nowrap py-2 pr-3">{row.confidence}%</td>
                     {pdfReviewMetricFields.map((field) => (
                       <td className="min-w-[86px] py-2 pr-3" key={field}>

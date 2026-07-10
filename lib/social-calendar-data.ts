@@ -479,6 +479,9 @@ export type PdfReportUpload = {
 export type PdfMetricReview = {
   id: string;
   platform: Platform;
+  // Display label shown in the review table when the row is not a single
+  // network (for example "Brand total (all networks)" from a Metricool sync).
+  label?: string;
   followers: number;
   impressions: number;
   reach: number;

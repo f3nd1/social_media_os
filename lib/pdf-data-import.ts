@@ -4,7 +4,7 @@ import {
   type PdfMetricReview,
 } from "@/lib/social-calendar-data";
 
-type MetricKey = Exclude<keyof PlatformDataMetrics, "platform">;
+type MetricKey = Exclude<keyof PlatformDataMetrics, "platform" | "label">;
 
 // A batch of metric rows awaiting human approval before they apply anywhere,
 // produced by PDF import, Metricool CSV import, or a Metricool API sync.
@@ -17,6 +17,10 @@ export type PendingMetricReview = {
 
 export type PlatformDataMetrics = {
   platform: Platform;
+  // Optional human label for the review row, used when the row is not a single
+  // network (for example a Metricool brand total across all networks). The
+  // platform key above is still used to attach the numbers to an audit.
+  label?: string;
   followers: number;
   impressions: number;
   reach: number;
@@ -368,7 +372,7 @@ function escapeRegExp(value: string) {
 export const pdfReviewMetricFields: Array<
   keyof Omit<
     PdfMetricReview,
-    "id" | "platform" | "confidence" | "approved" | "edited" | "notes"
+    "id" | "platform" | "label" | "confidence" | "approved" | "edited" | "notes"
   >
 > = [
   "followers",
@@ -392,6 +396,7 @@ export function buildPdfMetricReviewRows(
   return platformMetrics.map((metrics, index) => ({
     id: `${idPrefix}-${metrics.platform.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}-${index}`,
     platform: metrics.platform,
+    label: metrics.label,
     followers: metrics.followers,
     impressions: metrics.impressions,
     reach: metrics.reach,

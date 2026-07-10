@@ -16,7 +16,7 @@ export type MetricoolCsvParseResult =
   | { ok: true; metrics: PlatformDataMetrics[] }
   | { ok: false; error: string; foundHeaders: string[] };
 
-type MetricKey = Exclude<keyof PlatformDataMetrics, "platform">;
+type MetricKey = Exclude<keyof PlatformDataMetrics, "platform" | "label">;
 
 const NETWORK_HEADER_ALIASES = ["network", "social network", "platform", "channel"];
 

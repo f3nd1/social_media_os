@@ -8,7 +8,8 @@
 //   - Auth:  userToken, userId and blogId are QUERY PARAMETERS, not headers.
 //   - Brands: GET /brands
 //   - Metric timeline: GET /stats/timeline/{metric}?start=...&end=...
-//   - Dates: ISO 8601 datetimes (start T00:00:00, end T23:59:59), no timezone.
+//   - Dates: plain calendar dates YYYY-MM-DD only. A time component such as
+//     "T00:00:00" makes Metricool throw "For input string" and return HTTP 500.
 // Earlier code called /v2/settings/brands and /v2/analytics/timelines with an
 // X-Mc-Auth header, which is why Metricool served its website HTML with a 404:
 // the request never reached the API router.
@@ -482,9 +483,23 @@ type TimelineOutcome =
       maskedUrl: string;
     };
 
-// Metricool timeline dates are ISO 8601 datetimes with no timezone (verified
-// CLI passes user dates as-is): start at 00:00:00, end at 23:59:59.
+// Safeguard against the date-format regression: Metricool rejects a time
+// component on its date parameters, so any date still carrying a "T" must be
+// surfaced loudly rather than failing silently with a 500 later.
+function assertPlainMetricoolDate(value: string, label: string) {
+  if (value.includes("T")) {
+    console.warn(
+      `[metricool] ${label} date "${value}" still contains a time component. ` +
+        "Metricool rejects times (throws \"For input string\"); send YYYY-MM-DD only.",
+    );
+  }
+}
+
+// Metricool date parameters must be plain dates (YYYY-MM-DD) with no time and no
+// timezone; a time component makes the API answer HTTP 500.
 function timelineUrl(credentials: MetricoolCredentials, metric: string, start: string, end: string) {
+  assertPlainMetricoolDate(start, "timeline start");
+  assertPlainMetricoolDate(end, "timeline end");
   const url = `${METRICOOL_BASE_URL}/stats/timeline/${encodeURIComponent(metric)}?start=${encodeURIComponent(
     start,
   )}&end=${encodeURIComponent(end)}`;
@@ -566,6 +581,8 @@ async function fetchPostCount(
   end: string,
 ): Promise<number> {
   try {
+    assertPlainMetricoolDate(start, "posts start");
+    assertPlainMetricoolDate(end, "posts end");
     const url = withAuth(
       `${METRICOOL_BASE_URL}/posts?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
       credentials,
@@ -634,9 +651,11 @@ export async function syncMetricoolMetrics(
     ? rangeDays
     : 30;
   const { from, to } = lastNDayRange(days);
-  // Metricool timeline dates are datetimes; cover the whole day at each end.
-  const start = `${from}T00:00:00`;
-  const end = `${to}T23:59:59`;
+  // Metricool's timeline API rejects any time component on these dates: a value
+  // like "2026-07-03T00:00:00" throws "For input string: 2026-07-03T00:00:00"
+  // and returns HTTP 500. Send plain YYYY-MM-DD dates only, with no T portion.
+  const start = from;
+  const end = to;
 
   const report: string[] = [];
   const brandRow = brandCheck.value.row as Record<string, unknown>;
@@ -713,9 +732,11 @@ export async function syncMetricoolMetrics(
   const gotData = outcomes.some((outcome) => outcome.ok && outcome.points > 0);
 
   if (gotData) {
-    // The timeline is brand-level, so this is one row for the brand, labelled
-    // with the first connected network that maps to a platform. Reviewed and
-    // approved before it is applied; never auto-written.
+    // The timeline is brand-level (all networks combined), so this is a single
+    // "Brand total" row. It still needs a platform key to attach to an audit on
+    // apply: the first connected network that maps to a platform, or a default.
+    // The row is labelled "Brand total (all networks)" so it is never mistaken
+    // for one network's figures. Reviewed and approved before it is applied.
     const primaryNetwork = connectedNetworks.find(
       (network) => METRICOOL_NETWORK_TO_PLATFORM[network],
     );
@@ -725,13 +746,14 @@ export async function syncMetricoolMetrics(
     const posts = await fetchPostCount(credentials, start, end);
 
     report.push(
-      `Producing one brand-level row for review, labelled ${platform}${
-        primaryNetwork ? "" : " (no network mapped, using a default label)"
+      `Producing one row for review, labelled "Brand total (all networks)" and stored against the ${platform} audit${
+        primaryNetwork ? "" : " (no network mapped, using a default)"
       }. Metricool's timeline API returns brand totals, not a per-network split; for per-network figures use the CSV export.`,
     );
 
     metrics.push({
       platform,
+      label: "Brand total (all networks)",
       followers: followers.ok ? Math.round(followers.latest) : 0,
       impressions: impressions.ok ? Math.round(impressions.total) : 0,
       reach: reach.ok ? Math.round(reach.total) : 0,
