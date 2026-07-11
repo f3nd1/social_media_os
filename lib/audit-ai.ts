@@ -1,7 +1,11 @@
 // Prompt building and output mapping for AI audit recommendations
 // (Module A1, Objectives screen). Pure helpers, no network.
 
-import type { AuditInsight, Platform } from "@/lib/social-calendar-data";
+import type {
+  AuditInsight,
+  AuditOverviewInsight,
+  Platform,
+} from "@/lib/social-calendar-data";
 
 export type AuditAiContext = {
   platform: Platform;
@@ -98,4 +102,105 @@ export function upsertAuditInsight(
   next: AuditInsight,
 ): AuditInsight[] {
   return [next, ...insights.filter((insight) => insight.platform !== next.platform)];
+}
+
+// Context for the whole-audit synthesis: every platform together, so the
+// model reasons about the account as one connected presence rather than
+// producing a single-platform view. Used by the "Audit Output" card.
+export type WholeAuditAiContext = {
+  platforms: Array<{
+    platform: Platform;
+    followers: number;
+    averageReach: number;
+    engagementRate: number;
+    postingFrequency: string;
+    scores: Record<string, number>;
+    notes: string;
+    isPriorityPlatform: boolean;
+  }>;
+  smartGoal: {
+    primaryObjective: string;
+    conversionAction: string;
+    funnelStage: string;
+    monthlyTargets: Record<string, number>;
+  };
+  courses: Array<{ name: string; category: string }>;
+  audiences: Array<{ name: string; painPoints: string[] }>;
+};
+
+export type WholeAuditAiDraft = {
+  overallSummary: string;
+  topStrengths: string[];
+  topWeaknesses: string[];
+  nextActions: string[];
+  confidenceLevel: "high" | "medium" | "low";
+  confidenceReason: string;
+  limitedData: boolean;
+};
+
+export function buildWholeAuditSystemPrompt(): string {
+  return [
+    "You are a senior education marketing analyst for a private college.",
+    "You produce ONE overall assessment of the whole social media presence, synthesising every platform together as one connected account, not a single platform's view. You are a draft for a human Marketing Manager to accept or dismiss. You never act on it yourself.",
+    "Ground every claim in the numbers provided in the context. Quote only figures that appear there; never invent metrics. If most platforms have zero or missing metrics, set limitedData to true and begin the summary with 'Based on limited data'.",
+    "Compliance is mandatory. Keep claims factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes.",
+    "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
+    "Return only a single JSON object matching the requested shape.",
+  ].join(" ");
+}
+
+export function buildWholeAuditUserPrompt(context: WholeAuditAiContext): string {
+  const shape = {
+    overallSummary:
+      "string, 3 to 5 sentences assessing the whole audit across all platforms together",
+    topStrengths: ["string, 2 or 3 strengths that hold across the whole presence"],
+    topWeaknesses: ["string, 2 or 3 weaknesses that hold across the whole presence"],
+    nextActions: ["string, 3 to 5 concrete cross-platform actions, in priority order"],
+    confidenceLevel: "high | medium | low",
+    confidenceReason: "string, one line explaining the confidence level",
+    limitedData: "boolean, true when metrics are largely missing across platforms",
+  };
+
+  return [
+    "Assess the WHOLE social audit below as one connected presence across every platform listed.",
+    "Do not focus on any single platform in isolation; synthesise across all of them into one overall analysis.",
+    "",
+    "CONTEXT (the manager's real workspace data, one entry per platform):",
+    JSON.stringify(context, null, 2),
+    "",
+    "Return a JSON object with exactly this shape:",
+    JSON.stringify(shape, null, 2),
+  ].join("\n");
+}
+
+export function wholeAuditDraftToInsight(
+  draft: WholeAuditAiDraft,
+  options: { model: string; inputSummary: string; platformsCovered: Platform[] },
+): AuditOverviewInsight {
+  return {
+    id: `audit-overview-${Date.now()}`,
+    recommendation: draft.overallSummary?.trim() || "",
+    topStrengths: Array.isArray(draft.topStrengths)
+      ? draft.topStrengths.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
+      : [],
+    topWeaknesses: Array.isArray(draft.topWeaknesses)
+      ? draft.topWeaknesses.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
+      : [],
+    nextActions: Array.isArray(draft.nextActions)
+      ? draft.nextActions
+          .map((action) => (typeof action === "string" ? action.trim() : ""))
+          .filter(Boolean)
+          .slice(0, 5)
+      : [],
+    confidenceLevel: ["high", "medium", "low"].includes(draft.confidenceLevel)
+      ? draft.confidenceLevel
+      : "low",
+    confidenceReason: draft.confidenceReason?.trim() || "",
+    limitedData: Boolean(draft.limitedData),
+    status: "draft",
+    model: options.model,
+    generatedAt: new Date().toISOString(),
+    inputSummary: options.inputSummary,
+    platformsCovered: options.platformsCovered,
+  };
 }

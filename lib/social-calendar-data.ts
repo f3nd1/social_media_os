@@ -655,6 +655,24 @@ export type AuditInsight = {
   inputSummary: string;
 };
 
+// One AI-generated synthesis across the WHOLE Social Audit (every platform
+// together, not one platform's view), shown in the Audit Output card.
+export type AuditOverviewInsight = {
+  id: string;
+  recommendation: string;
+  topStrengths: string[];
+  topWeaknesses: string[];
+  nextActions: string[];
+  confidenceLevel: "high" | "medium" | "low";
+  confidenceReason: string;
+  limitedData: boolean;
+  status: "draft" | "accepted" | "dismissed";
+  model: string;
+  generatedAt: string;
+  inputSummary: string;
+  platformsCovered: Platform[];
+};
+
 // One recorded AI call for the usage meter. Token counts come from OpenAI's
 // own usage figures, never estimates.
 export type AiUsageEntry = {
@@ -893,6 +911,8 @@ export type MarketingWorkspaceData = {
   aiIntegration: AiIntegrationSettings;
   aiUsage: AiUsageEntry[];
   auditInsights: AuditInsight[];
+  // Optional so older saves (before this field existed) upgrade safely.
+  auditOverviewInsight?: AuditOverviewInsight | null;
   campaignSuggestions: CampaignSuggestion[];
   competitorInsights: CompetitorInsight[];
   complianceDocs: ComplianceDoc[];
@@ -2772,6 +2792,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     aiIntegration: createDefaultAiIntegration(),
     aiUsage: [],
     auditInsights: [],
+    auditOverviewInsight: null,
     campaignSuggestions: [],
     competitorInsights: [],
     complianceDocs: [],
@@ -2883,6 +2904,7 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
     aiIntegration: createDefaultAiIntegration(),
     aiUsage: [],
     auditInsights: [],
+    auditOverviewInsight: null,
     campaignSuggestions: [],
     competitorInsights: [],
     complianceDocs: [],

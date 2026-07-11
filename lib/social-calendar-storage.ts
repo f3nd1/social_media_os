@@ -152,6 +152,10 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
     },
     aiUsage: Array.isArray(data.aiUsage) ? data.aiUsage : [],
     auditInsights: Array.isArray(data.auditInsights) ? data.auditInsights : [],
+    auditOverviewInsight:
+      data.auditOverviewInsight && typeof data.auditOverviewInsight === "object"
+        ? data.auditOverviewInsight
+        : null,
     campaignSuggestions: Array.isArray(data.campaignSuggestions)
       ? data.campaignSuggestions
       : [],

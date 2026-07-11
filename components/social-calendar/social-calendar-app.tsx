@@ -67,8 +67,11 @@ import type { OpenAiUsage } from "@/lib/openai-shared";
 import {
   auditDraftToInsight,
   upsertAuditInsight,
+  wholeAuditDraftToInsight,
   type AuditAiContext,
   type AuditAiDraft,
+  type WholeAuditAiContext,
+  type WholeAuditAiDraft,
 } from "@/lib/audit-ai";
 import {
   platformPlaybookDraftToFields,
@@ -176,6 +179,7 @@ import {
   type TrendInsight,
   type WeeklyReport,
   type AuditInsight,
+  type AuditOverviewInsight,
   type CampaignSuggestion,
   type CompetitorInsight,
   type ComplianceDoc,
@@ -1383,12 +1387,16 @@ export function SocialCalendarApp() {
               <SocialAuditView
                 aiIntegration={data.aiIntegration}
                 auditInsights={data.auditInsights}
+                auditOverviewInsight={data.auditOverviewInsight ?? null}
                 audits={data.audits}
                 highlightPlatform={highlightAuditPlatform}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
                 onAuditInsightsChange={(auditInsights) =>
                   updateWorkspace((current) => ({ ...current, auditInsights }))
+                }
+                onAuditOverviewChange={(auditOverviewInsight) =>
+                  updateWorkspace((current) => ({ ...current, auditOverviewInsight }))
                 }
                 onAuditsChange={(audits) =>
                   updateWorkspace((current) => ({ ...current, audits }))
@@ -8796,62 +8804,16 @@ function makeNewAudit(platform: Platform): SocialAudit {
 
 // The control that lets the owner add a platform to the audit. Without this a
 // blank workspace could never start an audit, which stalled the whole setup.
-function AddAuditControl({
-  audits,
-  onAdd,
-}: {
-  audits: SocialAudit[];
-  onAdd: (platform: Platform) => void;
-}) {
-  const available = platforms.filter(
-    (platform) => !audits.some((audit) => audit.platform === platform),
-  );
-  const [choice, setChoice] = useState<Platform>(available[0] ?? platforms[0]);
-
-  if (available.length === 0) {
-    return (
-      <p className="text-xs leading-5 text-muted-foreground">
-        Every platform has been added to the audit.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-wrap items-end gap-2">
-      <div className="min-w-[200px]">
-        <Field label="Platform to audit">
-          <NativeSelect
-            onChange={(event) => setChoice(event.target.value as Platform)}
-            value={available.includes(choice) ? choice : available[0]}
-          >
-            {available.map((platform) => (
-              <option key={platform} value={platform}>
-                {platform}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-      </div>
-      <Button
-        onClick={() => onAdd(available.includes(choice) ? choice : available[0])}
-        size="sm"
-        type="button"
-      >
-        <Plus className="h-4 w-4" />
-        Add platform audit
-      </Button>
-    </div>
-  );
-}
-
 function SocialAuditView({
   aiIntegration,
   auditInsights,
   audits,
+  auditOverviewInsight,
   highlightPlatform,
   socialGoals,
   ucc,
   onAuditInsightsChange,
+  onAuditOverviewChange,
   onAuditsChange,
   onHighlightConsumed,
   onRecordUsage,
@@ -8859,11 +8821,13 @@ function SocialAuditView({
 }: {
   aiIntegration: AiIntegrationSettings;
   auditInsights: AuditInsight[];
+  auditOverviewInsight: AuditOverviewInsight | null;
   audits: SocialAudit[];
   highlightPlatform?: Platform | null;
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
   onAuditInsightsChange: (auditInsights: AuditInsight[]) => void;
+  onAuditOverviewChange: (auditOverviewInsight: AuditOverviewInsight | null) => void;
   onAuditsChange: (audits: SocialAudit[]) => void;
   onHighlightConsumed?: () => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
@@ -8904,6 +8868,8 @@ function SocialAuditView({
   const [recalcProgress, setRecalcProgress] = useState<Record<string, string>>({});
   const [recalcRunning, setRecalcRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [generatingOverview, setGeneratingOverview] = useState(false);
+  const [overviewError, setOverviewError] = useState("");
   // Local mirror so a sequential "Recalculate all" run does not lose earlier
   // platforms' results to stale prop closures between state updates.
   const insightsRef = useRef(auditInsights);
@@ -9017,6 +8983,85 @@ function SocialAuditView({
     setRecalcRunning(false);
   }
 
+  function buildWholeAuditContext(): WholeAuditAiContext {
+    return {
+      platforms: audits.map((audit) => ({
+        platform: audit.platform,
+        followers: audit.followers,
+        averageReach: audit.averageReach,
+        engagementRate: audit.engagementRate,
+        postingFrequency: audit.postingFrequency,
+        scores: audit.scores as unknown as Record<string, number>,
+        notes: audit.notes,
+        isPriorityPlatform: socialGoals.priorityPlatforms.includes(audit.platform),
+      })),
+      smartGoal: {
+        primaryObjective: socialGoals.primaryObjective,
+        conversionAction: socialGoals.conversionAction,
+        funnelStage: socialGoals.funnelStage,
+        monthlyTargets: socialGoals.monthlyTargets as unknown as Record<string, number>,
+      },
+      courses: ucc.courses
+        .filter((course) => course.status !== "archived")
+        .map((course) => ({ name: course.name, category: course.category })),
+      audiences: ucc.audiences.map((audience) => ({
+        name: audience.name,
+        painPoints: audience.concerns,
+      })),
+    };
+  }
+
+  async function generateWholeAuditSummary() {
+    setGeneratingOverview(true);
+    setOverviewError("");
+
+    try {
+      const response = await fetch(apiUrl("/api/ai/audit"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          model: resolveModelForTask(aiIntegration, "analysis"),
+          mode: "whole",
+          wholeContext: buildWholeAuditContext(),
+        }),
+      });
+      const result = (await response.json()) as
+        | { ok: true; draft: WholeAuditAiDraft; usage?: OpenAiUsage; model?: string }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setOverviewError(result.error);
+        return;
+      }
+
+      const overview = wholeAuditDraftToInsight(result.draft, {
+        model: result.model ?? "unknown",
+        inputSummary: `${audits.length} platform${audits.length === 1 ? "" : "s"} assessed together: ${audits
+          .map((audit) => audit.platform)
+          .join(", ")}.`,
+        platformsCovered: audits.map((audit) => audit.platform),
+      });
+      onAuditOverviewChange(overview);
+
+      if (result.usage) {
+        onRecordUsage("Objectives audit overview", result.model ?? "unknown", result.usage);
+      }
+    } catch (error) {
+      setOverviewError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGeneratingOverview(false);
+    }
+  }
+
+  function setOverviewStatus(status: AuditOverviewInsight["status"]) {
+    if (!auditOverviewInsight) {
+      return;
+    }
+
+    onAuditOverviewChange({ ...auditOverviewInsight, status });
+  }
+
   function setInsightStatus(id: string, status: AuditInsight["status"]) {
     onAuditInsightsChange(
       auditInsights.map((insight) =>
@@ -9029,16 +9074,6 @@ function SocialAuditView({
     onAuditsChange(
       audits.map((audit) => (audit.platform === platform ? updater(audit) : audit)),
     );
-  }
-
-  function addAudit(platform: Platform) {
-    if (audits.some((audit) => audit.platform === platform)) {
-      setSelectedPlatform(platform);
-      return;
-    }
-
-    onAuditsChange([...audits, makeNewAudit(platform)]);
-    setSelectedPlatform(platform);
   }
 
   function updateSocialGoals(patch: Partial<SocialGoalSettings>) {
@@ -9072,12 +9107,9 @@ function SocialAuditView({
               icon={SearchCheck}
               kicker="Plan"
               title="Start your social audit"
-              description="Add a platform to record where it stands today. You can fill in the numbers by hand, or connect a data source in Settings later. Add each platform you use."
+              description="Connect Metricool, or import a Metricool CSV or PDF report, in Integrations & Settings. A platform's Social Audit row is created automatically the first time real numbers arrive for it; there is no manual add step."
             />
           </CardHeader>
-          <CardContent>
-            <AddAuditControl audits={audits} onAdd={addAudit} />
-          </CardContent>
         </Card>
       </section>
     );
@@ -9100,7 +9132,6 @@ function SocialAuditView({
             description="Score the current platform presence across completeness, consistency, content mix, hooks, CTAs, visuals, and engagement."
           />
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
-            <AddAuditControl audits={audits} onAdd={addAudit} />
             <Button
               disabled={!liveAi || recalcRunning}
               onClick={() => void recalculateAll()}
@@ -9420,14 +9451,140 @@ function SocialAuditView({
 
         return (
           <Card>
-            <CardHeader>
-              <CardTitle>Audit Output</CardTitle>
-              <CardDescription>
-                An overall view across every platform in the audit: combined
-                score, real audience numbers, issues, and recommendations.
-              </CardDescription>
+            <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <CardTitle>Audit Output</CardTitle>
+                <CardDescription>
+                  An overall view across every platform in the audit: combined
+                  score, real audience numbers, issues, and recommendations.
+                </CardDescription>
+              </div>
+              <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                <Button
+                  disabled={!liveAi || generatingOverview || audits.length === 0}
+                  onClick={() => void generateWholeAuditSummary()}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {generatingOverview
+                    ? "Assessing the whole audit"
+                    : "Generate whole-audit summary with AI"}
+                </Button>
+                {!liveAi ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Connect OpenAI in Settings to generate one AI summary across
+                    the whole audit.
+                  </p>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent className="space-y-5">
+              {overviewError ? (
+                <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+                  {overviewError}
+                </div>
+              ) : null}
+
+              {auditOverviewInsight ? (
+                <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={
+                        auditOverviewInsight.status === "accepted"
+                          ? "success"
+                          : auditOverviewInsight.status === "dismissed"
+                            ? "secondary"
+                            : "warning"
+                      }
+                    >
+                      {auditOverviewInsight.status === "accepted"
+                        ? "Accepted"
+                        : auditOverviewInsight.status === "dismissed"
+                          ? "Dismissed"
+                          : "AI draft, not yet accepted"}
+                    </Badge>
+                    <Badge variant="outline">
+                      {auditOverviewInsight.confidenceLevel} confidence
+                    </Badge>
+                    {auditOverviewInsight.limitedData ? (
+                      <Badge variant="secondary">Limited data</Badge>
+                    ) : null}
+                    <span className="text-xs text-muted-foreground">
+                      Whole audit: {auditOverviewInsight.platformsCovered.join(", ")}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-6">{auditOverviewInsight.recommendation}</p>
+                  {auditOverviewInsight.topStrengths.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">
+                        Strengths across the whole audit
+                      </p>
+                      <ul className="list-disc space-y-1 pl-4 text-sm leading-6">
+                        {auditOverviewInsight.topStrengths.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {auditOverviewInsight.topWeaknesses.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">
+                        Weaknesses across the whole audit
+                      </p>
+                      <ul className="list-disc space-y-1 pl-4 text-sm leading-6">
+                        {auditOverviewInsight.topWeaknesses.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {auditOverviewInsight.nextActions.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">
+                        Cross-platform next actions
+                      </p>
+                      <ul className="list-disc space-y-1 pl-4 text-sm leading-6">
+                        {auditOverviewInsight.nextActions.map((action) => (
+                          <li key={action}>{action}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {formatDateTime(auditOverviewInsight.generatedAt)},{" "}
+                    {auditOverviewInsight.model}. {auditOverviewInsight.inputSummary}
+                  </p>
+                  {auditOverviewInsight.status === "draft" ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => setOverviewStatus("accepted")}
+                        size="sm"
+                        type="button"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Accept
+                      </Button>
+                      <Button
+                        onClick={() => setOverviewStatus("dismissed")}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm leading-6 text-muted-foreground">
+                  No whole-audit AI summary yet. Generate one above to get a
+                  single assessment reasoning across every platform together,
+                  rather than one platform at a time.
+                </p>
+              )}
+
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border bg-muted/30 p-4">
                   <div className="flex items-center justify-between">

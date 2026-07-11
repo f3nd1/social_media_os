@@ -85,6 +85,29 @@ export function deriveApprovalLogEntries(
     });
   }
 
+  // Whole-audit AI summary (one entry, not a list, so compared directly
+  // rather than via statusTransitions).
+  if (
+    previous.auditOverviewInsight?.status !== "accepted" &&
+    next.auditOverviewInsight?.status === "accepted"
+  ) {
+    entries.push({
+      module: "Platform Audit",
+      subject: `Whole audit: ${next.auditOverviewInsight.recommendation.slice(0, 120)}`,
+      decision: "approved",
+    });
+  } else if (
+    previous.auditOverviewInsight?.status === "draft" &&
+    next.auditOverviewInsight?.status === "dismissed" &&
+    next.auditOverviewInsight.id === previous.auditOverviewInsight.id
+  ) {
+    entries.push({
+      module: "Platform Audit",
+      subject: `Whole audit: ${next.auditOverviewInsight.recommendation.slice(0, 120)}`,
+      decision: "rejected",
+    });
+  }
+
   for (const change of statusTransitions(
     previous.competitorInsights,
     next.competitorInsights,
