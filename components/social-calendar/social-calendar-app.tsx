@@ -9922,15 +9922,12 @@ function CompetitorIntelligenceView({
                         />
                       </td>
                       <td className="min-w-[230px] py-3 pr-4 align-top">
-                        <Textarea
-                          value={listToText(competitor.platforms)}
-                          onChange={(event) =>
-                            updateCompetitor(
-                              competitor.id,
-                              "platforms",
-                              parsePlatformList(event.target.value),
-                            )
+                        <CompetitorPlatformsField
+                          competitorId={competitor.id}
+                          onChange={(id, value) =>
+                            updateCompetitor(id, "platforms", value)
                           }
+                          platforms={competitor.platforms}
                         />
                       </td>
                       <td className="min-w-[230px] py-3 pr-4 align-top">
@@ -10525,6 +10522,43 @@ function PlaybookField({
         />
       )}
     </label>
+  );
+}
+
+// A free-typing buffer for the competitor Platforms cell. Values are parsed
+// into known Platform names only once typing pauses (on blur), not on every
+// keystroke, so an unrecognised word being typed is not snapped away before
+// the person has finished typing it. Only real Platform names or a known
+// alias survive the parse; anything else is not kept, which is disclosed via
+// the field's title and placeholder rather than silently vanishing with no
+// explanation.
+function CompetitorPlatformsField({
+  competitorId,
+  onChange,
+  platforms,
+}: {
+  competitorId: string;
+  onChange: (competitorId: string, platforms: Platform[]) => void;
+  platforms: Platform[];
+}) {
+  const [text, setText] = useState(() => listToText(platforms));
+
+  useEffect(() => {
+    setText(listToText(platforms));
+    // Only resync from the outside when the row itself changes (e.g. an AI
+    // draft fills it in), not on every render, so typing is never overwritten
+    // mid-keystroke by the parsed-and-reformatted value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [competitorId]);
+
+  return (
+    <Textarea
+      onBlur={() => onChange(competitorId, parsePlatformList(text))}
+      onChange={(event) => setText(event.target.value)}
+      placeholder="TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads"
+      title="Only these platform names (or common aliases) are kept: TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads"
+      value={text}
+    />
   );
 }
 
