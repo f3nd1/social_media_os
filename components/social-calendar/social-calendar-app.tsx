@@ -11716,25 +11716,16 @@ function CalendarBuilderView({
           onClick={() => setSelectedItemId("")}
         >
           <div
-            className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-background p-4 shadow-xl"
+            className="max-h-[85vh] w-full max-w-6xl overflow-y-auto rounded-lg border bg-background p-6 shadow-xl sm:p-8 lg:w-[70vw]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="mb-3 flex items-center justify-end">
-              <Button
-                onClick={() => setSelectedItemId("")}
-                size="icon"
-                type="button"
-                variant="outline"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
             <CalendarItemEditor
               item={selectedItem}
               liveAi={liveAi}
               regenerating={regeneratingItemId === selectedItem.id}
               onApprove={approveItem}
               onChange={updateItem}
+              onClose={() => setSelectedItemId("")}
               onDelete={deleteItem}
               onDuplicate={duplicateItem}
               onRegenerate={regenerateItem}
@@ -12133,6 +12124,7 @@ function CalendarItemEditor({
   liveAi,
   onApprove,
   onChange,
+  onClose,
   onDelete,
   onDuplicate,
   onRegenerate,
@@ -12144,6 +12136,7 @@ function CalendarItemEditor({
   liveAi: boolean;
   onApprove: (id: string) => void;
   onChange: (id: string, patch: Partial<CalendarItem>) => void;
+  onClose: () => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onRegenerate: (id: string) => void;
@@ -12156,18 +12149,23 @@ function CalendarItemEditor({
 
   return (
     <Card className="border-none shadow-none">
-      <CardHeader className="px-0 pt-0">
-        <CardTitle>Selected Item</CardTitle>
-        <CardDescription>Every required calendar field is editable.</CardDescription>
+      <CardHeader className="flex-col gap-4 px-0 pt-0 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <CardTitle>{item.contentTopic || "Selected Item"}</CardTitle>
+          <CardDescription>Every required calendar field is editable.</CardDescription>
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge variant={isApproved ? "success" : "secondary"}>
+            {isApproved ? "Approved" : "Draft, not approved"}
+          </Badge>
+          <Button onClick={onClose} size="icon" type="button" variant="outline">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-4 px-0">
-        <div className="rounded-lg border bg-muted/20 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={isApproved ? "success" : "secondary"}>
-              {isApproved ? "Approved" : "Draft, not approved"}
-            </Badge>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-1.5">
+      <CardContent className="space-y-6 px-0">
+        <div className="rounded-lg border bg-muted/20 p-4">
+          <div className="flex flex-wrap gap-2">
             <Button onClick={() => onApprove(item.id)} size="sm" type="button">
               <CheckCircle2 className="h-4 w-4" />
               Approve
@@ -12194,12 +12192,12 @@ function CalendarItemEditor({
             </Button>
           </div>
           {!liveAi ? (
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
               Connect OpenAI in Settings to regenerate a single item with AI.
             </p>
           ) : null}
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Type">
             <NativeSelect
               value={item.itemKind ?? "post"}
@@ -12319,13 +12317,13 @@ function CalendarItemEditor({
         </div>
 
         {!canPublishCalendarItem(item) ? (
-          <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+          <div className="rounded-md border border-warning-border bg-warning p-4 text-sm leading-6 text-warning-foreground">
             Publishing is locked until the approval stage reaches Published. Use
             Compliance Approved and Scheduled before the final publish gate.
           </div>
         ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Owner">
             <Input
               value={item.owner ?? ""}
@@ -12359,7 +12357,7 @@ function CalendarItemEditor({
           </Field>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Campaign">
             <NativeSelect
               value={item.campaignId ?? ""}
@@ -12475,7 +12473,7 @@ function CalendarItemEditor({
             }
           />
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Final asset link">
             <Input
               value={item.finalAssetLink ?? ""}
