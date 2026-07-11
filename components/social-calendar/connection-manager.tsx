@@ -43,9 +43,11 @@ import {
   CONNECTION_MANUAL_ONLY_NOTE,
   CONNECTION_SOURCE_LABELS,
   connectionSources,
+  platforms,
   type ConnectionMode,
   type ConnectionSource,
   type PdfMetricReview,
+  type Platform,
   type PlatformConnection,
 } from "@/lib/social-calendar-data";
 
@@ -917,12 +919,23 @@ export function MetricReviewPanel({
             <h3 className="mt-3 text-sm font-semibold">No rows to review</h3>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] text-left text-xs">
+          <>
+            {pending.rows.some((row) => row.label) ? (
+              <p className="rounded-md border border-info-border bg-info p-3 text-xs leading-5 text-info-foreground">
+                A row labelled &ldquo;Brand total&rdquo; is one combined figure
+                across every connected network, not a genuine per-platform
+                split. Choose which Social Audit platform it should be
+                attributed to before applying; that row will overwrite that
+                platform&rsquo;s numbers.
+              </p>
+            ) : null}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1180px] text-left text-xs">
               <thead className="border-b uppercase text-muted-foreground">
                 <tr>
                   <th className="py-2 pr-3 font-medium">Apply</th>
                   <th className="py-2 pr-3 font-medium">Platform</th>
+                  <th className="py-2 pr-3 font-medium">Attributed to</th>
                   <th className="py-2 pr-3 font-medium">Confidence</th>
                   {pdfReviewMetricFields.map((field) => (
                     <th className="py-2 pr-3 font-medium" key={field}>
@@ -945,6 +958,26 @@ export function MetricReviewPanel({
                       />
                     </td>
                     <td className="whitespace-nowrap py-2 pr-3 font-medium">{row.label ?? row.platform}</td>
+                    <td className="whitespace-nowrap py-2 pr-3">
+                      {row.label ? (
+                        <select
+                          aria-label={`Attribute ${row.label} to a Social Audit platform`}
+                          className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onChange={(event) =>
+                            onRowChange(row.id, { platform: event.target.value as Platform })
+                          }
+                          value={row.platform}
+                        >
+                          {platforms.map((platform) => (
+                            <option key={platform} value={platform}>
+                              {platform}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        row.platform
+                      )}
+                    </td>
                     <td className="whitespace-nowrap py-2 pr-3">{row.confidence}%</td>
                     {pdfReviewMetricFields.map((field) => (
                       <td className="min-w-[86px] py-2 pr-3" key={field}>
@@ -964,7 +997,8 @@ export function MetricReviewPanel({
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
 
         <div className="flex flex-wrap gap-2">

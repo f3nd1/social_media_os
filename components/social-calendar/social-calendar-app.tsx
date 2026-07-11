@@ -14780,13 +14780,11 @@ function applyPlatformMetricsImport(
   const metricsByPlatform = new Map(
     platformMetrics.map((metrics) => [metrics.platform, metrics]),
   );
-  const nextAudits = current.audits.map((audit) => {
-    const metrics = metricsByPlatform.get(audit.platform);
 
-    if (!metrics) {
-      return audit;
-    }
-
+  function applyMetricsToAudit(
+    audit: SocialAudit,
+    metrics: PlatformDataMetrics,
+  ): SocialAudit {
     const engagementActions =
       metrics.engagement +
       metrics.comments +
@@ -14829,7 +14827,20 @@ function applyPlatformMetricsImport(
         )} engagement actions from ${sourceFileLabel}.`,
       ),
     };
+  }
+
+  const updatedExistingAudits = current.audits.map((audit) => {
+    const metrics = metricsByPlatform.get(audit.platform);
+    return metrics ? applyMetricsToAudit(audit, metrics) : audit;
   });
+  // A platform a sync returns data for might not have a Social Audit row yet
+  // (nothing else in this function ever creates one). Without this, that
+  // platform's real, approved numbers would be silently dropped rather than
+  // reaching the Social Audit screen at all.
+  const newAudits = platformMetrics
+    .filter((metrics) => !existingAuditPlatforms.has(metrics.platform))
+    .map((metrics) => applyMetricsToAudit(makeNewAudit(metrics.platform), metrics));
+  const nextAudits = [...updatedExistingAudits, ...newAudits];
   const performanceByItem = new Map(
     current.performanceResults.map((result) => [result.calendarItemId, result]),
   );
@@ -14922,7 +14933,9 @@ function applyPlatformMetricsImport(
   const appliedPlatforms: AppliedPlatformSummary[] = platformMetrics.map((metrics) => ({
     platform: metrics.platform,
     label: metrics.label,
-    auditUpdated: existingAuditPlatforms.has(metrics.platform),
+    // Every entry here now always lands on a Social Audit row: an existing
+    // one gets updated, or a new one is created for it above.
+    auditUpdated: true,
     kpiUpdated: kpiUpdatedByPlatform.has(metrics.platform),
   }));
 
