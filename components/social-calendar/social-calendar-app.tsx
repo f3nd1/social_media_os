@@ -3785,74 +3785,6 @@ function CampaignPlanningView({
     setCampaignEditorOpen(false);
   }
 
-  const offlineActivities: Array<{
-    channel: UccMarketingChannel;
-    purpose: string;
-    owner: Role;
-    kpi: string;
-  }> = [
-    {
-      channel: "Agent activity",
-      purpose: "Recruit and enable agents with course proof packs and response workflow.",
-      owner: "marketing manager",
-      kpi: "Agent enquiries, qualified agents, referred applications",
-    },
-    {
-      channel: "Campus visit",
-      purpose: "Convert parent and student interest into verified campus tour bookings.",
-      owner: "marketing manager",
-      kpi: "Tour bookings, attended visits, applications after visit",
-    },
-    {
-      channel: "Student event",
-      purpose: "Capture authentic campus life, testimonials, and proof content.",
-      owner: "video editor",
-      kpi: "Reusable assets, student participation, event recap reach",
-    },
-    {
-      channel: "Roadshow",
-      purpose: "Build awareness and collect course-fit enquiries in high-intent locations.",
-      owner: "marketing manager",
-      kpi: "Leads, cost per lead, applications",
-    },
-    {
-      channel: "Partnership",
-      purpose: "Create B2B collaborations with schools, employers, and education partners.",
-      owner: "marketing manager",
-      kpi: "Partner meetings, MoUs, referred leads",
-    },
-    {
-      channel: "Talk",
-      purpose: "Position UCC around AI, English, business, and pathway education topics.",
-      owner: "copywriter",
-      kpi: "Registrations, attendance, follow-up enquiries",
-    },
-    {
-      channel: "Flyers",
-      purpose: "Support fairs, open house, school visits, and agent handoffs with factual proof.",
-      owner: "graphic designer",
-      kpi: "QR scans, enquiries, event sign-ups",
-    },
-    {
-      channel: "Education fair",
-      purpose: "Meet students, parents, agents, and partners in market-facing education moments.",
-      owner: "marketing manager",
-      kpi: "Leads, applications, partner enquiries",
-    },
-    {
-      channel: "School visit",
-      purpose: "Build trust with schools and introduce UCC course pathways without hard selling.",
-      owner: "marketing manager",
-      kpi: "School contacts, talk invites, student enquiries",
-    },
-    {
-      channel: "Open house",
-      purpose: "Convert interest into campus visits with transparent admissions and course proof.",
-      owner: "marketing manager",
-      kpi: "Bookings, attendance, applications",
-    },
-  ];
-
   function updateCampaign(id: string, patch: Partial<UccCampaign>) {
     onUccChange({
       ...ucc,
@@ -4118,44 +4050,6 @@ function CampaignPlanningView({
                         <option value="completed">Completed</option>
                       </NativeSelect>
                     </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Offline & Non-Digital Activation Board</CardTitle>
-          <CardDescription>
-            Campaign support for agent activities, campus visits, student events,
-            roadshows, partnerships, talks, flyers, fairs, school visits, and open house.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-left text-sm">
-              <thead className="border-b text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="py-3 pr-4 font-medium">Activity</th>
-                  <th className="py-3 pr-4 font-medium">Marketing purpose</th>
-                  <th className="py-3 pr-4 font-medium">Owner</th>
-                  <th className="py-3 pr-4 font-medium">KPI to track</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {offlineActivities.map((activity) => (
-                  <tr key={activity.channel}>
-                    <td className="min-w-[160px] py-3 pr-4 font-medium">
-                      {activity.channel}
-                    </td>
-                    <td className="min-w-[340px] py-3 pr-4 text-muted-foreground">
-                      {activity.purpose}
-                    </td>
-                    <td className="min-w-[160px] py-3 pr-4">{activity.owner}</td>
-                    <td className="min-w-[280px] py-3 pr-4">{activity.kpi}</td>
                   </tr>
                 ))}
               </tbody>
