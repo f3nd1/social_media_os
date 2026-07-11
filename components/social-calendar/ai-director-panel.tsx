@@ -21,7 +21,7 @@ import {
   type MarketingWorkspaceData,
 } from "@/lib/social-calendar-data";
 
-type DirectorModuleId =
+export type DirectorModuleId =
   | "dashboard"
   | "foundation"
   | "insights"
@@ -74,8 +74,10 @@ function contextFacts(data: MarketingWorkspaceData): string[] {
 }
 
 // Real, data-derived notes per module. Each is a fact from the workspace with
-// the screen that acts on it; none of it is generated or guessed.
-function buildNotes(data: MarketingWorkspaceData, moduleId: DirectorModuleId): Note[] {
+// the screen that acts on it; none of it is generated or guessed. Shared by
+// buildNotes (the panel's display list) and countAttentionItems (the
+// trigger's badge count), so both always agree with each other.
+function buildRawNotes(data: MarketingWorkspaceData, moduleId: DirectorModuleId): Note[] {
   const notes: Note[] = [];
   const campaignsAwaiting = data.ucc.campaigns.filter(
     (campaign) => !isCampaignApproved(campaign),
@@ -243,13 +245,31 @@ function buildNotes(data: MarketingWorkspaceData, moduleId: DirectorModuleId): N
     }
   }
 
+  return notes;
+}
+
+function buildNotes(data: MarketingWorkspaceData, moduleId: DirectorModuleId): Note[] {
+  const notes = buildRawNotes(data, moduleId);
+
   if (notes.length === 0) {
-    notes.push({
-      text: "Nothing urgent in this module right now. The context memory below shows what the AI features are drawing on.",
-    });
+    return [
+      {
+        text: "Nothing urgent in this module right now. The context memory below shows what the AI features are drawing on.",
+      },
+    ];
   }
 
   return notes.slice(0, 4);
+}
+
+// The true count of live issues for this module, for the trigger's badge.
+// Unlike buildNotes, this is never padded with a placeholder and is not
+// capped at 4, so it genuinely reads 0 when nothing needs attention.
+export function countAttentionItems(
+  data: MarketingWorkspaceData,
+  moduleId: DirectorModuleId,
+): number {
+  return buildRawNotes(data, moduleId).length;
 }
 
 // Where each module's real live-AI feature lives, so the panel's action

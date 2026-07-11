@@ -235,7 +235,11 @@ import {
   reviewRowsToApprovedMetrics,
 } from "@/components/social-calendar/connection-manager";
 import { SetupGuide } from "@/components/social-calendar/setup-guide";
-import { AiDirectorPanel } from "@/components/social-calendar/ai-director-panel";
+import {
+  AiDirectorPanel,
+  countAttentionItems,
+  type DirectorModuleId,
+} from "@/components/social-calendar/ai-director-panel";
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import {
   SeasonalIntelligenceView,
@@ -1615,13 +1619,11 @@ export function SocialCalendarApp() {
         </section>
 
         {!myDayMode ? (
-          <aside className="sticky top-8 hidden max-h-[calc(100vh-4rem)] w-[300px] shrink-0 overflow-auto rounded-lg border bg-card p-4 2xl:block">
-            <AiDirectorPanel
-              data={data}
-              moduleId={activeModule.id}
-              onNavigate={setActiveView}
-            />
-          </aside>
+          <AiDirectorTrigger
+            data={data}
+            moduleId={activeModule.id}
+            onNavigate={setActiveView}
+          />
         ) : null}
       </div>
 
@@ -1741,6 +1743,93 @@ function RoleViewControl({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// Floating "AI Marketing Director" trigger replacing the old permanently
+// docked right-hand panel, so the centre content can use the full width on
+// every workspace screen. Rendered once in the shared layout; the popup it
+// opens shows the exact same AiDirectorPanel content, unchanged.
+function AiDirectorTrigger({
+  data,
+  moduleId,
+  onNavigate,
+}: {
+  data: MarketingWorkspaceData;
+  moduleId: DirectorModuleId;
+  onNavigate: (view: ViewId) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const liveAi = isLiveAiEnabled(data.aiIntegration);
+  const attentionCount = countAttentionItems(data, moduleId);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="fixed bottom-6 right-6 z-40" ref={containerRef}>
+      {open ? (
+        <div className="absolute bottom-full right-0 mb-3 max-h-[70vh] w-[340px] overflow-y-auto rounded-lg border bg-card p-4 shadow-xl">
+          <div className="mb-2 flex justify-end">
+            <Button
+              aria-label="Close AI Marketing Director"
+              onClick={() => setOpen(false)}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <AiDirectorPanel
+            data={data}
+            moduleId={moduleId}
+            onNavigate={(view) => {
+              onNavigate(view);
+              setOpen(false);
+            }}
+          />
+        </div>
+      ) : null}
+
+      <button
+        aria-expanded={open}
+        className="flex items-center gap-2 rounded-full border bg-card px-4 py-2.5 text-sm font-semibold shadow-lg transition-colors hover:bg-muted"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <Sparkles className="h-4 w-4" />
+        <span>AI Marketing Director</span>
+        <Badge variant={liveAi ? "success" : "secondary"}>
+          {liveAi ? "Live" : "Offline rules"}
+        </Badge>
+        {attentionCount > 0 ? <Badge variant="warning">{attentionCount}</Badge> : null}
+      </button>
     </div>
   );
 }
