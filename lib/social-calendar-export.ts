@@ -27,7 +27,6 @@ export function buildExportSheets(data: MarketingWorkspaceData): ExportSheet[] {
     { Metric: "Social goal", Value: data.socialGoals.primaryObjective },
     { Metric: "Campaign window", Value: data.socialGoals.campaignWindow },
     { Metric: "Funnel stage", Value: data.socialGoals.funnelStage },
-    { Metric: "North-star metric", Value: data.socialGoals.northStarMetric },
     { Metric: "Conversion action", Value: data.socialGoals.conversionAction },
     {
       Metric: "Priority platforms",
@@ -60,7 +59,6 @@ export function buildExportSheets(data: MarketingWorkspaceData): ExportSheet[] {
     { Field: "Campaign window", Value: data.socialGoals.campaignWindow },
     { Field: "Funnel stage", Value: data.socialGoals.funnelStage },
     { Field: "Target audience", Value: data.socialGoals.targetAudienceSegment },
-    { Field: "North-star metric", Value: data.socialGoals.northStarMetric },
     { Field: "Conversion action", Value: data.socialGoals.conversionAction },
     {
       Field: "Priority platforms",

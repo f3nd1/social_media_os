@@ -17,7 +17,6 @@ export type AuditAiContext = {
   };
   smartGoal: {
     primaryObjective: string;
-    northStarMetric: string;
     conversionAction: string;
     funnelStage: string;
     isPriorityPlatform: boolean;

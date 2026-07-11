@@ -116,7 +116,6 @@ export type SocialGoalSettings = {
   funnelStage: FunnelStage;
   targetAudienceSegment: string;
   priorityPlatforms: Platform[];
-  northStarMetric: string;
   conversionAction: string;
   monthlyTargets: SocialGoalTargets;
   contentPriorities: string[];
@@ -1201,7 +1200,7 @@ export function generateCopywritingForItem(
   const platformStrategy = brief.platformStrategy[item.platform];
   const proofLine = item.businessGoalConnection || keyAngle;
   const goalLine = socialGoals
-    ? `Social goal: ${socialGoals.primaryObjective} KPI: ${socialGoals.northStarMetric}. Conversion: ${socialGoals.conversionAction}.`
+    ? `Social goal: ${socialGoals.primaryObjective}. Conversion: ${socialGoals.conversionAction}.`
     : "";
   const complianceLine =
     "Keep this proof-based: no guaranteed admission, job, salary, visa, or work claims.";
@@ -1392,7 +1391,7 @@ function buildBusinessGoalConnection(
     return baseConnection;
   }
 
-  return `${baseConnection} Goal link: ${socialGoals.primaryObjective} Primary KPI: ${socialGoals.northStarMetric}. Conversion action: ${socialGoals.conversionAction}`;
+  return `${baseConnection} Goal link: ${socialGoals.primaryObjective}. Conversion action: ${socialGoals.conversionAction}`;
 }
 
 const seedBrand: BrandProfile = {
@@ -1432,7 +1431,6 @@ const seedSocialGoals: SocialGoalSettings = {
   targetAudienceSegment:
     "PRC students, Chinese-speaking parents, working adults, international students, and education agents evaluating Singapore study pathways.",
   priorityPlatforms: ["TikTok", "Instagram", "Facebook", "LinkedIn"],
-  northStarMetric: "Qualified enquiries and campus tour bookings",
   conversionAction: "Submit an enquiry, book a campus visit, or contact UCC admissions/agent team.",
   monthlyTargets: {
     reach: 180000,
@@ -2818,7 +2816,6 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
     funnelStage: "lead generation",
     targetAudienceSegment: "",
     priorityPlatforms: [],
-    northStarMetric: "",
     conversionAction: "",
     monthlyTargets: {
       reach: 0,

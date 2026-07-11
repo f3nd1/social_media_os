@@ -33,7 +33,6 @@ export type BriefAiContext = {
   }>;
   auditGoal: {
     primaryObjective: string;
-    northStarMetric: string;
     conversionAction: string;
   };
   platformAnalytics: Array<{

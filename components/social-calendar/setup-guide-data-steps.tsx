@@ -495,7 +495,6 @@ export function BriefStepBody({
       })),
       auditGoal: {
         primaryObjective: data.socialGoals.primaryObjective,
-        northStarMetric: data.socialGoals.northStarMetric,
         conversionAction: data.socialGoals.conversionAction,
       },
       platformAnalytics: data.audits.map((audit) => ({

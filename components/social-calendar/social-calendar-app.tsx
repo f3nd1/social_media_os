@@ -1236,13 +1236,7 @@ export function SocialCalendarApp() {
             {activeView === "objectives" ? (
               // Analytics summary lives with Insights, not on every screen:
               // one module, one responsibility, no duplicated analytics.
-              <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <SummaryMetric
-                  icon={Target}
-                  label="Audit goal"
-                  value={data.socialGoals.northStarMetric}
-                  detail={data.socialGoals.primaryObjective}
-                />
+              <section className="grid gap-3 sm:grid-cols-3">
                 <SummaryMetric
                   icon={Gauge}
                   label="Audit score"
@@ -8932,7 +8926,6 @@ function SocialAuditView({
       },
       smartGoal: {
         primaryObjective: socialGoals.primaryObjective,
-        northStarMetric: socialGoals.northStarMetric,
         conversionAction: socialGoals.conversionAction,
         funnelStage: socialGoals.funnelStage,
         isPriorityPlatform: socialGoals.priorityPlatforms.includes(audit.platform),
@@ -8971,7 +8964,7 @@ function SocialAuditView({
       model: result.model ?? "unknown",
       inputSummary: `Metrics: ${formatNumber(audit.followers)} followers, ${formatNumber(
         audit.averageReach,
-      )} avg reach, ${audit.engagementRate}% engagement. Goal: ${socialGoals.northStarMetric}.`,
+      )} avg reach, ${audit.engagementRate}% engagement.`,
     });
     onAuditInsightsChange(upsertAuditInsight(insightsRef.current, insight));
 
@@ -9601,13 +9594,13 @@ function buildGoalAwareAuditRecommendations(
   if (!isPriorityPlatform) {
     return [
       ...recommendations,
-      `Use ${audit.platform} as a support channel unless it directly advances ${socialGoals.northStarMetric}.`,
+      `Use ${audit.platform} as a support channel unless it directly advances ${socialGoals.primaryObjective}.`,
     ];
   }
 
   return [
     `Prioritize ${audit.platform} because it is tied to the ${socialGoals.funnelStage} goal: ${socialGoals.primaryObjective}`,
-    `Optimize content toward ${socialGoals.northStarMetric}; CTA should drive: ${socialGoals.conversionAction}`,
+    `Optimize content toward ${socialGoals.primaryObjective}; CTA should drive: ${socialGoals.conversionAction}`,
     ...recommendations,
   ];
 }
@@ -10642,7 +10635,6 @@ function StrategyBriefView({
       })),
       auditGoal: {
         primaryObjective: socialGoals.primaryObjective,
-        northStarMetric: socialGoals.northStarMetric,
         conversionAction: socialGoals.conversionAction,
       },
       platformAnalytics: audits.map((audit) => ({
@@ -10953,7 +10945,6 @@ function GoalAlignmentCard({ socialGoals }: { socialGoals: SocialGoalSettings })
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <GoalFact label="North-star" value={socialGoals.northStarMetric} />
           <GoalFact label="Funnel" value={capitalize(socialGoals.funnelStage)} />
           <GoalFact
             label="Target reach"
@@ -11013,7 +11004,6 @@ function GoalImpactStrip({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="info">{socialGoals.northStarMetric}</Badge>
           <Badge variant="success">{goalCoverage}% priority platform coverage</Badge>
           <Badge variant="outline">{capitalize(socialGoals.funnelStage)}</Badge>
         </div>
@@ -11419,7 +11409,7 @@ function CalendarBuilderView({
       businessGoalConnection:
         itemKind === "event"
           ? `Supports ${socialGoals.primaryObjective} by giving families a dated action to complete: ${socialGoals.conversionAction}`
-          : `Supports ${socialGoals.primaryObjective}. Primary KPI: ${socialGoals.northStarMetric}.`,
+          : `Supports ${socialGoals.primaryObjective}. Conversion action: ${socialGoals.conversionAction}.`,
       complianceNote:
         "Keep event and program claims factual. Do not guarantee admission, jobs, salary, visas, or work eligibility.",
       videoScript: "",
@@ -13657,7 +13647,7 @@ function DailyContentMasterTable({
                                 <ProductionBlock
                                   eyebrow="Master brief"
                                   primary={`${brand.brandName} / ${meta.campaign}`}
-                                  secondary={`Goal: ${meta.goal}\nTheme: ${meta.theme}\nStrategy: ${brief.monthlyCampaignGoal}\nKPI: ${socialGoals.northStarMetric}\nConversion: ${socialGoals.conversionAction}`}
+                                  secondary={`Goal: ${meta.goal}\nTheme: ${meta.theme}\nStrategy: ${brief.monthlyCampaignGoal}\nConversion: ${socialGoals.conversionAction}`}
                                 />
                                 <ProductionBlock
                                   eyebrow="Content details"
@@ -13793,15 +13783,10 @@ function GoalProgressPanel({ data }: { data: MarketingWorkspaceData }) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <CardTitle>Goal Progress</CardTitle>
-            <CardDescription>
-              Progress against the Social Audit goal targets.
-            </CardDescription>
-          </div>
-          <Badge variant="info">{data.socialGoals.northStarMetric}</Badge>
-        </div>
+        <CardTitle>Goal Progress</CardTitle>
+        <CardDescription>
+          Progress against the Social Audit goal targets.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
