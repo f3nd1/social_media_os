@@ -11027,6 +11027,7 @@ function CalendarBuilderView({
 }) {
   const [platformFilter, setPlatformFilter] = useState<"all" | Platform>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | CalendarStatus>("all");
+  const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
   const [roleFilter, setRoleFilter] = useState<"all" | Role>(
     externalRole && externalRole !== "marketing manager" ? externalRole : "all",
   );
@@ -11666,16 +11667,47 @@ function CalendarBuilderView({
         </CardContent>
       </Card>
 
+      <div className="flex gap-2">
+        <Button
+          onClick={() => setViewMode("calendar")}
+          size="sm"
+          type="button"
+          variant={viewMode === "calendar" ? "default" : "outline"}
+        >
+          Calendar view
+        </Button>
+        <Button
+          onClick={() => setViewMode("list")}
+          size="sm"
+          type="button"
+          variant={viewMode === "list" ? "default" : "outline"}
+        >
+          List view
+        </Button>
+      </div>
+
       <div className="space-y-4">
-        <CalendarMonthGrid
-          calendar={visibleItems}
-          courses={ucc.courses}
-          onMoveItemDate={(id, isoDate) =>
-            updateItem(id, { date: isoDate, plannedDate: isoDate })
-          }
-          onOpenItem={setSelectedItemId}
-          selectedItemId={selectedItem?.id}
-        />
+        {viewMode === "calendar" ? (
+          <CalendarMonthGrid
+            calendar={visibleItems}
+            courses={ucc.courses}
+            onMoveItemDate={(id, isoDate) =>
+              updateItem(id, { date: isoDate, plannedDate: isoDate })
+            }
+            onOpenItem={setSelectedItemId}
+            selectedItemId={selectedItem?.id}
+          />
+        ) : (
+          <CalendarListView
+            calendar={visibleItems}
+            onApprove={approveItem}
+            onDelete={deleteItem}
+            onDuplicate={duplicateItem}
+            onOpenItem={setSelectedItemId}
+            onReject={rejectItem}
+            selectedItemId={selectedItem?.id}
+          />
+        )}
       </div>
 
       {selectedItem ? (
@@ -11948,6 +11980,152 @@ function buildCalendarMonthGrid(calendar: CalendarItem[], year: number, month: n
   }
 
   return { items: monthItems, cells };
+}
+
+function CalendarListView({
+  calendar,
+  onApprove,
+  onDelete,
+  onDuplicate,
+  onOpenItem,
+  onReject,
+  selectedItemId,
+}: {
+  calendar: CalendarItem[];
+  onApprove: (id: string) => void;
+  onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onOpenItem: (id: string) => void;
+  onReject: (id: string) => void;
+  selectedItemId?: string;
+}) {
+  const [sortBy, setSortBy] = useState<"date" | "platform" | "status" | "contentTopic">("date");
+
+  const sortedItems = [...calendar].sort((a, b) => {
+    if (sortBy === "platform") return a.platform.localeCompare(b.platform);
+    if (sortBy === "status") return a.status.localeCompare(b.status);
+    if (sortBy === "contentTopic") return a.contentTopic.localeCompare(b.contentTopic);
+    return a.date.localeCompare(b.date);
+  });
+
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle>Calendar List</CardTitle>
+          <CardDescription>
+            Every item in one flat list, quick to scan. Follows the Platform,
+            Status, and Role filters above.
+          </CardDescription>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <span className="whitespace-nowrap text-muted-foreground">Sort by</span>
+          <NativeSelect
+            value={sortBy}
+            onChange={(event) =>
+              setSortBy(event.target.value as typeof sortBy)
+            }
+          >
+            <option value="date">Date</option>
+            <option value="platform">Platform</option>
+            <option value="status">Status</option>
+            <option value="contentTopic">Content topic</option>
+          </NativeSelect>
+        </label>
+      </CardHeader>
+      <CardContent>
+        {sortedItems.length === 0 ? (
+          <EmptyState
+            action="Adjust filters or generate a calendar."
+            icon={CalendarDays}
+            title="No calendar items to show"
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-left text-sm">
+              <thead className="border-b text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="py-3 pr-4 font-medium">Date</th>
+                  <th className="py-3 pr-4 font-medium">Platform</th>
+                  <th className="py-3 pr-4 font-medium">Topic</th>
+                  <th className="py-3 pr-4 font-medium">Status</th>
+                  <th className="py-3 pr-4 font-medium">Approval stage</th>
+                  <th className="py-3 pr-4 font-medium">Role</th>
+                  <th className="py-3 pr-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {sortedItems.map((item) => (
+                  <tr
+                    className={cn(selectedItemId === item.id && "bg-primary/5")}
+                    key={item.id}
+                  >
+                    <td className="whitespace-nowrap py-3 pr-4">{item.date}</td>
+                    <td className="py-3 pr-4">
+                      <PlatformBadge platform={item.platform} />
+                    </td>
+                    <td className="min-w-[220px] py-3 pr-4">{item.contentTopic}</td>
+                    <td className="py-3 pr-4">
+                      <StatusBadge status={item.status} />
+                    </td>
+                    <td className="py-3 pr-4 text-xs text-muted-foreground">
+                      {item.approvalStage}
+                    </td>
+                    <td className="py-3 pr-4 text-xs text-muted-foreground">
+                      {item.assignedRole}
+                    </td>
+                    <td className="min-w-[280px] py-3 pr-4">
+                      <div className="flex flex-wrap gap-1.5">
+                        <Button
+                          onClick={() => onOpenItem(item.id)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Open
+                        </Button>
+                        <Button
+                          onClick={() => onApprove(item.id)}
+                          size="sm"
+                          type="button"
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          onClick={() => onReject(item.id)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Reject
+                        </Button>
+                        <Button
+                          onClick={() => onDuplicate(item.id)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Duplicate
+                        </Button>
+                        <Button
+                          onClick={() => onDelete(item.id)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function CalendarItemEditor({
