@@ -11160,7 +11160,9 @@ function CalendarBuilderView({
       setGenerating(false);
     }
   }
-  const [selectedItemId, setSelectedItemId] = useState(calendar[0]?.id ?? "");
+  // No item is open by default; the detail panel only opens when a calendar
+  // item is double-clicked (or right after adding/duplicating one).
+  const [selectedItemId, setSelectedItemId] = useState("");
   const defaultGoalPlatform =
     socialGoals.priorityPlatforms[0] ?? ("Instagram" as Platform);
   const [newCalendarItem, setNewCalendarItem] = useState({
@@ -11186,8 +11188,7 @@ function CalendarBuilderView({
     return platformMatch && statusMatch && roleMatch;
   });
 
-  const selectedItem =
-    calendar.find((item) => item.id === selectedItemId) ?? visibleItems[0] ?? calendar[0];
+  const selectedItem = calendar.find((item) => item.id === selectedItemId);
 
   function updateItem(id: string, patch: Partial<CalendarItem>) {
     onCalendarChange(
@@ -11663,29 +11664,50 @@ function CalendarBuilderView({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="space-y-4">
-          <CalendarMonthGrid
-            calendar={visibleItems}
-            courses={ucc.courses}
-            onSelectItem={setSelectedItemId}
-            selectedItemId={selectedItem?.id}
-          />
-        </div>
-
-        <CalendarItemEditor
-          item={selectedItem}
-          liveAi={liveAi}
-          regenerating={Boolean(selectedItem && regeneratingItemId === selectedItem.id)}
-          onApprove={approveItem}
-          onChange={updateItem}
-          onDelete={deleteItem}
-          onDuplicate={duplicateItem}
-          onRegenerate={regenerateItem}
-          onReject={rejectItem}
-          ucc={ucc}
+      <div className="space-y-4">
+        <CalendarMonthGrid
+          calendar={visibleItems}
+          courses={ucc.courses}
+          onOpenItem={setSelectedItemId}
+          selectedItemId={selectedItem?.id}
         />
       </div>
+
+      {selectedItem ? (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/40"
+            onClick={() => setSelectedItemId("")}
+          />
+          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l bg-background p-4 shadow-xl sm:max-w-lg">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Double-click a calendar item to open it here
+              </p>
+              <Button
+                onClick={() => setSelectedItemId("")}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <CalendarItemEditor
+              item={selectedItem}
+              liveAi={liveAi}
+              regenerating={regeneratingItemId === selectedItem.id}
+              onApprove={approveItem}
+              onChange={updateItem}
+              onDelete={deleteItem}
+              onDuplicate={duplicateItem}
+              onRegenerate={regenerateItem}
+              onReject={rejectItem}
+              ucc={ucc}
+            />
+          </div>
+        </>
+      ) : null}
     </section>
   );
 }
@@ -11693,12 +11715,12 @@ function CalendarBuilderView({
 function CalendarMonthGrid({
   calendar,
   courses,
-  onSelectItem,
+  onOpenItem,
   selectedItemId,
 }: {
   calendar: CalendarItem[];
   courses: UccCourse[];
-  onSelectItem: (id: string) => void;
+  onOpenItem: (id: string) => void;
   selectedItemId?: string;
 }) {
   const monthGroups = buildCalendarMonthGroups(calendar);
@@ -11776,7 +11798,8 @@ function CalendarMonthGrid({
                             selectedItemId === item.id && "border-primary bg-primary/5",
                           )}
                           key={item.id}
-                          onClick={() => onSelectItem(item.id)}
+                          onDoubleClick={() => onOpenItem(item.id)}
+                          title="Double-click to open"
                           type="button"
                         >
                           <div className="flex flex-wrap items-center gap-1">
@@ -11892,7 +11915,7 @@ function CalendarItemEditor({
   regenerating,
   ucc,
 }: {
-  item?: CalendarItem;
+  item: CalendarItem;
   liveAi: boolean;
   onApprove: (id: string) => void;
   onChange: (id: string, patch: Partial<CalendarItem>) => void;
@@ -11903,25 +11926,16 @@ function CalendarItemEditor({
   regenerating: boolean;
   ucc: UccStrategyData;
 }) {
-  if (!item) {
-    return (
-      <EmptyState
-        action="Generate the calendar to edit items"
-        icon={CalendarDays}
-        title="No calendar item selected"
-      />
-    );
-  }
 
   const isApproved = item.approvalStage === "calendar approved" || item.status === "approved";
 
   return (
-    <Card className="xl:sticky xl:top-8">
-      <CardHeader>
+    <Card className="border-none shadow-none">
+      <CardHeader className="px-0 pt-0">
         <CardTitle>Selected Item</CardTitle>
         <CardDescription>Every required calendar field is editable.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-0">
         <div className="rounded-lg border bg-muted/20 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={isApproved ? "success" : "secondary"}>
