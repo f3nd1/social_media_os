@@ -14368,6 +14368,28 @@ function sanitizeCalendarPatch(
     }
   }
 
+  // Rescheduling: an item already at or past Manager approved is moved to a
+  // new date only after a confirm, so a manager is not silently rescheduling
+  // already-approved work. The approval itself is kept either way; declining
+  // just leaves the date as it was.
+  if (
+    typeof nextPatch.date === "string" &&
+    nextPatch.date !== item.date &&
+    canPublishCalendarItem(item) &&
+    typeof window !== "undefined"
+  ) {
+    const confirmed = window.confirm(
+      `This item is already ${item.approvalStage}. Moving its date to ${nextPatch.date} keeps the approval but reschedules already-approved work. Continue?`,
+    );
+
+    if (!confirmed) {
+      const keptPatch = { ...nextPatch };
+      delete keptPatch.date;
+      delete keptPatch.plannedDate;
+      nextPatch = keptPatch;
+    }
+  }
+
   if (
     (nextPatch.status === "posted" || nextPatch.status === "scheduled") &&
     !canPublishCalendarItem({ ...item, ...nextPatch })
