@@ -978,7 +978,7 @@ export function SocialCalendarApp() {
       <div className="mx-auto flex w-full max-w-[1560px] gap-0 px-4 py-4 sm:px-6 lg:gap-8 lg:px-8 lg:py-8">
         <aside
           className={cn(
-            "sticky top-8 hidden h-[calc(100vh-4rem)] w-72 shrink-0 flex-col border-r pr-5 lg:flex",
+            "sticky top-8 hidden h-[calc(100vh-4rem)] w-60 shrink-0 flex-col border-r pr-5 lg:flex",
             myDayMode && "lg:hidden",
           )}
         >
@@ -1020,33 +1020,15 @@ export function SocialCalendarApp() {
               );
             })}
 
-            <p className="px-3 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-              Role view
-            </p>
-            {roles.map((role) => (
-              <button
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm capitalize transition-colors",
-                  globalRole === role
-                    ? "bg-muted font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-                key={role}
-                onClick={() => {
+            <div className="px-3 pt-5">
+              <RoleViewControl
+                globalRole={globalRole}
+                onRoleChange={(role) => {
                   setGlobalRole(role);
                   setActiveView("production");
                 }}
-                type="button"
-              >
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 shrink-0 rounded-full",
-                    globalRole === role ? "bg-primary" : "bg-muted-foreground/40",
-                  )}
-                />
-                {role}
-              </button>
-            ))}
+              />
+            </div>
           </nav>
 
           <div className="mt-auto space-y-5 px-2">
@@ -1666,6 +1648,100 @@ export function SocialCalendarApp() {
         </div>
       ) : null}
     </main>
+  );
+}
+
+// Compact "Role: X" control replacing the old permanently-visible Role view
+// list, so the sidebar can stay narrow and the centre content gets the
+// freed width. Opens a small floating popup with the same four roles;
+// selecting one, clicking outside, or pressing Escape all close it.
+function RoleViewControl({
+  globalRole,
+  onRoleChange,
+}: {
+  globalRole: Role;
+  onRoleChange: (role: Role) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <p className="pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+        Role view
+      </p>
+      <button
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className="flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm capitalize text-foreground transition-colors hover:bg-muted"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <span className="truncate">Role: {globalRole}</span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+      </button>
+
+      {open ? (
+        <div
+          aria-label="Role view options"
+          className="absolute left-0 top-full z-40 mt-1 w-full rounded-md border bg-card p-1 shadow-md"
+          role="listbox"
+        >
+          {roles.map((role) => (
+            <button
+              aria-selected={globalRole === role}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm capitalize transition-colors",
+                globalRole === role
+                  ? "bg-muted font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+              key={role}
+              onClick={() => {
+                onRoleChange(role);
+                setOpen(false);
+              }}
+              role="option"
+              type="button"
+            >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                  globalRole === role ? "bg-primary" : "bg-muted-foreground/40",
+                )}
+              />
+              {role}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
