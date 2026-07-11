@@ -271,23 +271,6 @@ export type UccBudgetPlan = {
   totalCost: number;
 };
 
-export type UccAsset = {
-  id: string;
-  name: string;
-  type: "photo" | "video" | "testimonial" | "course image" | "logo" | "template" | "caption" | "campaign asset";
-  courseId: string;
-  campaignId: string;
-  language: "English" | "Chinese" | "Bilingual";
-  status: "draft" | "approved" | "needs update";
-  url: string;
-  usageNotes: string;
-  // Set when the file lives in Supabase Storage (Module B2), so deleting the
-  // asset can also remove the stored file. URL-only entries leave this empty.
-  storagePath?: string;
-  // Optional link to a calendar item, in addition to the campaign link.
-  calendarItemId?: string;
-};
-
 export type UccMarketingEvent = {
   id: string;
   name: string;
@@ -361,7 +344,6 @@ export type UccStrategyData = {
   audiences: UccAudience[];
   campaigns: UccCampaign[];
   budgetPlans: UccBudgetPlan[];
-  assets: UccAsset[];
   events: UccMarketingEvent[];
   connectors: UccPlatformConnector[];
   aiModules: UccAiModule[];
@@ -1673,41 +1655,6 @@ const seedUccStrategy: UccStrategyData = {
       totalCost: 7600,
     },
   ],
-  assets: [
-    {
-      id: "asset-campus-tour",
-      name: "Approved Campus Tour Photo Set",
-      type: "photo",
-      courseId: "course-full-time",
-      campaignId: "campaign-open-house",
-      language: "Bilingual",
-      status: "approved",
-      url: "https://assets.example.edu.sg/ucc-campus-tour",
-      usageNotes: "Use for open house, parent trust, and PRC student posts.",
-    },
-    {
-      id: "asset-ai-demo",
-      name: "AI Classroom Demo Clips",
-      type: "video",
-      courseId: "course-ai",
-      campaignId: "campaign-ai",
-      language: "English",
-      status: "approved",
-      url: "https://assets.example.edu.sg/ucc-ai-demo",
-      usageNotes: "Avoid implying job guarantees; focus on practical AI task examples.",
-    },
-    {
-      id: "asset-agent-kit",
-      name: "Agent Course Proof Pack",
-      type: "campaign asset",
-      courseId: "course-master-pathway",
-      campaignId: "campaign-agent",
-      language: "Bilingual",
-      status: "draft",
-      url: "https://assets.example.edu.sg/ucc-agent-proof-pack",
-      usageNotes: "Needs compliance review before external distribution.",
-    },
-  ],
   events: [
     {
       id: "event-cny",
@@ -2057,7 +2004,7 @@ const seedUccStrategy: UccStrategyData = {
       errorHandling: "If no proof asset exists, return a shot request instead of inventing proof.",
       complianceGuardrails: ["No exaggerated outcomes", "Use real campus/course proof", "Avoid unsupported student claims"],
       status: "active",
-      inputSource: "Calendar Item, Asset Library, Platform Playbooks",
+      inputSource: "Calendar Item, Platform Playbooks",
       outputDestination: "Production Board",
       lastUsedDate: "",
       reviewerRequired: true,
@@ -2097,7 +2044,7 @@ const seedUccStrategy: UccStrategyData = {
       errorHandling: "If cost or owner fields are missing, mark the plan needs setup.",
       complianceGuardrails: ["Show assumptions clearly", "Separate planned from actual cost", "Do not hide resource gaps"],
       status: "active",
-      inputSource: "Campaigns, Asset Library, Budget & Resources",
+      inputSource: "Campaigns, Budget & Resources",
       outputDestination: "Budget & Resources",
       lastUsedDate: "",
       reviewerRequired: true,
@@ -2137,8 +2084,8 @@ const seedUccStrategy: UccStrategyData = {
       errorHandling: "If reviewer or target language is missing, mark output needs setup.",
       complianceGuardrails: ["Avoid direct translation of claims", "Keep parent messaging factual", "Review Chinese wording for visa/work implications"],
       status: "needs setup",
-      inputSource: "Strategy Brief, Asset Library, Platform Playbooks",
-      outputDestination: "Production Board and Asset Library",
+      inputSource: "Strategy Brief, Platform Playbooks",
+      outputDestination: "Production Board",
       lastUsedDate: "",
       reviewerRequired: true,
       riskLevel: "high",
@@ -2825,7 +2772,6 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
       audiences: [],
       campaigns: [],
       budgetPlans: [],
-      assets: [],
       events: [],
       connectors: [],
       // The AI skill catalogue is structural reference data, kept so the

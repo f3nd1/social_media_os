@@ -106,7 +106,6 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
       budgetPlans: Array.isArray(data.ucc?.budgetPlans)
         ? data.ucc.budgetPlans
         : seed.ucc.budgetPlans,
-      assets: Array.isArray(data.ucc?.assets) ? data.ucc.assets : seed.ucc.assets,
       events: mergeSeedRecords(seed.ucc.events, data.ucc?.events),
       connectors: mergeSeedRecords(seed.ucc.connectors, data.ucc?.connectors),
       aiModules: mergeSeedRecords(seed.ucc.aiModules, data.ucc?.aiModules).map(

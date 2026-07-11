@@ -129,11 +129,7 @@ import {
   downloadApprovalsLogPdf,
 } from "@/lib/approvals-log-export";
 import { buildTrendContext } from "@/lib/trend-ai";
-import {
-  deleteAssetFile,
-  resolveSupabaseConfig,
-  uploadAssetFile,
-} from "@/lib/supabase-client";
+import { resolveSupabaseConfig } from "@/lib/supabase-client";
 import { THEMES, type ThemeId } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -203,7 +199,6 @@ import {
   type SocialGoalSettings,
   type SocialGoalTargets,
   type StrategyBrief,
-  type UccAsset,
   type UccAiModule,
   type UccAiOutputRecord,
   type UccAudience,
@@ -294,7 +289,6 @@ export type ViewId =
   | "brief"
   | "calendar"
   | "production"
-  | "assets"
   | "budget"
   | "kpi"
   | "compliance"
@@ -373,12 +367,11 @@ const modules: Array<{
   {
     id: "operations",
     label: "Operations",
-    subtitle: "Production execution only: calendar, queue, and assets.",
+    subtitle: "Production execution only: calendar and queue.",
     icon: ListChecks,
     tabs: [
       { id: "calendar", label: "Calendar", icon: CalendarDays },
       { id: "production", label: "Production Queue", icon: ListChecks },
-      { id: "assets", label: "Assets", icon: FileText },
     ],
   },
   {
@@ -1531,17 +1524,6 @@ export function SocialCalendarApp() {
               />
             ) : null}
 
-            {activeView === "assets" ? (
-              <AssetLibraryView
-                onOfferUndo={offerUndo}
-                calendar={data.calendar}
-                ucc={data.ucc}
-                onUccChange={(ucc) =>
-                  updateWorkspace((current) => ({ ...current, ucc }))
-                }
-              />
-            ) : null}
-
             {activeView === "budget" ? (
               <BudgetResourcesView
                 data={data}
@@ -2079,7 +2061,6 @@ const SCREEN_HELP: Partial<Record<ViewId, ReactNode>> = {
       way to &ldquo;manager approved&rdquo; when it is ready to publish.
     </>
   ),
-  assets: <>Store the photos, videos, and files your posts will use.</>,
   budget: (
     <>
       Plan the cost of each campaign. The AI review suggests changes as drafts
@@ -5141,349 +5122,6 @@ function AiSkillControlPanel({
   );
 }
 
-function AssetLibraryView({
-  calendar,
-  onOfferUndo,
-  onUccChange,
-  ucc,
-}: {
-  calendar: CalendarItem[];
-  onOfferUndo: (message: string, onExpire?: () => void) => void;
-  onUccChange: (ucc: UccStrategyData) => void;
-  ucc: UccStrategyData;
-}) {
-  const [assetMessage, setAssetMessage] = useState<{
-    tone: "success" | "error" | "info";
-    text: string;
-  } | null>(null);
-  const [uploading, setUploading] = useState(false);
-
-  const supabaseConfigured = Boolean(resolveSupabaseConfig().config);
-
-  function updateAsset(id: string, patch: Partial<UccAsset>) {
-    onUccChange({
-      ...ucc,
-      assets: ucc.assets.map((asset) =>
-        asset.id === id ? { ...asset, ...patch } : asset,
-      ),
-    });
-  }
-
-  function guessAssetType(file: File): UccAsset["type"] {
-    if (file.type.startsWith("image/")) {
-      return "photo";
-    }
-
-    if (file.type.startsWith("video/")) {
-      return "video";
-    }
-
-    return "campaign asset";
-  }
-
-  async function uploadFile(file: File) {
-    const resolved = resolveSupabaseConfig();
-
-    if (!resolved.config) {
-      setAssetMessage({
-        tone: "error",
-        text: "Connect Supabase in Settings to upload files. You can still add link-only entries below.",
-      });
-      return;
-    }
-
-    setUploading(true);
-    setAssetMessage(null);
-
-    try {
-      const { publicUrl, storagePath } = await uploadAssetFile(resolved.config, file);
-      onUccChange({
-        ...ucc,
-        assets: [
-          {
-            id: `asset-${Date.now()}`,
-            name: file.name,
-            type: guessAssetType(file),
-            courseId: "",
-            campaignId: "",
-            language: "English",
-            status: "draft",
-            url: publicUrl,
-            usageNotes: "",
-            storagePath,
-            calendarItemId: "",
-          },
-          ...ucc.assets,
-        ],
-      });
-      setAssetMessage({ tone: "success", text: `Uploaded ${file.name}.` });
-    } catch (error) {
-      setAssetMessage({
-        tone: "error",
-        text: `Upload failed: ${error instanceof Error ? error.message : String(error)}. If the bucket does not exist yet, create a public bucket named "assets" in Supabase Storage.`,
-      });
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  function addLinkEntry() {
-    onUccChange({
-      ...ucc,
-      assets: [
-        {
-          id: `asset-${Date.now()}`,
-          name: "New link asset",
-          type: "campaign asset",
-          courseId: "",
-          campaignId: "",
-          language: "English",
-          status: "draft",
-          url: "",
-          usageNotes: "",
-          storagePath: "",
-          calendarItemId: "",
-        },
-        ...ucc.assets,
-      ],
-    });
-  }
-
-  async function deleteAsset(asset: UccAsset) {
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(
-        `Delete the asset "${asset.name}"?${asset.storagePath ? " The stored file will also be removed from Supabase Storage." : ""} You will have 10 seconds to undo.`,
-      );
-
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    // The stored file is only removed once the Undo window has passed, so
-    // Undo genuinely brings the whole asset back.
-    const storagePath = asset.storagePath;
-
-    onOfferUndo(
-      `Asset "${asset.name}" deleted.`,
-      storagePath
-        ? () => {
-            const resolved = resolveSupabaseConfig();
-
-            if (resolved.config) {
-              void deleteAssetFile(resolved.config, storagePath).catch(() => {
-                // The record is gone either way; a leftover stored file is
-                // harmless and can be removed from Supabase Storage directly.
-              });
-            }
-          }
-        : undefined,
-    );
-
-    onUccChange({
-      ...ucc,
-      assets: ucc.assets.filter((row) => row.id !== asset.id),
-    });
-  }
-
-  function isImageAsset(asset: UccAsset) {
-    return (
-      asset.type === "photo" ||
-      asset.type === "logo" ||
-      asset.type === "course image" ||
-      /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(asset.url)
-    );
-  }
-
-  return (
-    <section className="space-y-4">
-      <Card>
-        <CardHeader className="flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <SectionTitle
-            icon={FileText}
-            kicker="Assets"
-            title="Content Asset Library"
-            description="Photos, videos, testimonials, course images, logos, templates, approved captions, and campaign assets."
-          />
-          <div className="flex flex-col items-stretch gap-2 sm:items-end">
-            <div className="flex flex-wrap gap-2 sm:justify-end">
-              <label
-                className={cn(
-                  "inline-flex h-9 cursor-pointer items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-                  (!supabaseConfigured || uploading) && "pointer-events-none opacity-50",
-                )}
-              >
-                <FileUp className="h-4 w-4" />
-                {uploading ? "Uploading" : "Upload file"}
-                <input
-                  className="sr-only"
-                  disabled={!supabaseConfigured || uploading}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-
-                    if (file) {
-                      void uploadFile(file);
-                    }
-
-                    event.target.value = "";
-                  }}
-                  type="file"
-                />
-              </label>
-              <Button onClick={addLinkEntry} size="sm" type="button" variant="outline">
-                <Plus className="h-4 w-4" />
-                Add link entry
-              </Button>
-            </div>
-            {!supabaseConfigured ? (
-              <p className="text-xs leading-5 text-muted-foreground">
-                File upload needs Supabase connected in Settings. Link-only
-                entries still work.
-              </p>
-            ) : null}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {assetMessage ? (
-            <div
-              className={cn(
-                "rounded-md border p-3 text-xs leading-5",
-                assetMessage.tone === "error"
-                  ? "border-warning-border bg-warning text-warning-foreground"
-                  : assetMessage.tone === "success"
-                    ? "border-success-border bg-success text-success-foreground"
-                    : "bg-muted/30 text-muted-foreground",
-              )}
-            >
-              {assetMessage.text}
-            </div>
-          ) : null}
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1420px] text-left text-sm">
-              <thead className="border-b text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="py-3 pr-4 font-medium">Preview</th>
-                  <th className="py-3 pr-4 font-medium">Asset</th>
-                  <th className="py-3 pr-4 font-medium">Type</th>
-                  <th className="py-3 pr-4 font-medium">Language</th>
-                  <th className="py-3 pr-4 font-medium">Status</th>
-                  <th className="py-3 pr-4 font-medium">Campaign</th>
-                  <th className="py-3 pr-4 font-medium">Calendar item</th>
-                  <th className="py-3 pr-4 font-medium">Link</th>
-                  <th className="py-3 pr-4 font-medium">Usage notes</th>
-                  <th className="py-3 pr-4 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {ucc.assets.map((asset) => (
-                  <tr key={asset.id}>
-                    <td className="min-w-[90px] py-3 pr-4">
-                      {isImageAsset(asset) && asset.url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          alt={asset.name}
-                          className="h-14 w-14 rounded-md border object-cover"
-                          src={asset.url}
-                        />
-                      ) : (
-                        <div className="flex h-14 w-14 items-center justify-center rounded-md border bg-muted/30">
-                          <FileText className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                      )}
-                    </td>
-                    <td className="min-w-[220px] py-3 pr-4">
-                      <Input
-                        value={asset.name}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { name: event.target.value })
-                        }
-                      />
-                    </td>
-                    <td className="min-w-[150px] py-3 pr-4">{asset.type}</td>
-                    <td className="min-w-[140px] py-3 pr-4">{asset.language}</td>
-                    <td className="min-w-[150px] py-3 pr-4">
-                      <NativeSelect
-                        value={asset.status}
-                        onChange={(event) =>
-                          updateAsset(asset.id, {
-                            status: event.target.value as UccAsset["status"],
-                          })
-                        }
-                      >
-                        <option value="draft">Draft</option>
-                        <option value="approved">Approved</option>
-                        <option value="needs update">Needs update</option>
-                      </NativeSelect>
-                    </td>
-                    <td className="min-w-[190px] py-3 pr-4">
-                      <NativeSelect
-                        value={asset.campaignId}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { campaignId: event.target.value })
-                        }
-                      >
-                        <option value="">Not linked</option>
-                        {ucc.campaigns.map((campaign) => (
-                          <option key={campaign.id} value={campaign.id}>
-                            {campaign.name}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </td>
-                    <td className="min-w-[210px] py-3 pr-4">
-                      <NativeSelect
-                        value={asset.calendarItemId ?? ""}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { calendarItemId: event.target.value })
-                        }
-                      >
-                        <option value="">Not linked</option>
-                        {calendar.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.date} {item.platform}: {item.contentTopic.slice(0, 30)}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </td>
-                    <td className="min-w-[200px] py-3 pr-4">
-                      <Input
-                        value={asset.url}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { url: event.target.value })
-                        }
-                      />
-                    </td>
-                    <td className="min-w-[240px] py-3 pr-4">
-                      <Textarea
-                        value={asset.usageNotes}
-                        onChange={(event) =>
-                          updateAsset(asset.id, { usageNotes: event.target.value })
-                        }
-                      />
-                    </td>
-                    <td className="min-w-[110px] py-3 pr-4">
-                      <Button
-                        onClick={() => void deleteAsset(asset)}
-                        size="sm"
-                        type="button"
-                        variant="outline"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Delete
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-    </section>
-  );
-}
-
 function AiRecommendationPanel({
   module,
   buttonLabel,
@@ -8174,8 +7812,7 @@ function CsvImportPanel({
       | "calendar"
       | "kpi"
       | "budget"
-      | "competitors"
-      | "assets",
+      | "competitors",
     files: FileList | null,
   ) {
     const file = files?.[0];
@@ -8221,10 +7858,6 @@ function CsvImportPanel({
     if (target === "competitors") {
       onCompetitorsChange([...competitors, ...rows.map(csvToCompetitor)]);
     }
-
-    if (target === "assets") {
-      onUccChange({ ...ucc, assets: [...ucc.assets, ...rows.map((row) => csvToAsset(row, ucc))] });
-    }
   }
 
   const targets = [
@@ -8234,7 +7867,6 @@ function CsvImportPanel({
     ["kpi", "KPI results / leads"],
     ["budget", "Budget / resources"],
     ["competitors", "Competitor tracking"],
-    ["assets", "Asset library"],
   ] as const;
 
   return (
@@ -14680,20 +14312,6 @@ function csvToCompetitor(row: Record<string, string>): Competitor {
     observedStrengths: textToList(readCsv(row, ["strengths", "observed_strengths"])),
     contentGaps: textToList(readCsv(row, ["gaps", "content_gaps"])),
     whitespaceOpportunities: textToList(readCsv(row, ["opportunities", "whitespace_opportunities"])),
-  };
-}
-
-function csvToAsset(row: Record<string, string>, ucc: UccStrategyData): UccAsset {
-  return {
-    id: readCsv(row, ["id"], `asset-${Date.now()}-${Math.random().toString(16).slice(2)}`),
-    name: readCsv(row, ["name", "asset"], "Imported asset"),
-    type: (readCsv(row, ["type"], "campaign asset") || "campaign asset") as UccAsset["type"],
-    courseId: readCsv(row, ["course_id", "course"], ucc.courses[0]?.id ?? ""),
-    campaignId: readCsv(row, ["campaign_id", "campaign"], ucc.campaigns[0]?.id ?? ""),
-    language: (readCsv(row, ["language"], "English") || "English") as UccAsset["language"],
-    status: (readCsv(row, ["status"], "draft") || "draft") as UccAsset["status"],
-    url: readCsv(row, ["url", "link"], ""),
-    usageNotes: readCsv(row, ["notes", "usage_notes"], ""),
   };
 }
 

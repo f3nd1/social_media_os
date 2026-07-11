@@ -139,18 +139,6 @@ export function buildExportSheets(data: MarketingWorkspaceData): ExportSheet[] {
     Total: budget.totalCost,
   }));
 
-  const assetRows = data.ucc.assets.map((asset) => ({
-    ID: asset.id,
-    Asset: asset.name,
-    Type: asset.type,
-    Course: asset.courseId,
-    Campaign: asset.campaignId,
-    Language: asset.language,
-    Status: asset.status,
-    URL: asset.url,
-    Notes: asset.usageNotes,
-  }));
-
   const kpiRows = data.ucc.kpiRecords.map((record) => ({
     ID: record.id,
     Campaign: record.campaignId,
@@ -263,7 +251,6 @@ export function buildExportSheets(data: MarketingWorkspaceData): ExportSheet[] {
     { name: "Audiences", rows: audienceRows },
     { name: "Campaigns", rows: campaignRows },
     { name: "Budget Resources", rows: budgetRows },
-    { name: "Asset Library", rows: assetRows },
     { name: "UCC KPI Tracker", rows: kpiRows },
     { name: "AI Skill Control", rows: aiSkillRows },
     { name: "PDF Import Log", rows: pdfImportRows },
