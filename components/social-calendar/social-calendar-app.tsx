@@ -1484,6 +1484,7 @@ export function SocialCalendarApp() {
                 brand={data.brand}
                 brief={data.brief}
                 calendar={data.calendar}
+                externalRole={globalRole}
                 performanceResults={data.performanceResults}
                 platformPlaybook={platformPlaybook}
                 socialGoals={data.socialGoals}
@@ -10980,6 +10981,7 @@ function CalendarBuilderView({
   brand,
   brief,
   calendar,
+  externalRole,
   performanceResults,
   platformPlaybook,
   socialGoals,
@@ -10994,6 +10996,10 @@ function CalendarBuilderView({
   brand: BrandProfile;
   brief: StrategyBrief;
   calendar: CalendarItem[];
+  // The sidebar Role view selection. The Calendar follows it (Marketing
+  // Manager sees everything), while the local Role dropdown still allows a
+  // quick peek at another role's work without changing the sidebar.
+  externalRole?: Role;
   performanceResults: PerformanceResult[];
   platformPlaybook: PlatformPlaybook;
   socialGoals: SocialGoalSettings;
@@ -11005,11 +11011,19 @@ function CalendarBuilderView({
 }) {
   const [platformFilter, setPlatformFilter] = useState<"all" | Platform>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | CalendarStatus>("all");
-  const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | Role>(
+    externalRole && externalRole !== "marketing manager" ? externalRole : "all",
+  );
   const [generating, setGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [generationMode, setGenerationMode] = useState<"ai" | "offline" | null>(null);
   const [regeneratingItemId, setRegeneratingItemId] = useState("");
+
+  useEffect(() => {
+    if (externalRole) {
+      setRoleFilter(externalRole === "marketing manager" ? "all" : externalRole);
+    }
+  }, [externalRole]);
 
   const liveAi = isLiveAiEnabled(aiIntegration);
   const hasPerformanceData = performanceResults.length > 0;
@@ -12566,20 +12580,16 @@ function ContentProductionView({
     }
   }
 
+  // Marketing Manager sees every item; every other role sees only the work
+  // actually assigned to it, so a Graphic Designer (for example) only sees
+  // their own queue rather than every item that happens to have some visual
+  // direction text filled in.
   const roleItems = useMemo(() => {
-    if (roleView === "video editor") {
-      return calendar.filter((item) => item.videoScript || item.shotNotes);
-    }
-
     if (roleView === "marketing manager") {
       return calendar;
     }
 
-    return calendar.filter((item) =>
-      roleView === "copywriter"
-        ? item.caption || item.videoScript
-        : item.visualDirection,
-    );
+    return calendar.filter((item) => item.assignedRole === roleView);
   }, [calendar, roleView]);
 
   const selectedItem =
@@ -12761,7 +12771,7 @@ function ContentProductionView({
       <DailyContentMasterTable
         brand={brand}
         brief={brief}
-        calendar={calendar}
+        calendar={roleItems}
         platformPlaybook={platformPlaybook}
         socialGoals={socialGoals}
         onGeneratePlatformCopy={generateCopyForPlatform}
