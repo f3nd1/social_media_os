@@ -2717,9 +2717,14 @@ export function generateCalendarFromBrief(
       reviewer: "Marketing Manager",
       dueDate: date,
       blocker: "",
-      status: statusCycle[index % statusCycle.length],
-      approvalStage:
-        statusCycle[index % statusCycle.length] === "posted"
+      // Real generations (ucc supplied) always start as an unapproved draft,
+      // matching every other content-generation path. The varied status
+      // cycle below is demo-only, so the seed workspace shows what a
+      // partially-approved calendar looks like.
+      status: ucc ? "idea" : statusCycle[index % statusCycle.length],
+      approvalStage: ucc
+        ? "idea"
+        : statusCycle[index % statusCycle.length] === "posted"
           ? "published"
           : statusCycle[index % statusCycle.length] === "scheduled"
             ? "scheduled"
