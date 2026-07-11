@@ -11676,16 +11676,15 @@ function CalendarBuilderView({
       </div>
 
       {selectedItem ? (
-        <>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setSelectedItemId("")}
+        >
           <div
-            className="fixed inset-0 z-40 bg-black/40"
-            onClick={() => setSelectedItemId("")}
-          />
-          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l bg-background p-4 shadow-xl sm:max-w-lg">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Double-click a calendar item to open it here
-              </p>
+            className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-background p-4 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-end">
               <Button
                 onClick={() => setSelectedItemId("")}
                 size="icon"
@@ -11708,7 +11707,7 @@ function CalendarBuilderView({
               ucc={ucc}
             />
           </div>
-        </>
+        </div>
       ) : null}
     </section>
   );
