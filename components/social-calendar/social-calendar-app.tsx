@@ -11670,6 +11670,9 @@ function CalendarBuilderView({
         <CalendarMonthGrid
           calendar={visibleItems}
           courses={ucc.courses}
+          onMoveItemDate={(id, isoDate) =>
+            updateItem(id, { date: isoDate, plannedDate: isoDate })
+          }
           onOpenItem={setSelectedItemId}
           selectedItemId={selectedItem?.id}
         />
@@ -11716,11 +11719,13 @@ function CalendarBuilderView({
 function CalendarMonthGrid({
   calendar,
   courses,
+  onMoveItemDate,
   onOpenItem,
   selectedItemId,
 }: {
   calendar: CalendarItem[];
   courses: UccCourse[];
+  onMoveItemDate: (id: string, isoDate: string) => void;
   onOpenItem: (id: string) => void;
   selectedItemId?: string;
 }) {
@@ -11732,6 +11737,9 @@ function CalendarMonthGrid({
     const base = sorted.length > 0 ? parseIsoDate(sorted[0].date) : new Date();
     return { year: base.getFullYear(), month: base.getMonth() };
   });
+  // Which day cell is currently being dragged over, so it can highlight as
+  // the drop target. Cleared on drop, drag end, or leaving the cell.
+  const [dragOverIso, setDragOverIso] = useState("");
 
   const monthLabel = new Intl.DateTimeFormat("en-US", {
     month: "long",
@@ -11832,8 +11840,26 @@ function CalendarMonthGrid({
                     "min-h-36 border-r border-t p-2 last:border-r-0",
                     cellIndex % 7 === 6 && "border-r-0",
                     !cell.inMonth && "bg-muted/20 text-muted-foreground",
+                    dragOverIso === cell.isoDate && "bg-primary/10 ring-2 ring-inset ring-primary",
                   )}
                   key={cell.isoDate}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setDragOverIso(cell.isoDate);
+                  }}
+                  onDragLeave={() => {
+                    setDragOverIso((current) => (current === cell.isoDate ? "" : current));
+                  }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setDragOverIso("");
+                    const id = event.dataTransfer.getData("text/plain");
+
+                    if (id) {
+                      onMoveItemDate(id, cell.isoDate);
+                    }
+                  }}
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold">{cell.dayNumber}</span>
@@ -11845,12 +11871,17 @@ function CalendarMonthGrid({
                     {cell.items.map((item) => (
                       <button
                         className={cn(
-                          "w-full rounded-md border bg-background p-2 text-left transition-colors hover:border-primary",
+                          "w-full cursor-grab rounded-md border bg-background p-2 text-left transition-colors hover:border-primary active:cursor-grabbing",
                           selectedItemId === item.id && "border-primary bg-primary/5",
                         )}
+                        draggable
                         key={item.id}
                         onDoubleClick={() => onOpenItem(item.id)}
-                        title="Double-click to open"
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("text/plain", item.id);
+                          event.dataTransfer.effectAllowed = "move";
+                        }}
+                        title="Double-click to open, or drag to another date"
                         type="button"
                       >
                         <div className="flex flex-wrap items-center gap-1">
