@@ -17,6 +17,8 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   ClipboardCheck,
   Database,
@@ -11723,15 +11725,68 @@ function CalendarMonthGrid({
   onOpenItem: (id: string) => void;
   selectedItemId?: string;
 }) {
-  const monthGroups = buildCalendarMonthGroups(calendar);
+  // Default to the month of the earliest item so a first visit still shows
+  // existing content, but the month shown afterwards is genuinely navigable
+  // to any past or future month, not just months that already have items.
+  const [viewed, setViewed] = useState(() => {
+    const sorted = [...calendar].sort((a, b) => a.date.localeCompare(b.date));
+    const base = sorted.length > 0 ? parseIsoDate(sorted[0].date) : new Date();
+    return { year: base.getFullYear(), month: base.getMonth() };
+  });
+
+  const monthLabel = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(viewed.year, viewed.month, 1));
+  const group = buildCalendarMonthGrid(calendar, viewed.year, viewed.month);
+
+  function shiftMonth(delta: number) {
+    setViewed((current) => {
+      const next = new Date(current.year, current.month + delta, 1);
+      return { year: next.getFullYear(), month: next.getMonth() };
+    });
+  }
+
+  function goToToday() {
+    const now = new Date();
+    setViewed({ year: now.getFullYear(), month: now.getMonth() });
+  }
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Calendar View</CardTitle>
-        <CardDescription>
-          Month grid with each scheduled post or event shown inside its publishing date.
-        </CardDescription>
+      <CardHeader className="flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle>Calendar View</CardTitle>
+          <CardDescription>
+            Month grid with each scheduled post or event shown inside its publishing date.
+          </CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            aria-label="Previous month"
+            onClick={() => shiftMonth(-1)}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="min-w-[150px] text-center text-sm font-semibold">
+            {monthLabel}
+          </span>
+          <Button
+            aria-label="Next month"
+            onClick={() => shiftMonth(1)}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button onClick={goToToday} size="sm" type="button" variant="outline">
+            Today
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-2 md:grid-cols-5">
@@ -11758,149 +11813,111 @@ function CalendarMonthGrid({
             icon={CalendarDays}
             title="No calendar items to show"
           />
-        ) : null}
-
-        <div className="space-y-5">
-          {monthGroups.map((group) => (
-            <div className="rounded-lg border bg-card" key={group.key}>
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
-                <h3 className="text-base font-semibold">{group.label}</h3>
-                <Badge variant="secondary">{group.items.length} items</Badge>
-              </div>
-              <div className="grid grid-cols-7 border-b bg-muted/20 text-center text-xs font-medium uppercase text-muted-foreground">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                  <div className="border-r px-2 py-2 last:border-r-0" key={day}>
-                    {day}
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-7">
-                {group.cells.map((cell, cellIndex) => (
-                  <div
-                    className={cn(
-                      "min-h-36 border-r border-t p-2 last:border-r-0",
-                      cellIndex % 7 === 6 && "border-r-0",
-                      !cell.inMonth && "bg-muted/20 text-muted-foreground",
-                    )}
-                    key={`${group.key}-${cell.isoDate}`}
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold">{cell.dayNumber}</span>
-                      {cell.items.length > 0 ? (
-                        <Badge variant="outline">{cell.items.length}</Badge>
-                      ) : null}
-                    </div>
-                    <div className="space-y-2">
-                      {cell.items.map((item) => (
-                        <button
-                          className={cn(
-                            "w-full rounded-md border bg-background p-2 text-left transition-colors hover:border-primary",
-                            selectedItemId === item.id && "border-primary bg-primary/5",
-                          )}
-                          key={item.id}
-                          onDoubleClick={() => onOpenItem(item.id)}
-                          title="Double-click to open"
-                          type="button"
-                        >
-                          <div className="flex flex-wrap items-center gap-1">
-                            <PlatformBadge platform={item.platform} />
-                            <ItemKindBadge itemKind={item.itemKind ?? "post"} />
-                            <StatusBadge status={item.status} />
-                            <ComplianceBadge
-                              item={item}
-                              courseNotes={
-                                courses.find((course) => course.id === item.courseId)
-                                  ?.complianceNotes ?? ""
-                              }
-                            />
-                          </div>
-                          <p className="mt-2 line-clamp-2 text-xs font-medium leading-4">
-                            {item.contentTopic}
-                          </p>
-                          <p className="mt-1 text-xs leading-4 text-muted-foreground">
-                            {item.bestPostingTime}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+        ) : (
+          <div className="rounded-lg border bg-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
+              <h3 className="text-base font-semibold">{monthLabel}</h3>
+              <Badge variant="secondary">{group.items.length} items</Badge>
             </div>
-          ))}
-        </div>
+            <div className="grid grid-cols-7 border-b bg-muted/20 text-center text-xs font-medium uppercase text-muted-foreground">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                <div className="border-r px-2 py-2 last:border-r-0" key={day}>
+                  {day}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {group.cells.map((cell, cellIndex) => (
+                <div
+                  className={cn(
+                    "min-h-36 border-r border-t p-2 last:border-r-0",
+                    cellIndex % 7 === 6 && "border-r-0",
+                    !cell.inMonth && "bg-muted/20 text-muted-foreground",
+                  )}
+                  key={cell.isoDate}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold">{cell.dayNumber}</span>
+                    {cell.items.length > 0 ? (
+                      <Badge variant="outline">{cell.items.length}</Badge>
+                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    {cell.items.map((item) => (
+                      <button
+                        className={cn(
+                          "w-full rounded-md border bg-background p-2 text-left transition-colors hover:border-primary",
+                          selectedItemId === item.id && "border-primary bg-primary/5",
+                        )}
+                        key={item.id}
+                        onDoubleClick={() => onOpenItem(item.id)}
+                        title="Double-click to open"
+                        type="button"
+                      >
+                        <div className="flex flex-wrap items-center gap-1">
+                          <PlatformBadge platform={item.platform} />
+                          <ItemKindBadge itemKind={item.itemKind ?? "post"} />
+                          <StatusBadge status={item.status} />
+                          <ComplianceBadge
+                            item={item}
+                            courseNotes={
+                              courses.find((course) => course.id === item.courseId)
+                                ?.complianceNotes ?? ""
+                            }
+                          />
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-xs font-medium leading-4">
+                          {item.contentTopic}
+                        </p>
+                        <p className="mt-1 text-xs leading-4 text-muted-foreground">
+                          {item.bestPostingTime}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function buildCalendarMonthGroups(calendar: CalendarItem[]) {
-  const sortedItems = [...calendar].sort((a, b) => a.date.localeCompare(b.date));
-  const groups = new Map<
-    string,
-    {
-      key: string;
-      label: string;
-      year: number;
-      month: number;
-      items: CalendarItem[];
-    }
-  >();
-
-  sortedItems.forEach((item) => {
+function buildCalendarMonthGrid(calendar: CalendarItem[], year: number, month: number) {
+  const monthItems = calendar.filter((item) => {
     const date = parseIsoDate(item.date);
-    const key = `${date.getFullYear()}-${date.getMonth()}`;
-    const existing = groups.get(key);
+    return date.getFullYear() === year && date.getMonth() === month;
+  });
 
-    if (existing) {
-      existing.items.push(item);
-      return;
-    }
+  const firstOfMonth = new Date(year, month, 1);
+  const lastOfMonth = new Date(year, month + 1, 0);
+  const firstGridDate = new Date(firstOfMonth);
+  firstGridDate.setDate(firstGridDate.getDate() - firstOfMonth.getDay());
+  const lastGridDate = new Date(lastOfMonth);
+  lastGridDate.setDate(lastGridDate.getDate() + (6 - lastOfMonth.getDay()));
 
-    groups.set(key, {
-      key,
-      label: new Intl.DateTimeFormat("en-US", {
-        month: "long",
-        year: "numeric",
-      }).format(date),
-      year: date.getFullYear(),
-      month: date.getMonth(),
-      items: [item],
+  const cells: Array<{
+    dayNumber: number;
+    inMonth: boolean;
+    isoDate: string;
+    items: CalendarItem[];
+  }> = [];
+  const cursor = new Date(firstGridDate);
+
+  while (cursor <= lastGridDate) {
+    const isoDate = formatIsoDate(cursor);
+    cells.push({
+      dayNumber: cursor.getDate(),
+      inMonth: cursor.getMonth() === month,
+      isoDate,
+      items: monthItems.filter((item) => item.date === isoDate),
     });
-  });
+    cursor.setDate(cursor.getDate() + 1);
+  }
 
-  return [...groups.values()].map((group) => {
-    const firstOfMonth = new Date(group.year, group.month, 1);
-    const lastOfMonth = new Date(group.year, group.month + 1, 0);
-    const firstGridDate = new Date(firstOfMonth);
-    firstGridDate.setDate(firstGridDate.getDate() - firstOfMonth.getDay());
-    const lastGridDate = new Date(lastOfMonth);
-    lastGridDate.setDate(lastGridDate.getDate() + (6 - lastOfMonth.getDay()));
-
-    const cells: Array<{
-      dayNumber: number;
-      inMonth: boolean;
-      isoDate: string;
-      items: CalendarItem[];
-    }> = [];
-    const cursor = new Date(firstGridDate);
-
-    while (cursor <= lastGridDate) {
-      const isoDate = formatIsoDate(cursor);
-      cells.push({
-        dayNumber: cursor.getDate(),
-        inMonth: cursor.getMonth() === group.month,
-        isoDate,
-        items: group.items.filter((item) => item.date === isoDate),
-      });
-      cursor.setDate(cursor.getDate() + 1);
-    }
-
-    return {
-      ...group,
-      cells,
-    };
-  });
+  return { items: monthItems, cells };
 }
 
 function CalendarItemEditor({
