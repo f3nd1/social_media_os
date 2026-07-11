@@ -5,10 +5,22 @@ import {
   createSeedWorkspaceData,
   platforms,
   type ApprovalStage,
+  type ContentPillar,
   type MarketingWorkspaceData,
   type PlatformPlaybook,
   type SetupGuideProgress,
 } from "@/lib/social-calendar-data";
+
+// Upgrade path for workspaces saved before ucc.contentPillars existed: build
+// a structured entry per name already in the brief, rather than falling back
+// to the demo seed's pillar names and losing a real user's own list.
+function deriveContentPillarsFromNames(names: string[]): ContentPillar[] {
+  return names.map((name) => ({
+    id: `pillar-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "pillar"}`,
+    name,
+    description: "",
+  }));
+}
 
 const STORAGE_KEY = "social-calendar-intelligence-os:v1";
 
@@ -68,6 +80,9 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
   const socialGoals = shouldUseUccSeed ? seed.socialGoals : data.socialGoals;
   const brief = shouldUseUccSeed ? seed.brief : data.brief;
   const calendar = shouldUseUccSeed ? seed.calendar : data.calendar;
+  const briefContentPillars = Array.isArray(brief?.contentPillars)
+    ? brief.contentPillars
+    : seed.brief.contentPillars;
 
   return {
     ...seed,
@@ -106,6 +121,9 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
       budgetPlans: Array.isArray(data.ucc?.budgetPlans)
         ? data.ucc.budgetPlans
         : seed.ucc.budgetPlans,
+      contentPillars: Array.isArray(data.ucc?.contentPillars)
+        ? data.ucc.contentPillars
+        : deriveContentPillarsFromNames(briefContentPillars),
       events: mergeSeedRecords(seed.ucc.events, data.ucc?.events),
       connectors: mergeSeedRecords(seed.ucc.connectors, data.ucc?.connectors),
       aiModules: mergeSeedRecords(seed.ucc.aiModules, data.ucc?.aiModules).map(
@@ -125,7 +143,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
         ? data.pdfDataSource.importLog
         : seed.pdfDataSource.importLog,
     },
-    brief: { ...seed.brief, ...brief },
+    brief: { ...seed.brief, ...brief, contentPillars: briefContentPillars },
     audits: Array.isArray(data.audits) ? data.audits : seed.audits,
     connections: Array.isArray(data.connections) ? data.connections : [],
     aiIntegration: {

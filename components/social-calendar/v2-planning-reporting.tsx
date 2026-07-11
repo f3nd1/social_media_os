@@ -12,9 +12,12 @@ import {
   ClipboardCheck,
   Gauge,
   ListChecks,
+  Plus,
+  Trash2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -22,10 +25,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   analyzePerformance,
   isCampaignApproved,
   platforms,
+  type ContentPillar,
   type MarketingWorkspaceData,
 } from "@/lib/social-calendar-data";
 
@@ -56,35 +62,85 @@ function ViewHeader({
   );
 }
 
-export function ContentPillarsView({ data }: { data: MarketingWorkspaceData }) {
-  const pillarsInBrief = data.brief.contentPillars;
+export function ContentPillarsView({
+  data,
+  onContentPillarsChange,
+}: {
+  data: MarketingWorkspaceData;
+  onContentPillarsChange: (contentPillars: ContentPillar[]) => void;
+}) {
+  const pillars = data.ucc.contentPillars;
+  const pillarNames = pillars.map((pillar) => pillar.name);
   const pillarsInUse = Array.from(
     new Set(data.calendar.map((item) => item.contentPillar).filter(Boolean)),
   );
-  const extraPillars = pillarsInUse.filter(
-    (pillar) => !pillarsInBrief.includes(pillar),
+  const extraPillarNames = pillarsInUse.filter(
+    (name) => !pillarNames.includes(name),
   );
-  const allPillars = [...pillarsInBrief, ...extraPillars];
+
+  function addPillar() {
+    onContentPillarsChange([
+      ...pillars,
+      {
+        id: `pillar-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name: "New pillar",
+        description: "",
+      },
+    ]);
+  }
+
+  function updatePillar(id: string, patch: Partial<Omit<ContentPillar, "id">>) {
+    onContentPillarsChange(
+      pillars.map((pillar) => (pillar.id === id ? { ...pillar, ...patch } : pillar)),
+    );
+  }
+
+  function deletePillar(pillar: ContentPillar) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Delete the pillar "${pillar.name}"? Calendar items already using this pillar keep the name as text; they are not changed or deleted.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    onContentPillarsChange(pillars.filter((row) => row.id !== pillar.id));
+  }
 
   return (
     <section className="space-y-4">
       <Card>
-        <ViewHeader
-          icon={ListChecks}
-          title="Content Pillars"
-          description="The recurring themes from the approved brief, with live usage from the calendar: how many items each pillar has, on which platforms, and for which campaigns."
-        />
+        <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
+              <ListChecks className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle>Content Pillars</CardTitle>
+              <CardDescription className="mt-2 leading-6">
+                The recurring themes the calendar and copywriting AI actually
+                use. Add, edit, or delete pillars here; the Strategy Brief and
+                every downstream prompt follow this same list.
+              </CardDescription>
+            </div>
+          </div>
+          <Button onClick={addPillar} size="sm" type="button" variant="outline">
+            <Plus className="h-4 w-4" />
+            Add pillar
+          </Button>
+        </CardHeader>
         <CardContent className="space-y-3">
-          {allPillars.length === 0 ? (
+          {pillars.length === 0 ? (
             <p className="text-sm leading-6 text-muted-foreground">
-              No pillars yet. Approve a Strategy Brief with content pillars and
-              they appear here with live usage.
+              No pillars yet. Add one above to get started.
             </p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              {allPillars.map((pillar) => {
+              {pillars.map((pillar) => {
                 const items = data.calendar.filter(
-                  (item) => item.contentPillar === pillar,
+                  (item) => item.contentPillar === pillar.name,
                 );
                 const share =
                   data.calendar.length > 0
@@ -107,19 +163,41 @@ export function ContentPillarsView({ data }: { data: MarketingWorkspaceData }) {
                 ) as string[];
 
                 return (
-                  <div className="rounded-lg border bg-muted/20 p-4" key={pillar}>
+                  <div
+                    className="space-y-3 rounded-lg border bg-muted/20 p-4"
+                    key={pillar.id}
+                  >
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="text-sm font-semibold">{pillar}</p>
-                      <div className="flex gap-1.5">
-                        {!pillarsInBrief.includes(pillar) ? (
-                          <Badge variant="warning">Not in brief</Badge>
-                        ) : null}
+                      <Input
+                        className="max-w-[220px] font-semibold"
+                        onChange={(event) =>
+                          updatePillar(pillar.id, { name: event.target.value })
+                        }
+                        value={pillar.name}
+                      />
+                      <div className="flex items-center gap-2">
                         <Badge variant="outline">
                           {items.length} item{items.length === 1 ? "" : "s"} ({share}%)
                         </Badge>
+                        <Button
+                          onClick={() => deletePillar(pillar)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    <Textarea
+                      className="text-xs"
+                      onChange={(event) =>
+                        updatePillar(pillar.id, { description: event.target.value })
+                      }
+                      placeholder="Description: what this pillar covers and why it matters."
+                      value={pillar.description}
+                    />
+                    <p className="text-xs leading-5 text-muted-foreground">
                       {items.length === 0
                         ? "No calendar items use this pillar yet."
                         : `Platforms: ${pillarPlatforms.join(", ")}.` +
@@ -132,6 +210,12 @@ export function ContentPillarsView({ data }: { data: MarketingWorkspaceData }) {
               })}
             </div>
           )}
+          {extraPillarNames.length > 0 ? (
+            <div className="rounded-lg border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              Also used on the calendar but not in this list: {extraPillarNames.join(", ")}.
+              Add a pillar above with the same name to bring it under management.
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </section>

@@ -271,6 +271,12 @@ export type UccBudgetPlan = {
   totalCost: number;
 };
 
+export type ContentPillar = {
+  id: string;
+  name: string;
+  description: string;
+};
+
 export type UccMarketingEvent = {
   id: string;
   name: string;
@@ -344,11 +350,68 @@ export type UccStrategyData = {
   audiences: UccAudience[];
   campaigns: UccCampaign[];
   budgetPlans: UccBudgetPlan[];
+  contentPillars: ContentPillar[];
   events: UccMarketingEvent[];
   connectors: UccPlatformConnector[];
   aiModules: UccAiModule[];
   kpiRecords: UccKpiRecord[];
 };
+
+// The Strategy Brief's plain contentPillars: string[] is what the AI prompts
+// and calendar/copy engines already read; this keeps it equal to the
+// canonical, manageable ucc.contentPillars list whenever either side changes.
+// Renaming a pillar here also propagates onto calendar items already using
+// the old name, so planned content does not silently go stale.
+export function reconcileContentPillars(
+  current: MarketingWorkspaceData,
+  next: MarketingWorkspaceData,
+): MarketingWorkspaceData {
+  const currentPillars = current.ucc.contentPillars;
+  const nextPillars = next.ucc.contentPillars;
+  const currentNames = current.brief.contentPillars;
+  const nextNames = next.brief.contentPillars;
+  const pillarsChanged = currentPillars !== nextPillars;
+  const namesChanged = currentNames !== nextNames;
+
+  if (pillarsChanged && !namesChanged) {
+    const renameMap = new Map<string, string>();
+    currentPillars.forEach((oldPillar) => {
+      const match = nextPillars.find((pillar) => pillar.id === oldPillar.id);
+      if (match && match.name !== oldPillar.name) {
+        renameMap.set(oldPillar.name, match.name);
+      }
+    });
+
+    return {
+      ...next,
+      brief: { ...next.brief, contentPillars: nextPillars.map((pillar) => pillar.name) },
+      calendar:
+        renameMap.size > 0
+          ? next.calendar.map((item) =>
+              renameMap.has(item.contentPillar)
+                ? { ...item, contentPillar: renameMap.get(item.contentPillar)! }
+                : item,
+            )
+          : next.calendar,
+    };
+  }
+
+  if (namesChanged && !pillarsChanged) {
+    const byName = new Map(currentPillars.map((pillar) => [pillar.name, pillar]));
+    const rebuilt: ContentPillar[] = nextNames.map(
+      (name) =>
+        byName.get(name) ?? {
+          id: `pillar-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          name,
+          description: "",
+        },
+    );
+
+    return { ...next, ucc: { ...next.ucc, contentPillars: rebuilt } };
+  }
+
+  return next;
+}
 
 export type Competitor = {
   id: string;
@@ -1608,6 +1671,28 @@ const seedUccStrategy: UccStrategyData = {
       actualResults: { reach: 21600, leads: 31, applications: 8, enrolments: 3, spend: 1375 },
     },
   ],
+  contentPillars: [
+    {
+      id: "pillar-campus-proof",
+      name: "Campus Proof",
+      description: "Real campus moments and facilities that show what studying here actually looks like.",
+    },
+    {
+      id: "pillar-career-path-clarity",
+      name: "Career Path Clarity",
+      description: "How each course connects to real next steps, without guaranteeing outcomes.",
+    },
+    {
+      id: "pillar-student-life-reality",
+      name: "Student Life Reality",
+      description: "Honest day-to-day student life content, told through genuine student voices.",
+    },
+    {
+      id: "pillar-admissions-confidence",
+      name: "Admissions Confidence",
+      description: "Practical, factual answers to the questions applicants and parents actually ask.",
+    },
+  ],
   budgetPlans: [
     {
       id: "budget-ai",
@@ -2772,6 +2857,7 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
       audiences: [],
       campaigns: [],
       budgetPlans: [],
+      contentPillars: [],
       events: [],
       connectors: [],
       // The AI skill catalogue is structural reference data, kept so the

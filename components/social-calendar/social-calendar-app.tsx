@@ -162,6 +162,7 @@ import {
   getAuditIssues,
   getAuditRecommendations,
   platforms,
+  reconcileContentPillars,
   roles,
   statuses,
   isCampaignApproved,
@@ -544,7 +545,10 @@ export function SocialCalendarApp() {
   ) {
     setData((current) => {
       const stamp = new Date().toISOString();
-      const next = { ...updater(current), generatedAt: stamp };
+      const next = reconcileContentPillars(current, {
+        ...updater(current),
+        generatedAt: stamp,
+      });
 
       // Approvals log (Module E3): every approval or rejection anywhere in
       // the workspace is detected here centrally and appended permanently.
@@ -1345,7 +1349,17 @@ export function SocialCalendarApp() {
 
             {activeView === "seasonal" ? <SeasonalIntelligenceView /> : null}
 
-            {activeView === "pillars" ? <ContentPillarsView data={data} /> : null}
+            {activeView === "pillars" ? (
+              <ContentPillarsView
+                data={data}
+                onContentPillarsChange={(contentPillars) =>
+                  updateWorkspace((current) => ({
+                    ...current,
+                    ucc: { ...current.ucc, contentPillars },
+                  }))
+                }
+              />
+            ) : null}
 
             {activeView === "campaignReports" ? (
               <CampaignReportsView data={data} />
