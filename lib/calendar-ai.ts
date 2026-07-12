@@ -3,6 +3,7 @@
 // build context) and the server route (to build the prompt). No network here.
 
 import {
+  addDays,
   getApprovedPlaybookFields,
   platforms,
   roles,
@@ -12,6 +13,7 @@ import {
   type Role,
   type UccCampaign,
 } from "@/lib/social-calendar-data";
+import { roleLabel } from "@/lib/utils";
 
 export type CalendarAiContext = {
   brief: {
@@ -122,23 +124,6 @@ export function buildCalendarUserPrompt(context: CalendarAiContext): string {
   ].join("\n");
 }
 
-function addDaysIso(startDate: string, days: number): string {
-  const [year, month, day] = startDate.split("-").map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  date.setDate(date.getDate() + days);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function roleLabel(role: Role): string {
-  return role
-    .split(" ")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 function matchPlatform(value: string): Platform {
   const found = platforms.find(
     (platform) => platform.toLowerCase() === value?.toLowerCase().trim(),
@@ -222,7 +207,7 @@ export function calendarDraftToItems(
   return drafts.map((draft, index) => {
     const platform = matchPlatform(draft.platform);
     const rule = getApprovedPlaybookFields(options.platformPlaybook, platform);
-    const date = addDaysIso(options.startDate, index);
+    const date = addDays(options.startDate, index);
     const assignedRole = matchRole(draft.owner, platform);
     const content = draftContentFields(draft, platform, options.platformPlaybook);
     // An AI item belongs to a campaign (matched by name); a campaign already

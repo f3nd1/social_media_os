@@ -1,3 +1,5 @@
+import { roleLabel } from "@/lib/utils";
+
 export const platforms = [
   "TikTok",
   "Instagram",
@@ -195,6 +197,47 @@ export type UccAudience = {
   buyingJourney?: string;
   decisionMakers?: string;
 };
+
+// Shared by the full Products & Audiences screen and the setup guide, so a
+// course created either way has the exact same shape.
+export function makeNewCourse(
+  name = "",
+  category: UccCourseCategory = "Full-time courses",
+): UccCourse {
+  return {
+    id: `course-${Date.now()}`,
+    name,
+    category,
+    audienceIds: [],
+    courseProof: [],
+    complianceNotes: "",
+    status: "active",
+    description: "",
+    usp: "",
+    duration: "",
+    entryRequirements: "",
+    fees: "",
+    sellingPoints: [],
+  };
+}
+
+export function makeNewAudience(
+  name = "",
+  channel: UccMarketingChannel | "" = "",
+): UccAudience {
+  return {
+    id: `audience-${Date.now()}`,
+    name,
+    languages: [],
+    motivations: [],
+    concerns: [],
+    recommendedChannels: channel ? [channel] : [],
+    nurtureAngle: "",
+    interests: [],
+    buyingJourney: "",
+    decisionMakers: "",
+  };
+}
 
 export type UccCampaign = {
   id: string;
@@ -2731,7 +2774,7 @@ export function generateCalendarFromBrief(
       bestPostingTime: rule.bestPostingTime,
       productionNotes: platformCopy.productionNotes,
       assignedRole: platformCopy.assignedRole,
-      owner: roleLabelForSeed(platformCopy.assignedRole),
+      owner: roleLabel(platformCopy.assignedRole),
       reviewer: "Marketing Manager",
       dueDate: date,
       blocker: "",
@@ -2764,13 +2807,6 @@ export function generateCalendarFromBrief(
       followUpAction: "",
     };
   });
-}
-
-function roleLabelForSeed(role: Role) {
-  return role
-    .split(" ")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 export function createSeedWorkspaceData(): MarketingWorkspaceData {
@@ -3410,7 +3446,7 @@ function buildSeedPerformance(calendar: CalendarItem[]): PerformanceResult[] {
   );
 }
 
-function addDays(startDate: string, days: number) {
+export function addDays(startDate: string, days: number) {
   const [year, month, day] = startDate.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day + days));
   return date.toISOString().slice(0, 10);

@@ -6,6 +6,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 
 import { parsePdfReportMetrics } from "@/lib/pdf-data-import";
+import { sanitizeFileName } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,8 +14,6 @@ export const runtime = "nodejs";
 const MAX_PDF_BYTES = 15 * 1024 * 1024;
 const MAX_RETURNED_TEXT_CHARACTERS = 120_000;
 const MAX_EXTRACTOR_OUTPUT_BYTES = 12 * 1024 * 1024;
-const BUNDLED_PYTHON =
-  "/Users/jamabella/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3";
 
 type ExtractorResult = {
   text?: string;
@@ -54,7 +53,7 @@ export async function POST(request: Request) {
   }
 
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "social-calendar-pdf-"));
-  const pdfPath = path.join(tempDir, sanitizeFileName(file.name));
+  const pdfPath = path.join(tempDir, sanitizeFileName(file.name, "analytics-report.pdf"));
 
   try {
     const pdfBuffer = Buffer.from(await file.arrayBuffer());
@@ -111,8 +110,8 @@ async function runPdfExtractor(pdfPath: string) {
   const scriptPath = path.join(process.cwd(), "scripts", "extract_pdf_text.py");
   const pythonCandidates = [
     process.env.PDF_EXTRACTOR_PYTHON,
-    BUNDLED_PYTHON,
     "python3",
+    "python",
   ].filter(Boolean) as string[];
   const errors: string[] = [];
 
@@ -211,11 +210,6 @@ function runExtractorCandidate(
       }
     });
   });
-}
-
-function sanitizeFileName(fileName: string) {
-  const safeName = fileName.replace(/[^a-z0-9._-]/gi, "-").slice(0, 100);
-  return safeName || "analytics-report.pdf";
 }
 
 function buildExtractionSummary({

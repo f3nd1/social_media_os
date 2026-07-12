@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { apiUrl } from "@/lib/base-path";
+import { suggestModels } from "@/lib/ai-settings";
 import type {
   AiIntegrationSettings,
   BrandProfile,
@@ -104,26 +105,6 @@ const TOTAL_STEPS = STEP_KEYS.length;
 // "Your data" is steps 5 to 9. The two counts are shown separately.
 const CONNECT_STEPS = 4;
 const DATA_STEPS = 5;
-
-// Pick a sensible pair of models from whatever the key can access: a cheaper
-// one for light tasks and a stronger one for analysis. Mirrors the Settings
-// panel's selection so the guide suggests the same thing.
-function suggestModels(models: string[]) {
-  const excluded =
-    /embed|whisper|tts|audio|dall|image|moderation|search|realtime|transcribe|speech/i;
-  const candidates = models.filter(
-    (model) => /gpt|^o\d|reason|chat/i.test(model) && !excluded.test(model),
-  );
-  const pool = candidates.length > 0 ? candidates : models;
-  const cheap = /mini|nano|small|lite|flash/i;
-  const utility = pool.find((model) => cheap.test(model)) ?? pool[0] ?? "";
-  const analysis =
-    pool.find((model) => model !== utility && !cheap.test(model)) ??
-    pool.find((model) => model !== utility) ??
-    pool[0] ??
-    "";
-  return { analysis, utility };
-}
 
 type TestState = "idle" | "testing" | "ok" | "error";
 

@@ -57,7 +57,12 @@ import {
   type WorkspaceSync,
 } from "@/components/social-calendar/use-workspace-sync";
 import { apiUrl } from "@/lib/base-path";
-import { isLiveAiEnabled, resolveModelForTask } from "@/lib/ai-settings";
+import {
+  isLiveAiEnabled,
+  OFFLINE_DRAFT_LABEL,
+  resolveModelForTask,
+  suggestModels,
+} from "@/lib/ai-settings";
 import {
   appendAiUsage,
   buildAiUsageEntry,
@@ -147,7 +152,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
   analyzePerformance,
@@ -166,6 +170,8 @@ import {
   getDailyContentMasterMeta,
   getAuditIssues,
   getAuditRecommendations,
+  makeNewAudience,
+  makeNewCourse,
   platforms,
   reconcileContentPillars,
   roles,
@@ -481,8 +487,6 @@ export function SocialCalendarApp() {
     onExpire?: () => void;
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
-  const dataRef = useRef<MarketingWorkspaceData | null>(null);
-  dataRef.current = data;
   const [isHydrated, setIsHydrated] = useState(false);
   const [pdfImportState, setPdfImportState] = useState<PdfImportState>({
     status: "idle",
@@ -621,7 +625,7 @@ export function SocialCalendarApp() {
   function offerUndo(message: string, onExpire?: () => void) {
     finalizePendingUndo();
 
-    const snapshot = dataRef.current ?? data;
+    const snapshot = data;
     const timer = setTimeout(() => {
       const pending = undoPendingRef.current;
       undoPendingRef.current = null;
@@ -1036,7 +1040,7 @@ export function SocialCalendarApp() {
           </nav>
 
           <div className="mt-auto space-y-5 px-2">
-            <Separator />
+            <div className="h-px w-full shrink-0 bg-border" />
             <div className="rounded-lg border bg-card p-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-medium">Calendar readiness</p>
@@ -1657,16 +1661,13 @@ export function SocialCalendarApp() {
 // list, so the sidebar can stay narrow and the centre content gets the
 // freed width. Opens a small floating popup with the same four roles;
 // selecting one, clicking outside, or pressing Escape all close it.
-function RoleViewControl({
-  globalRole,
-  onRoleChange,
-}: {
-  globalRole: Role;
-  onRoleChange: (role: Role) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
+// Shared by every dropdown/popup that closes on an outside click or Escape
+// (RoleViewControl, AiDirectorTrigger).
+function useCloseOnOutsideOrEscape(
+  open: boolean,
+  setOpen: (open: boolean) => void,
+  containerRef: React.RefObject<HTMLDivElement | null>,
+) {
   useEffect(() => {
     if (!open) {
       return;
@@ -1691,7 +1692,19 @@ function RoleViewControl({
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [open, setOpen, containerRef]);
+}
+
+function RoleViewControl({
+  globalRole,
+  onRoleChange,
+}: {
+  globalRole: Role;
+  onRoleChange: (role: Role) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useCloseOnOutsideOrEscape(open, setOpen, containerRef);
 
   return (
     <div className="relative" ref={containerRef}>
@@ -1764,32 +1777,7 @@ function AiDirectorTrigger({
   const containerRef = useRef<HTMLDivElement>(null);
   const liveAi = isLiveAiEnabled(data.aiIntegration);
   const attentionCount = countAttentionItems(data, moduleId);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    function handlePointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
+  useCloseOnOutsideOrEscape(open, setOpen, containerRef);
 
   return (
     <div className="fixed bottom-6 right-6 z-40" ref={containerRef}>
@@ -3000,40 +2988,6 @@ const AUDIENCE_CHANNEL_OPTIONS: UccMarketingChannel[] = [
   "Xiaohongshu",
   "WeChat",
 ];
-
-function makeNewCourse(): UccCourse {
-  return {
-    id: `course-${Date.now()}`,
-    name: "",
-    category: "Full-time courses",
-    audienceIds: [],
-    courseProof: [],
-    complianceNotes: "",
-    status: "active",
-    description: "",
-    usp: "",
-    duration: "",
-    entryRequirements: "",
-    fees: "",
-    sellingPoints: [],
-  };
-}
-
-function makeNewAudience(): UccAudience {
-  return {
-    id: `audience-${Date.now()}`,
-    name: "",
-    languages: [],
-    motivations: [],
-    concerns: [],
-    recommendedChannels: [],
-    nurtureAngle: "",
-    interests: [],
-    buyingJourney: "",
-    decisionMakers: "",
-  };
-}
-
 
 function CoursesAudiencesView({
   onOfferUndo,
@@ -4880,7 +4834,7 @@ function PlatformStrategyView({
 // button, or says honestly that the engine is not built yet.
 const SKILL_ENGINE_LINKS: Record<
   string,
-  { view: ViewId; screenLabel: string; runLabel: string } | { notBuilt: string }
+  { view: ViewId; screenLabel: string; runLabel: string }
 > = {
   "ai-content-strategy": {
     view: "brief",
@@ -4938,12 +4892,6 @@ const SKILL_ENGINE_LINKS: Record<
     runLabel: "Generate insights with AI",
   },
 };
-
-// The Skill Control Panel's Status, Reviewer, and Risk fields are metadata
-// that no real engine reads, so they are shown read-only to avoid implying
-// control they do not have. Flip this to true to restore the editable
-// selectors; the editing code is kept below, just not rendered.
-const SKILL_PANEL_EDITABLE = false;
 
 function AiSkillControlPanel({
   modules,
@@ -5042,22 +4990,7 @@ function AiSkillControlPanel({
                     {module.name}
                   </td>
                   <td className="min-w-[150px] py-3 pr-4">
-                    {SKILL_PANEL_EDITABLE ? (
-                      <NativeSelect
-                        value={module.status}
-                        onChange={(event) =>
-                          updateModule(module.id, {
-                            status: event.target.value as UccAiModule["status"],
-                          })
-                        }
-                      >
-                        <option value="active">Active</option>
-                        <option value="disabled">Disabled</option>
-                        <option value="needs setup">Needs Setup</option>
-                      </NativeSelect>
-                    ) : (
-                      <span className="text-xs capitalize">{module.status}</span>
-                    )}
+                    <span className="text-xs capitalize">{module.status}</span>
                   </td>
                   <td className="min-w-[240px] py-3 pr-4 text-xs leading-5">
                     {module.inputSource}
@@ -5077,57 +5010,28 @@ function AiSkillControlPanel({
                     />
                   </td>
                   <td className="min-w-[130px] py-3 pr-4">
-                    {SKILL_PANEL_EDITABLE ? (
-                      <NativeSelect
-                        value={module.reviewerRequired ? "yes" : "no"}
-                        onChange={(event) =>
-                          updateModule(module.id, {
-                            reviewerRequired: event.target.value === "yes",
-                          })
-                        }
-                      >
-                        <option value="yes">Yes</option>
-                        <option value="no">No</option>
-                      </NativeSelect>
-                    ) : (
-                      <span className="text-xs">
-                        {module.reviewerRequired ? "Yes" : "No"}
-                      </span>
-                    )}
+                    <span className="text-xs">
+                      {module.reviewerRequired ? "Yes" : "No"}
+                    </span>
                   </td>
                   <td className="min-w-[130px] py-3 pr-4">
-                    {SKILL_PANEL_EDITABLE ? (
-                      <NativeSelect
-                        value={module.riskLevel}
-                        onChange={(event) =>
-                          updateModule(module.id, {
-                            riskLevel: event.target.value as UccAiModule["riskLevel"],
-                          })
-                        }
-                      >
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                      </NativeSelect>
-                    ) : (
-                      <Badge
-                        variant={
-                          module.riskLevel === "high"
-                            ? "warning"
-                            : module.riskLevel === "medium"
-                              ? "info"
-                              : "success"
-                        }
-                      >
-                        {module.riskLevel}
-                      </Badge>
-                    )}
+                    <Badge
+                      variant={
+                        module.riskLevel === "high"
+                          ? "warning"
+                          : module.riskLevel === "medium"
+                            ? "info"
+                            : "success"
+                      }
+                    >
+                      {module.riskLevel}
+                    </Badge>
                   </td>
                   <td className="min-w-[170px] py-3 pr-4">
                     {(() => {
                       const link = SKILL_ENGINE_LINKS[module.id];
 
-                      if (!link || "notBuilt" in link) {
+                      if (!link) {
                         return (
                           <Button disabled size="sm" type="button" variant="outline">
                             Engine not yet built
@@ -5212,12 +5116,10 @@ function AiSkillControlPanel({
               {(() => {
                 const link = SKILL_ENGINE_LINKS[selectedModule.id];
 
-                if (!link || "notBuilt" in link) {
+                if (!link) {
                   return (
                     <p className="text-xs leading-5 text-muted-foreground">
-                      {link && "notBuilt" in link
-                        ? link.notBuilt
-                        : "Engine not yet built."}
+                      Engine not yet built.
                     </p>
                   );
                 }
@@ -6921,23 +6823,6 @@ function SupabaseDatabasePanel({ sync }: { sync: WorkspaceSync }) {
   );
 }
 
-function pickDefaultModels(models: string[]) {
-  const excluded = /embed|whisper|tts|audio|dall|image|moderation|search|realtime|transcribe|speech/i;
-  const candidates = models.filter(
-    (model) => /gpt|^o\d|reason|chat/i.test(model) && !excluded.test(model),
-  );
-  const pool = candidates.length > 0 ? candidates : models;
-  const cheapPattern = /mini|nano|small|lite|flash/i;
-  const utility = pool.find((model) => cheapPattern.test(model)) ?? pool[0] ?? "";
-  const analysis =
-    pool.find((model) => model !== utility && !cheapPattern.test(model)) ??
-    pool.find((model) => model !== utility) ??
-    pool[0] ??
-    "";
-
-  return { analysis, utility };
-}
-
 function AiIntegrationPanel({
   aiIntegration,
   aiUsage,
@@ -6998,7 +6883,7 @@ function AiIntegrationPanel({
       setModels(result.models);
       setFetchState("ok");
 
-      const defaults = pickDefaultModels(result.models);
+      const defaults = suggestModels(result.models);
       const nextAnalysis = aiIntegration.analysisModel || defaults.analysis;
       const nextUtility = aiIntegration.utilityModel || defaults.utility;
       const autoPicked =
@@ -7312,6 +7197,23 @@ function AiUsageMeter({
   );
 }
 
+// Downloads a timestamped JSON backup file of the whole workspace. Throws if
+// the browser download sequence fails; callers decide whether to catch that.
+function downloadWorkspaceBackup(workspaceData: MarketingWorkspaceData) {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  const blob = new Blob([JSON.stringify(workspaceData, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `ucc-marketing-os-backup-${stamp}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 function BackupHistoryPanel({
   onRestoreWorkspace,
   sync,
@@ -7326,18 +7228,7 @@ function BackupHistoryPanel({
   const [busy, setBusy] = useState<"" | "saving" | "listing" | string>("");
 
   function downloadBackup() {
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    const blob = new Blob([JSON.stringify(workspaceData, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `ucc-marketing-os-backup-${stamp}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadWorkspaceBackup(workspaceData);
     setMessage({ tone: "success", text: "Backup file downloaded." });
   }
 
@@ -7571,18 +7462,7 @@ function WorkspaceDataModePanel({
   // connected. Never blocks the replace on the cloud call.
   function backupFirst() {
     try {
-      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-      const blob = new Blob([JSON.stringify(workspaceData, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `ucc-marketing-os-backup-${stamp}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      downloadWorkspaceBackup(workspaceData);
     } catch {
       // A failed download must not stop the owner replacing the data; they
       // were warned and can also use the Backup panel above.
@@ -7913,29 +7793,21 @@ function ApplyConfirmationPanel({
                   <span className="text-xs text-muted-foreground">{row.label}</span>
                 ) : null}
               </div>
-              {row.auditUpdated || row.kpiUpdated ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  {row.auditUpdated ? (
-                    <Button
-                      onClick={() => onViewAppliedData(row.platform)}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      View in Social Audit
-                    </Button>
-                  ) : null}
-                  {row.kpiUpdated ? (
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      KPI record also updated (see Dashboard or Reports).
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="text-xs leading-5 text-muted-foreground">
-                  No Social Audit row or KPI record for {row.platform} yet.
-                </p>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  onClick={() => onViewAppliedData(row.platform)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  View in Social Audit
+                </Button>
+                {row.kpiUpdated ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    KPI record also updated (see Dashboard or Reports).
+                  </p>
+                ) : null}
+              </div>
             </div>
           ))
         )}
@@ -9808,7 +9680,7 @@ function SocialAuditView({
                     title={
                       liveAi
                         ? "Rule-based recommendations"
-                        : "Rule-based recommendations (Offline draft, AI not connected)"
+                        : `Rule-based recommendations (${OFFLINE_DRAFT_LABEL})`
                     }
                     items={combinedRecommendations}
                     variant="success"
@@ -11655,16 +11527,9 @@ function CalendarBuilderView({
     setNewCalendarItem((current) => {
       const next = { ...current, ...patch };
 
-      if (patch.platform) {
+      if (patch.platform || patch.itemKind) {
         next.format =
-          current.itemKind === "event"
-            ? "Event promotion"
-            : getApprovedPlaybookFields(platformPlaybook, patch.platform).defaultFormat;
-      }
-
-      if (patch.itemKind) {
-        next.format =
-          patch.itemKind === "event"
+          next.itemKind === "event"
             ? "Event promotion"
             : getApprovedPlaybookFields(platformPlaybook, next.platform).defaultFormat;
       }
@@ -11815,7 +11680,7 @@ function CalendarBuilderView({
 
           {generationMode === "offline" ? (
             <div className="rounded-md border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-              Offline draft, AI not connected. These items came from the
+              {OFFLINE_DRAFT_LABEL}. These items came from the
               template generator.
             </div>
           ) : null}
@@ -13200,7 +13065,9 @@ function ContentProductionView({
     );
   }
 
-  function generateCopy(id: string) {
+  // Regenerates copy for a calendar item, optionally overriding its platform
+  // first (used to draft the same idea for a different platform).
+  function generateCopy(id: string, platform?: Platform) {
     const itemIndex = calendar.findIndex((item) => item.id === id);
     const item = calendar[itemIndex];
 
@@ -13208,14 +13075,24 @@ function ContentProductionView({
       return;
     }
 
-    const generatedOutput = generateCopywritingForItem(
-      item,
+    const targetItem = platform
+      ? {
+          ...item,
+          platform,
+          bestPostingTime: getApprovedPlaybookFields(platformPlaybook, platform).bestPostingTime,
+          format: getApprovedPlaybookFields(platformPlaybook, platform).defaultFormat,
+        }
+      : item;
+
+    const copyOutput = generateCopywritingForItem(
+      targetItem,
       brief,
       brand,
       itemIndex,
       socialGoals,
       platformPlaybook,
     );
+    const generatedOutput = platform ? { ...targetItem, ...copyOutput } : copyOutput;
 
     updateItem(id, generatedOutput);
     onUccChange(
@@ -13223,51 +13100,10 @@ function ContentProductionView({
         ucc,
         "ai-copywriting",
         buildAiOutputRecord({
-          action: "Generated selected platform copy",
-          item,
-          output: generatedOutput,
-        }),
-      ),
-    );
-    setSelectedItemId(id);
-  }
-
-  function generateCopyForPlatform(id: string, platform: Platform) {
-    const itemIndex = calendar.findIndex((item) => item.id === id);
-    const item = calendar[itemIndex];
-
-    if (!item) {
-      return;
-    }
-
-    const rule = getApprovedPlaybookFields(platformPlaybook, platform);
-    const platformItem = {
-      ...item,
-      platform,
-      bestPostingTime: rule.bestPostingTime,
-      format: rule.defaultFormat,
-    };
-
-    const generatedOutput = {
-      ...platformItem,
-      ...generateCopywritingForItem(
-        platformItem,
-        brief,
-        brand,
-        itemIndex,
-        socialGoals,
-        platformPlaybook,
-      ),
-    };
-
-    updateItem(id, generatedOutput);
-    onUccChange(
-      appendAiOutputHistory(
-        ucc,
-        "ai-copywriting",
-        buildAiOutputRecord({
-          action: `Generated ${platform} platform copy`,
-          item: platformItem,
+          action: platform
+            ? `Generated ${platform} platform copy`
+            : "Generated selected platform copy",
+          item: targetItem,
           output: generatedOutput,
         }),
       ),
@@ -13320,7 +13156,7 @@ function ContentProductionView({
               generateAllCopy();
               setGenMessage({
                 tone: "info",
-                text: "Offline draft, AI not connected. Template copy was written to every item. Use the AI buttons below for live copy on the selected item.",
+                text: `${OFFLINE_DRAFT_LABEL}. Template copy was written to every item. Use the AI buttons below for live copy on the selected item.`,
               });
             }}
             size="sm"
@@ -13371,7 +13207,7 @@ function ContentProductionView({
         calendar={roleItems}
         platformPlaybook={platformPlaybook}
         socialGoals={socialGoals}
-        onGeneratePlatformCopy={generateCopyForPlatform}
+        onGeneratePlatformCopy={generateCopy}
         onSelectItem={setSelectedItemId}
         onStatusChange={(id, status) => updateItem(id, { status })}
         selectedItemId={selectedItem?.id}
@@ -13419,7 +13255,7 @@ function ContentProductionView({
                         tone: "info",
                         text: liveAi
                           ? "Offline template copy written to this item. Use the AI buttons above for a live draft."
-                          : "Offline draft, AI not connected. Template copy written to this item.",
+                          : `${OFFLINE_DRAFT_LABEL}. Template copy written to this item.`,
                       });
                     }}
                     size="sm"
@@ -14449,7 +14285,7 @@ function NativeSelect({
 
 function PlatformBadge({ platform }: { platform: Platform }) {
   return (
-    <Badge className={platformBadgeClass(platform)} variant="outline">
+    <Badge className={PLATFORM_BADGE_CLASS} variant="outline">
       {platform}
     </Badge>
   );
@@ -14545,23 +14381,7 @@ function StatusLabel({
 }
 
 function getCampaignStatus(campaign: UccCampaign) {
-  const target = campaign.kpiTarget.leads;
-  const actual = campaign.actualResults.leads;
-  const progress = percentOf(actual, target);
-
-  if (progress >= 115) {
-    return "exceeded target";
-  }
-
-  if (progress >= 75) {
-    return "on track";
-  }
-
-  if (progress >= 45) {
-    return "needs attention";
-  }
-
-  return "behind target";
+  return getKpiStatusFromTarget(campaign.actualResults.leads, campaign.kpiTarget.leads);
 }
 
 function percentOf(value: number, target: number) {
@@ -14766,7 +14586,7 @@ function readCsv(row: Record<string, string>, keys: string[], fallback = "") {
 
 function csvToCourse(row: Record<string, string>): UccCourse {
   return {
-    id: readCsv(row, ["id"], `course-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    id: readCsv(row, ["id"], crypto.randomUUID()),
     name: readCsv(row, ["name", "course"], "Imported course"),
     category: (readCsv(row, ["category"], "Short courses") || "Short courses") as UccCourse["category"],
     audienceIds: textToList(readCsv(row, ["audiences", "audience_ids"])),
@@ -14778,7 +14598,7 @@ function csvToCourse(row: Record<string, string>): UccCourse {
 
 function csvToCampaign(row: Record<string, string>, ucc: UccStrategyData): UccCampaign {
   return {
-    id: readCsv(row, ["id"], `campaign-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    id: readCsv(row, ["id"], crypto.randomUUID()),
     name: readCsv(row, ["name", "campaign"], "Imported campaign"),
     objective: readCsv(row, ["objective"], "Imported campaign objective"),
     courseId: readCsv(row, ["course_id", "course"], ucc.courses[0]?.id ?? ""),
@@ -14816,7 +14636,7 @@ function csvToCalendarItem(
   const date = readCsv(row, ["planned_date", "date"], "2026-07-01");
 
   return {
-    id: readCsv(row, ["id"], `calendar-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    id: readCsv(row, ["id"], crypto.randomUUID()),
     itemKind: (readCsv(row, ["type", "item_kind"], "post") || "post") as CalendarItemKind,
     plannedDate: date,
     actualPostDate: readCsv(row, ["actual_post_date"], ""),
@@ -14864,7 +14684,7 @@ function csvToCalendarItem(
 
 function csvToKpiRecord(row: Record<string, string>, ucc: UccStrategyData): UccKpiRecord {
   return {
-    id: readCsv(row, ["id"], `kpi-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    id: readCsv(row, ["id"], crypto.randomUUID()),
     campaignId: readCsv(row, ["campaign_id", "campaign"], ucc.campaigns[0]?.id ?? ""),
     courseId: readCsv(row, ["course_id", "course"], ucc.courses[0]?.id ?? ""),
     channel: (readCsv(row, ["channel", "platform"], "Facebook") || "Facebook") as UccMarketingChannel,
@@ -14886,7 +14706,7 @@ function csvToBudgetPlan(row: Record<string, string>, ucc: UccStrategyData): Ucc
   const agentCost = toNumber(readCsv(row, ["agent_cost"], "0"));
 
   return {
-    id: readCsv(row, ["id"], `budget-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    id: readCsv(row, ["id"], crypto.randomUUID()),
     campaignId: readCsv(row, ["campaign_id", "campaign"], ucc.campaigns[0]?.id ?? ""),
     adBudget,
     designerHours: toNumber(readCsv(row, ["designer_hours"], "0")),
@@ -14904,7 +14724,7 @@ function csvToBudgetPlan(row: Record<string, string>, ucc: UccStrategyData): Ucc
 
 function csvToCompetitor(row: Record<string, string>): Competitor {
   return {
-    id: readCsv(row, ["id"], `competitor-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+    id: readCsv(row, ["id"], crypto.randomUUID()),
     name: readCsv(row, ["name", "competitor"], "Imported competitor"),
     website: readCsv(row, ["website", "url"], ""),
     platforms: textToList(readCsv(row, ["platforms"])).filter(isPlatform),
@@ -15023,7 +14843,7 @@ function buildAiOutputRecord({
   );
 
   return {
-    id: `ai-output-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    id: crypto.randomUUID(),
     title: item.contentTopic,
     generatedAt: new Date().toISOString(),
     status: "draft",
@@ -15078,7 +14898,6 @@ type PlatformMetricsImportSource = {
 type AppliedPlatformSummary = {
   platform: Platform;
   label?: string;
-  auditUpdated: boolean;
   kpiUpdated: boolean;
 };
 
@@ -15255,9 +15074,6 @@ function applyPlatformMetricsImport(
   const appliedPlatforms: AppliedPlatformSummary[] = platformMetrics.map((metrics) => ({
     platform: metrics.platform,
     label: metrics.label,
-    // Every entry here now always lands on a Social Audit row: an existing
-    // one gets updated, or a new one is created for it above.
-    auditUpdated: true,
     kpiUpdated: kpiUpdatedByPlatform.has(metrics.platform),
   }));
 
@@ -15593,18 +15409,5 @@ function statusVariant(status: CalendarStatus): BadgeVariant {
   return variants[status];
 }
 
-function platformBadgeClass(platform: Platform) {
-  // Theme-neutral chip so the platform tag reads correctly on every theme.
-  const tone = "border-border bg-secondary text-secondary-foreground";
-  const classes: Record<Platform, string> = {
-    TikTok: tone,
-    Instagram: tone,
-    "YouTube Shorts": tone,
-    LinkedIn: tone,
-    Facebook: tone,
-    "X/Twitter": tone,
-    Threads: tone,
-  };
-
-  return classes[platform];
-}
+// Theme-neutral chip so the platform tag reads correctly on every theme.
+const PLATFORM_BADGE_CLASS = "border-border bg-secondary text-secondary-foreground";

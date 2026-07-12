@@ -15,14 +15,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { apiUrl } from "@/lib/base-path";
 import {
+  makeNewAudience,
+  makeNewCourse,
   platforms,
   type BrandProfile,
   type MarketingWorkspaceData,
   type Platform,
   type SocialAudit,
   type StrategyBrief,
-  type UccAudience,
-  type UccCourse,
   type UccCourseCategory,
   type UccMarketingChannel,
   type UccStrategyData,
@@ -58,44 +58,9 @@ const AUDIENCE_CHANNEL_OPTIONS: UccMarketingChannel[] = [
   "WeChat",
 ];
 
-// Local factory functions, matching the ones the full screens use, so a course,
-// audience, or audit created in the guide has the exact same shape.
-function makeGuideCourse(name: string, category: UccCourseCategory): UccCourse {
-  return {
-    id: `course-${Date.now()}`,
-    name,
-    category,
-    audienceIds: [],
-    courseProof: [],
-    complianceNotes: "",
-    status: "active",
-    description: "",
-    usp: "",
-    duration: "",
-    entryRequirements: "",
-    fees: "",
-    sellingPoints: [],
-  };
-}
-
-function makeGuideAudience(
-  name: string,
-  channel: UccMarketingChannel | "",
-): UccAudience {
-  return {
-    id: `audience-${Date.now()}`,
-    name,
-    languages: [],
-    motivations: [],
-    concerns: [],
-    recommendedChannels: channel ? [channel] : [],
-    nurtureAngle: "",
-    interests: [],
-    buyingJourney: "",
-    decisionMakers: "",
-  };
-}
-
+// Local factory function, matching the one the full screen uses, so an
+// audit created in the guide has the exact same shape. Courses and
+// audiences reuse makeNewCourse/makeNewAudience directly (see imports).
 function makeGuideAudit(platform: Platform): SocialAudit {
   return {
     platform,
@@ -278,7 +243,7 @@ export function CourseStepBody({
 
     onUccChange({
       ...ucc,
-      courses: [...ucc.courses, makeGuideCourse(name.trim(), category)],
+      courses: [...ucc.courses, makeNewCourse(name.trim(), category)],
     });
     setName("");
   }
@@ -337,7 +302,7 @@ export function AudienceStepBody({
 
     onUccChange({
       ...ucc,
-      audiences: [...ucc.audiences, makeGuideAudience(name.trim(), channel)],
+      audiences: [...ucc.audiences, makeNewAudience(name.trim(), channel)],
     });
     setName("");
   }

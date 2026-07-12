@@ -35,3 +35,23 @@ export function resolveModelForTask(
   // light task still runs rather than silently dropping to offline.
   return model.trim() || ai.analysisModel.trim();
 }
+
+// Pick a sensible pair of models from whatever the key can access: a cheaper
+// one for light tasks and a stronger one for analysis. Used by both the
+// Settings panel and the setup guide, so they suggest the same thing.
+export function suggestModels(models: string[]): { analysis: string; utility: string } {
+  const excluded =
+    /embed|whisper|tts|audio|dall|image|moderation|search|realtime|transcribe|speech/i;
+  const candidates = models.filter(
+    (model) => /gpt|^o\d|reason|chat/i.test(model) && !excluded.test(model),
+  );
+  const pool = candidates.length > 0 ? candidates : models;
+  const cheap = /mini|nano|small|lite|flash/i;
+  const utility = pool.find((model) => cheap.test(model)) ?? pool[0] ?? "";
+  const analysis =
+    pool.find((model) => model !== utility && !cheap.test(model)) ??
+    pool.find((model) => model !== utility) ??
+    pool[0] ??
+    "";
+  return { analysis, utility };
+}

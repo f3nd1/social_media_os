@@ -10,6 +10,7 @@ import {
   type PlatformPlaybook,
   type SetupGuideProgress,
 } from "@/lib/social-calendar-data";
+import { roleLabel } from "@/lib/utils";
 
 // Upgrade path for workspaces saved before ucc.contentPillars existed: build
 // a structured entry per name already in the brief, rather than falling back
@@ -209,7 +210,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
           campaignId: item.campaignId ?? "",
           courseId: item.courseId ?? "",
           audienceId: item.audienceId ?? "",
-          owner: item.owner ?? roleLabelForStorage(item.assignedRole ?? "marketing manager"),
+          owner: item.owner ?? roleLabel(item.assignedRole ?? "marketing manager"),
           reviewer: item.reviewer ?? "Marketing Manager",
           dueDate: item.dueDate ?? item.plannedDate ?? item.date,
           blocker: item.blocker ?? "",
@@ -336,13 +337,6 @@ function normalizeSetupGuide(raw: SetupGuideProgress | undefined): SetupGuidePro
     analyticsChoice,
     complianceAcknowledged: Boolean(raw.complianceAcknowledged),
   };
-}
-
-function roleLabelForStorage(role: string) {
-  return role
-    .split(" ")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function mergeSeedRecords<T extends { id: string }>(
