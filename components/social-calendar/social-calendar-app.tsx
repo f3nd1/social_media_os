@@ -198,9 +198,7 @@ import {
   type Competitor,
   type FunnelStage,
   type MarketingWorkspaceData,
-  type PdfDataSourceSettings,
   type PdfMetricReview,
-  type PdfReportUpload,
   type PerformanceResult,
   type Platform,
   type PlatformConnection,
@@ -226,12 +224,7 @@ import {
 } from "@/lib/social-calendar-data";
 import {
   buildPdfMetricReviewRows,
-  countDetectedPdfMetrics,
   getPdfConfidenceLevel,
-  metricLabel,
-  parsePdfReportMetrics,
-  pdfReviewMetricFields,
-  reviewRowsToPlatformMetrics,
   type PendingMetricReview,
   type PlatformDataMetrics,
 } from "@/lib/pdf-data-import";
@@ -268,22 +261,6 @@ import {
 import { cn } from "@/lib/utils";
 
 type BadgeVariant = ComponentProps<typeof Badge>["variant"];
-type PdfImportState = {
-  status: "idle" | "loading" | "success" | "error";
-  message: string;
-};
-
-type PdfExtractionResponse = {
-  error?: string;
-  extractedText?: string;
-  textWasTrimmed?: boolean;
-  pages?: number;
-  method?: string;
-  characters?: number;
-  platformMetrics?: PlatformDataMetrics[];
-  platformMetricCount?: number;
-  summary?: string;
-};
 
 export type ViewId =
   | "dashboard"
@@ -482,10 +459,6 @@ export function SocialCalendarApp() {
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [pdfImportState, setPdfImportState] = useState<PdfImportState>({
-    status: "idle",
-    message: "Upload a PDF analytics report to extract and apply real metrics.",
-  });
 
   useEffect(() => {
     setData(localSocialCalendarRepository.load());
@@ -685,240 +658,6 @@ export function SocialCalendarApp() {
     // confirmation and its "View in..." links survive navigating away and
     // back (the settings screen unmounts when you leave it).
     setApplyConfirmation({ appliedPlatforms, label: source.label });
-  }
-
-  async function addPdfReports(files: FileList | null) {
-    if (!files?.length) {
-      return;
-    }
-
-    const pdfFiles = Array.from(files).filter((file) =>
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"),
-    );
-
-    if (pdfFiles.length === 0) {
-      setPdfImportState({
-        status: "error",
-        message: "Upload PDF files only.",
-      });
-      return;
-    }
-
-    setPdfImportState({
-      status: "loading",
-      message: `Reading ${pdfFiles.length} PDF report${
-        pdfFiles.length === 1 ? "" : "s"
-      } and looking for reach, engagement, followers, clicks, saves, shares, comments, and post performance data.`,
-    });
-
-    const uploadedAt = new Date().toISOString();
-    const defaultStartDate = data.pdfDataSource.uploads[0]?.startDate ?? "2026-07-01";
-    const defaultEndDate = data.pdfDataSource.uploads[0]?.endDate ?? "2026-07-31";
-    const uploads: PdfReportUpload[] = [];
-
-    for (const [index, file] of pdfFiles.entries()) {
-      const uploadId = `pdf-${Date.now()}-${index}`;
-      const baseUpload = {
-        id: uploadId,
-        fileName: file.name,
-        fileSize: file.size,
-        uploadedAt,
-        source: "Social analytics PDF report",
-        startDate: defaultStartDate,
-        endDate: defaultEndDate,
-      };
-
-      try {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const response = await fetch(apiUrl("/api/pdf-data/extract"), {
-          method: "POST",
-          body: formData,
-        });
-        const result = (await response.json()) as PdfExtractionResponse;
-
-        if (!response.ok) {
-          throw new Error(result.error ?? "The PDF could not be read.");
-        }
-
-        const platformMetrics = result.platformMetrics ?? [];
-        const reviewMetrics = buildPdfMetricReviewRows(platformMetrics);
-        const confidenceLevel = getPdfConfidenceLevel(reviewMetrics);
-        const summary =
-          result.summary ??
-          `Extracted ${result.characters?.toLocaleString() ?? "some"} characters from this PDF.`;
-
-        uploads.push({
-          ...baseUpload,
-          notes: summary,
-          extractedText: result.extractedText ?? "",
-          extractedAt: new Date().toISOString(),
-          extractionStatus: "success",
-          extractionMessage: summary,
-          pageCount: result.pages,
-          extractionMethod: result.method,
-          detectedMetricCount: result.platformMetricCount ?? platformMetrics.length,
-          detectedPlatforms: reviewMetrics.map((row) => row.platform),
-          confidenceLevel,
-          reviewMetrics,
-          approvalStatus: platformMetrics.length > 0 ? "needs review" : "error",
-          approvedBy: "",
-          reviewedBy: "",
-          warning:
-            platformMetrics.length > 0
-              ? ""
-              : "No recognizable platform metrics were found. Review the extracted text and correct labels before applying.",
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "The PDF could not be read. Try exporting a text-based report.";
-
-        uploads.push({
-          ...baseUpload,
-          notes: message,
-          extractedText: "",
-          extractionStatus: "error",
-          extractionMessage: message,
-          detectedMetricCount: 0,
-          detectedPlatforms: [],
-          confidenceLevel: "low",
-          reviewMetrics: [],
-          approvalStatus: "error",
-          approvedBy: "",
-          reviewedBy: "",
-          warning: message,
-        });
-      }
-    }
-
-    const successfulUploads = uploads.filter(
-      (upload) => upload.extractionStatus === "success",
-    ).length;
-    const failedUploads = uploads.length - successfulUploads;
-    const failedUploadDetails = uploads
-      .filter((upload) => upload.extractionStatus === "error")
-      .map(
-        (upload) =>
-          `${upload.fileName}: ${
-            upload.extractionMessage ?? "The PDF could not be read."
-          }`,
-      )
-      .join(" ");
-    const reviewMetricCount = uploads.reduce(
-      (sum, upload) => sum + (upload.reviewMetrics?.length ?? 0),
-      0,
-    );
-    const importSummary =
-      successfulUploads === 0
-        ? `Could not read ${failedUploads} PDF report${
-            failedUploads === 1 ? "" : "s"
-          }. ${failedUploadDetails}`
-        : reviewMetricCount > 0
-          ? `Read ${successfulUploads} PDF report${
-              successfulUploads === 1 ? "" : "s"
-            } and prepared ${reviewMetricCount} platform metric row${
-              reviewMetricCount === 1 ? "" : "s"
-            } for review. Approve the rows before applying them to KPI Tracker and Performance Learning.${
-              failedUploads > 0
-                ? ` ${failedUploads} file${
-                    failedUploads === 1 ? "" : "s"
-                  } could not be read. ${failedUploadDetails}`
-                : ""
-            }`
-          : `Read ${successfulUploads} PDF report${
-              successfulUploads === 1 ? "" : "s"
-            }, but no recognizable platform metrics were found. Review the extracted text and re-apply after correcting labels if needed.${
-              failedUploads > 0
-                ? ` ${failedUploads} file${
-                    failedUploads === 1 ? "" : "s"
-                  } could not be read. ${failedUploadDetails}`
-                : ""
-            }`;
-
-    updateWorkspace((current) => {
-      return {
-        ...current,
-        pdfDataSource: {
-          ...current.pdfDataSource,
-          uploads: [...uploads, ...current.pdfDataSource.uploads],
-          selectedUploadId: uploads[0]?.id ?? current.pdfDataSource.selectedUploadId,
-          lastImportSummary: importSummary,
-        },
-      };
-    });
-    setPdfImportState({
-      status: successfulUploads === 0 ? "error" : "success",
-      message: importSummary,
-    });
-  }
-
-  function applySelectedPdfReportData() {
-    const selectedUpload = data.pdfDataSource.uploads.find(
-      (upload) => upload.id === data.pdfDataSource.selectedUploadId,
-    );
-
-    if (!selectedUpload) {
-      setPdfImportState({
-        status: "error",
-        message: "Upload and select a PDF report first.",
-      });
-      return;
-    }
-
-    const platformMetrics = parsePdfReportMetrics(selectedUpload.extractedText);
-    const reviewMetrics =
-      selectedUpload.reviewMetrics && selectedUpload.reviewMetrics.length > 0
-        ? selectedUpload.reviewMetrics
-        : buildPdfMetricReviewRows(platformMetrics);
-    const approvedRows = reviewMetrics.filter((row) => row.approved);
-
-    if (approvedRows.length === 0) {
-      setPdfImportState({
-        status: "error",
-        message: "Approve at least one platform metric row before applying PDF data.",
-      });
-      return;
-    }
-
-    if (!selectedUpload.approvedBy?.trim()) {
-      setPdfImportState({
-        status: "error",
-        message: "Add the person approving this PDF import before applying data.",
-      });
-      return;
-    }
-
-    const importedAt = new Date().toISOString();
-    const approvedMetrics = reviewRowsToPlatformMetrics(approvedRows);
-
-    updateWorkspace(
-      (current) =>
-        applyPlatformMetricsImport(
-          current,
-          approvedMetrics,
-          importedAt,
-          selectedUpload.approvedBy ?? "Marketing Manager",
-          {
-            label: selectedUpload.fileName,
-            noteLabel: "PDF data import",
-            rangeLabel: `${selectedUpload.startDate} to ${selectedUpload.endDate}`,
-            uploadId: selectedUpload.id,
-          },
-        ).workspace,
-    );
-
-    setPdfImportState({
-      status: approvedMetrics.length > 0 ? "success" : "error",
-      message:
-        approvedMetrics.length > 0
-          ? `Applied ${approvedMetrics.length} approved platform metric row${
-              approvedMetrics.length === 1 ? "" : "s"
-            } to KPI Tracker and Performance Learning.`
-          : "No recognizable platform metrics were found. Paste text with platform names and metrics like impressions, reach, clicks, saves, comments, shares, followers, leads, and posts.",
-    });
   }
 
   // Dedicated full-screen wizard. While the setup guide is active it is the
@@ -1267,52 +1006,12 @@ export function SocialCalendarApp() {
             {activeView === "brand" ? (
               <BrandSetupView
                 brand={data.brand}
-                importState={pdfImportState}
-                pdfDataSource={data.pdfDataSource}
                 onBrandChange={(field, value) =>
                   updateWorkspace((current) => ({
                     ...current,
                     brand: { ...current.brand, [field]: value },
                   }))
                 }
-                onPdfDataSourceChange={(field, value) =>
-                  updateWorkspace((current) => ({
-                    ...current,
-                    pdfDataSource: { ...current.pdfDataSource, [field]: value },
-                  }))
-                }
-                onPdfReportChange={(uploadId, patch) =>
-                  updateWorkspace((current) => ({
-                    ...current,
-                    pdfDataSource: {
-                      ...current.pdfDataSource,
-                      uploads: current.pdfDataSource.uploads.map((upload) =>
-                        upload.id === uploadId ? { ...upload, ...patch } : upload,
-                      ),
-                    },
-                  }))
-                }
-                onPdfReportDelete={(uploadId) =>
-                  updateWorkspace((current) => {
-                    const uploads = current.pdfDataSource.uploads.filter(
-                      (upload) => upload.id !== uploadId,
-                    );
-
-                    return {
-                      ...current,
-                      pdfDataSource: {
-                        ...current.pdfDataSource,
-                        uploads,
-                        selectedUploadId:
-                          current.pdfDataSource.selectedUploadId === uploadId
-                            ? uploads[0]?.id ?? ""
-                            : current.pdfDataSource.selectedUploadId,
-                      },
-                    };
-                  })
-                }
-                onPdfReportUpload={addPdfReports}
-                onPdfReportApply={applySelectedPdfReportData}
               />
             ) : null}
 
@@ -8170,56 +7869,64 @@ function CsvImportPanel({
 
 function BrandSetupView({
   brand,
-  importState,
-  pdfDataSource,
   onBrandChange,
-  onPdfDataSourceChange,
-  onPdfReportApply,
-  onPdfReportChange,
-  onPdfReportDelete,
-  onPdfReportUpload,
 }: {
   brand: BrandProfile;
-  importState: PdfImportState;
-  pdfDataSource: PdfDataSourceSettings;
   onBrandChange: <K extends keyof BrandProfile>(
     field: K,
     value: BrandProfile[K],
   ) => void;
-  onPdfDataSourceChange: <K extends keyof PdfDataSourceSettings>(
-    field: K,
-    value: PdfDataSourceSettings[K],
-  ) => void;
-  onPdfReportApply: () => void;
-  onPdfReportChange: (uploadId: string, patch: Partial<PdfReportUpload>) => void;
-  onPdfReportDelete: (uploadId: string) => void;
-  onPdfReportUpload: (files: FileList | null) => void | Promise<void>;
 }) {
-  const selectedUpload =
-    pdfDataSource.uploads.find(
-      (upload) => upload.id === pdfDataSource.selectedUploadId,
-    ) ?? pdfDataSource.uploads[0];
+  const [guidelineMessage, setGuidelineMessage] = useState<{
+    tone: "success" | "error";
+    text: string;
+  } | null>(null);
 
   async function handleGuidelineFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
+    event.target.value = "";
 
     if (!file) {
       return;
     }
 
-    onBrandChange("brandGuidelines", await file.text());
-  }
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      onBrandChange("brandGuidelines", await file.text());
+      setGuidelineMessage(null);
+      return;
+    }
 
-  function updatePdfReviewMetric(
-    upload: PdfReportUpload,
-    rowId: string,
-    patch: Partial<PdfMetricReview>,
-  ) {
-    onPdfReportChange(upload.id, {
-      reviewMetrics: (upload.reviewMetrics ?? []).map((row) =>
-        row.id === rowId ? { ...row, ...patch, edited: true } : row,
-      ),
-    });
+    setGuidelineMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(apiUrl("/api/compliance/extract"), {
+        method: "POST",
+        body: formData,
+      });
+      const result = (await response.json()) as
+        | { ok: true; text: string; characters: number; truncated: boolean }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setGuidelineMessage({ tone: "error", text: result.error });
+        return;
+      }
+
+      onBrandChange("brandGuidelines", result.text);
+      setGuidelineMessage({
+        tone: "success",
+        text: `Read ${formatNumber(result.characters)} characters from ${file.name}${
+          result.truncated ? " (long document stored in shortened form)" : ""
+        }.`,
+      });
+    } catch (error) {
+      setGuidelineMessage({
+        tone: "error",
+        text: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   return (
@@ -8320,263 +8027,34 @@ function BrandSetupView({
 
         <Card>
           <CardHeader>
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-                <FileUp className="h-5 w-5" />
-              </div>
-              <div>
-                <CardTitle>PDF Data Reports</CardTitle>
-                <CardDescription className="mt-2 leading-6">
-                  Upload analytics PDF files to extract actual report metrics and
-                  apply them into audit and performance learning.
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <label
-              className={cn(
-                "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted",
-                importState.status === "loading" && "cursor-wait opacity-70",
-              )}
-            >
-              <FileUp className="h-4 w-4" />
-              {importState.status === "loading"
-                ? "Reading PDF reports"
-                : "Upload PDF reports"}
-              <input
-                accept="application/pdf,.pdf"
-                className="sr-only"
-                disabled={importState.status === "loading"}
-                multiple
-                onChange={(event) => {
-                  void onPdfReportUpload(event.target.files);
-                  event.target.value = "";
-                }}
-                type="file"
-              />
-            </label>
-
-            <div className="rounded-lg border border-info-border bg-info p-3 text-info-foreground">
-              <div className="flex gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <p className="text-xs leading-5">
-                  The app reads text and tables from uploaded analytics PDFs, then
-                  searches for reach, engagement, followers, comments, clicks,
-                  saves, shares, watch time, and post counts. Some scanned PDFs may
-                  still need a corrected text export.
-                </p>
-              </div>
-            </div>
-
-            {pdfDataSource.uploads.length === 0 ? (
-              <EmptyState
-                action="Upload a PDF analytics export to begin."
-                icon={FileText}
-                title="No PDF reports uploaded"
-              />
-            ) : (
-              <div className="space-y-3">
-                <Field label="Selected PDF report">
-                  <NativeSelect
-                    value={selectedUpload?.id ?? ""}
-                    onChange={(event) =>
-                      onPdfDataSourceChange("selectedUploadId", event.target.value)
-                    }
-                  >
-                    {pdfDataSource.uploads.map((upload) => (
-                      <option key={upload.id} value={upload.id}>
-                        {upload.fileName}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </Field>
-
-                {selectedUpload ? (
-                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">
-                          {selectedUpload.fileName}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {formatFileSize(selectedUpload.fileSize)} / uploaded{" "}
-                          {formatShortDate(selectedUpload.uploadedAt)}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Badge
-                            variant={
-                              selectedUpload.extractionStatus === "error"
-                                ? "warning"
-                                : selectedUpload.extractionStatus === "success"
-                                  ? "success"
-                                  : "secondary"
-                            }
-                          >
-                            {selectedUpload.extractionStatus === "error"
-                              ? "Needs review"
-                              : selectedUpload.extractionStatus === "success"
-                                ? "PDF read"
-                                : "Uploaded"}
-                          </Badge>
-                          {selectedUpload.pageCount ? (
-                            <Badge variant="outline">
-                              {selectedUpload.pageCount} page
-                              {selectedUpload.pageCount === 1 ? "" : "s"}
-                            </Badge>
-                          ) : null}
-                          {selectedUpload.detectedMetricCount !== undefined ? (
-                            <Badge variant="outline">
-                              {selectedUpload.detectedMetricCount} metric set
-                              {selectedUpload.detectedMetricCount === 1 ? "" : "s"}
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </div>
-                      <Button
-                        onClick={() => onPdfReportDelete(selectedUpload.id)}
-                        size="sm"
-                        type="button"
-                        variant="outline"
-                      >
-                        Remove
-                      </Button>
-                    </div>
-
-                    <Field label="Report source">
-                      <Input
-                        value={selectedUpload.source}
-                        onChange={(event) =>
-                          onPdfReportChange(selectedUpload.id, {
-                            source: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Field label="Start date">
-                        <Input
-                          type="date"
-                          value={selectedUpload.startDate}
-                          onChange={(event) =>
-                            onPdfReportChange(selectedUpload.id, {
-                              startDate: event.target.value,
-                            })
-                          }
-                        />
-                      </Field>
-                      <Field label="End date">
-                        <Input
-                          type="date"
-                          value={selectedUpload.endDate}
-                          onChange={(event) =>
-                            onPdfReportChange(selectedUpload.id, {
-                              endDate: event.target.value,
-                            })
-                          }
-                        />
-                      </Field>
-                    </div>
-
-                    {selectedUpload.extractionMessage ? (
-                      <div className="rounded-md border bg-background p-3 text-xs leading-5 text-muted-foreground">
-                        {selectedUpload.extractionMessage}
-                      </div>
-                    ) : null}
-
-                    <Field label="Report notes">
-                      <Textarea
-                        value={selectedUpload.notes}
-                        onChange={(event) =>
-                          onPdfReportChange(selectedUpload.id, {
-                            notes: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-
-                    <Field label="Extracted report text">
-                      <Textarea
-                        className="min-h-48"
-                        placeholder="After upload, extracted PDF text appears here. You can correct labels like reach, engagement, saves, shares, clicks, comments, followers, and posts before re-applying."
-                        value={selectedUpload.extractedText}
-                        onChange={(event) =>
-                          onPdfReportChange(selectedUpload.id, {
-                            extractedText: event.target.value,
-                          })
-                        }
-                      />
-                    </Field>
-
-                    <PdfImportReviewPanel
-                      upload={selectedUpload}
-                      onMetricChange={(rowId, patch) =>
-                        updatePdfReviewMetric(selectedUpload, rowId, patch)
-                      }
-                      onUploadChange={(patch) =>
-                        onPdfReportChange(selectedUpload.id, patch)
-                      }
-                    />
-
-                    <Button
-                      className="w-full"
-                      disabled={
-                        !selectedUpload.extractedText.trim() ||
-                        !(selectedUpload.reviewMetrics ?? []).some(
-                          (row) => row.approved,
-                        )
-                      }
-                      onClick={onPdfReportApply}
-                      type="button"
-                    >
-                      <FileText className="h-4 w-4" />
-                      Apply approved data to KPI Tracker
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            <div className="rounded-lg border bg-muted/20 p-3">
-              <Badge
-                variant={
-                  importState.status === "error"
-                    ? "warning"
-                    : importState.status === "success"
-                      ? "success"
-                      : "secondary"
-                }
-              >
-                {pdfDataSource.lastImportedAt
-                  ? `Last applied ${formatShortDate(pdfDataSource.lastImportedAt)}`
-                  : "Not applied"}
-              </Badge>
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                {importState.message || pdfDataSource.lastImportSummary}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <PdfImportLogPanel pdfDataSource={pdfDataSource} />
-
-        <Card>
-          <CardHeader>
             <CardTitle>Brand Guidelines</CardTitle>
-            <CardDescription>Paste notes or upload a text guideline file.</CardDescription>
+            <CardDescription>
+              Paste notes, or upload a PDF, text, or Markdown guideline file.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted">
               <PenLine className="h-4 w-4" />
               Upload guidelines
               <input
-                accept=".txt,.md,.csv"
+                accept=".pdf,.txt,.md,application/pdf"
                 className="sr-only"
                 onChange={handleGuidelineFile}
                 type="file"
               />
             </label>
+            {guidelineMessage ? (
+              <p
+                className={cn(
+                  "text-xs leading-5",
+                  guidelineMessage.tone === "error"
+                    ? "text-warning-foreground"
+                    : "text-muted-foreground",
+                )}
+              >
+                {guidelineMessage.text}
+              </p>
+            ) : null}
             <Textarea
               className="min-h-52"
               value={brand.brandGuidelines}
@@ -8588,232 +8066,6 @@ function BrandSetupView({
         </Card>
       </div>
     </section>
-  );
-}
-
-function PdfImportReviewPanel({
-  onMetricChange,
-  onUploadChange,
-  upload,
-}: {
-  onMetricChange: (rowId: string, patch: Partial<PdfMetricReview>) => void;
-  onUploadChange: (patch: Partial<PdfReportUpload>) => void;
-  upload: PdfReportUpload;
-}) {
-  const rows = upload.reviewMetrics ?? [];
-  const metricCount = countDetectedPdfMetrics(rows);
-  const platformsDetected = rows.map((row) => row.platform);
-
-  function refreshDetectedMetrics() {
-    const refreshedRows = buildPdfMetricReviewRows(
-      parsePdfReportMetrics(upload.extractedText),
-    );
-
-    onUploadChange({
-      reviewMetrics: refreshedRows,
-      detectedMetricCount: refreshedRows.length,
-      detectedPlatforms: refreshedRows.map((row) => row.platform),
-      confidenceLevel: getPdfConfidenceLevel(refreshedRows),
-      approvalStatus: refreshedRows.length > 0 ? "needs review" : "error",
-      warning:
-        refreshedRows.length > 0
-          ? ""
-          : "No recognizable platform metrics were found after refreshing. Use a text-based export or OCR.",
-    });
-  }
-
-  return (
-    <div className="space-y-3 rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">PDF Import Review</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Review detected values before they update KPI Tracker and Performance
-            Learning.
-          </p>
-        </div>
-        <Badge
-          variant={
-            upload.confidenceLevel === "high"
-              ? "success"
-              : upload.confidenceLevel === "medium"
-                ? "info"
-                : "warning"
-          }
-        >
-          {upload.confidenceLevel ?? "low"} confidence
-        </Badge>
-      </div>
-
-      <Button
-        disabled={!upload.extractedText.trim()}
-        onClick={refreshDetectedMetrics}
-        size="sm"
-        type="button"
-        variant="outline"
-      >
-        <RefreshCcw className="h-4 w-4" />
-        Refresh detected metrics
-      </Button>
-
-      <div className="grid gap-2 text-xs leading-5 sm:grid-cols-3">
-        <p>
-          <span className="font-medium">Date range:</span> {upload.startDate} to{" "}
-          {upload.endDate}
-        </p>
-        <p>
-          <span className="font-medium">Platforms:</span>{" "}
-          {platformsDetected.length > 0 ? platformsDetected.join(", ") : "None"}
-        </p>
-        <p>
-          <span className="font-medium">Metrics:</span> {metricCount}
-        </p>
-      </div>
-
-      {upload.warning ? (
-        <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
-          {upload.warning}
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Reviewed by">
-          <Input
-            value={upload.reviewedBy ?? ""}
-            onChange={(event) =>
-              onUploadChange({ reviewedBy: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Approved by">
-          <Input
-            value={upload.approvedBy ?? ""}
-            onChange={(event) =>
-              onUploadChange({
-                approvedBy: event.target.value,
-                approvalStatus: event.target.value.trim()
-                  ? "approved"
-                  : "needs review",
-              })
-            }
-          />
-        </Field>
-      </div>
-
-      {rows.length === 0 ? (
-        <EmptyState
-          action="No platform metrics were detected. Check the extracted text, correct labels, or upload a text-based analytics export."
-          icon={AlertTriangle}
-          title="No review rows"
-        />
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1180px] text-left text-xs">
-            <thead className="border-b uppercase text-muted-foreground">
-              <tr>
-                <th className="py-2 pr-3 font-medium">Apply</th>
-                <th className="py-2 pr-3 font-medium">Platform</th>
-                <th className="py-2 pr-3 font-medium">Confidence</th>
-                {pdfReviewMetricFields.map((field) => (
-                  <th className="py-2 pr-3 font-medium" key={field}>
-                    {metricLabel(field)}
-                  </th>
-                ))}
-                <th className="py-2 pr-3 font-medium">Notes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="py-2 pr-3">
-                    <input
-                      aria-label={`Approve ${row.platform} metrics`}
-                      checked={row.approved}
-                      onChange={(event) =>
-                        onMetricChange(row.id, {
-                          approved: event.target.checked,
-                          edited: row.edited,
-                        })
-                      }
-                      type="checkbox"
-                    />
-                  </td>
-                  <td className="whitespace-nowrap py-2 pr-3 font-medium">
-                    {row.platform}
-                  </td>
-                  <td className="whitespace-nowrap py-2 pr-3">
-                    {row.confidence}%
-                  </td>
-                  {pdfReviewMetricFields.map((field) => (
-                    <td className="min-w-[86px] py-2 pr-3" key={field}>
-                      <Input
-                        className="h-8"
-                        type="number"
-                        value={row[field]}
-                        onChange={(event) =>
-                          onMetricChange(row.id, {
-                            [field]: toNumber(event.target.value),
-                          } as Partial<PdfMetricReview>)
-                        }
-                      />
-                    </td>
-                  ))}
-                  <td className="min-w-[240px] py-2 pr-3">
-                    <Input
-                      className="h-8"
-                      value={row.notes}
-                      onChange={(event) =>
-                        onMetricChange(row.id, { notes: event.target.value })
-                      }
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PdfImportLogPanel({
-  pdfDataSource,
-}: {
-  pdfDataSource: PdfDataSourceSettings;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>PDF Import Log</CardTitle>
-        <CardDescription>
-          Approved imports, edited values, applied metrics, and reviewer record.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {pdfDataSource.importLog.length === 0 ? (
-          <p className="text-sm leading-6 text-muted-foreground">
-            Approved PDF imports will appear here after review and apply.
-          </p>
-        ) : (
-          pdfDataSource.importLog.slice(0, 6).map((entry) => (
-            <div className="rounded-lg border bg-muted/20 p-3" key={entry.id}>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <p className="text-sm font-semibold">{entry.fileName}</p>
-                <Badge variant="success">{entry.appliedMetricCount} applied</Badge>
-              </div>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Approved by {entry.approvedBy} on {formatShortDate(entry.appliedAt)}
-              </p>
-              <p className="mt-2 text-xs leading-5">
-                {entry.platforms.join(", ")} / {entry.editedMetricCount} edited row
-                {entry.editedMetricCount === 1 ? "" : "s"}
-              </p>
-            </div>
-          ))
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -15535,31 +14787,6 @@ function sortCalendarItems(calendar: CalendarItem[]) {
 
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function formatFileSize(bytes: number) {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-
-  if (bytes < 1024 * 1024) {
-    return `${Math.round(bytes / 102.4) / 10} KB`;
-  }
-
-  return `${Math.round(bytes / 1024 / 102.4) / 10} MB`;
-}
-
-function formatShortDate(value: string) {
-  const date = value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
-
-  if (!value || Number.isNaN(date.getTime())) {
-    return "no date";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
 }
 
 function formatDateTime(value: string) {
