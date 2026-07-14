@@ -303,7 +303,6 @@ export type ViewId =
   | "calendar"
   | "production"
   | "budget"
-  | "kpi"
   | "compliance"
   | "reports"
   | "settings"
@@ -360,7 +359,6 @@ const modules: Array<{
       { id: "competitors", label: "Competitor Intelligence", icon: UsersRound },
       { id: "platform", label: "Market Intelligence", icon: Gauge },
       { id: "platformIntel", label: "Platform Intelligence", icon: Gauge },
-      { id: "kpi", label: "KPI Tracking", icon: TrendingUp },
     ],
   },
   {
@@ -1426,8 +1424,17 @@ export function SocialCalendarApp() {
 
             {activeView === "platform" ? (
               <PlatformStrategyView
+                applyConfirmation={applyConfirmation}
                 data={data}
                 ucc={data.ucc}
+                onAiRecommendationsChange={(aiRecommendations) =>
+                  updateWorkspace((current) => ({ ...current, aiRecommendations }))
+                }
+                onApplyMetrics={applyApprovedMetrics}
+                onConnectionsChange={(connections) =>
+                  updateWorkspace((current) => ({ ...current, connections }))
+                }
+                onDismissApplyConfirmation={() => setApplyConfirmation(null)}
                 onListeningResultsChange={(listeningResults) =>
                   updateWorkspace((current) => ({ ...current, listeningResults }))
                 }
@@ -1439,6 +1446,7 @@ export function SocialCalendarApp() {
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
                 }
+                onViewAppliedData={viewAppliedData}
               />
             ) : null}
 
@@ -1538,16 +1546,6 @@ export function SocialCalendarApp() {
                 onUccChange={(ucc) =>
                   updateWorkspace((current) => ({ ...current, ucc }))
                 }
-              />
-            ) : null}
-
-            {activeView === "kpi" ? (
-              <KpiTrackerView
-                data={data}
-                onAiRecommendationsChange={(aiRecommendations) =>
-                  updateWorkspace((current) => ({ ...current, aiRecommendations }))
-                }
-                onRecordUsage={recordAiUsage}
               />
             ) : null}
 
@@ -2197,8 +2195,9 @@ const SCREEN_HELP: Partial<Record<ViewId, ReactNode>> = {
   ),
   platform: (
     <>
-      See which platform suits each audience, scan live trends, and research
-      what real people are saying.
+      See which platform suits each audience, scan live trends, research what
+      real people are saying, connect Metricool, and record real KPI results
+      against target.
     </>
   ),
   brief: (
@@ -2237,12 +2236,6 @@ const SCREEN_HELP: Partial<Record<ViewId, ReactNode>> = {
     <>
       Track what other colleges are doing and turn it into insights you can
       accept or dismiss.
-    </>
-  ),
-  kpi: (
-    <>
-      Record real results for each campaign and compare them against target, so
-      you know what is working.
     </>
   ),
   compliance: (
@@ -4684,22 +4677,40 @@ function TrendRadarPanel({
 }
 
 function PlatformStrategyView({
+  applyConfirmation,
   data,
+  onAiRecommendationsChange,
+  onApplyMetrics,
+  onConnectionsChange,
+  onDismissApplyConfirmation,
   onListeningResultsChange,
   onNavigate,
   onRecordUsage,
   onTrendInsightsChange,
   onUccChange,
+  onViewAppliedData,
   ucc,
 }: {
+  applyConfirmation: { appliedPlatforms: AppliedPlatformSummary[]; label: string } | null;
   data: MarketingWorkspaceData;
+  onAiRecommendationsChange: (aiRecommendations: AiRecommendation[]) => void;
+  onApplyMetrics: (
+    metrics: PlatformDataMetrics[],
+    approvedBy: string,
+    source: { label: string; noteLabel: string; rangeLabel: string; editedCount: number },
+  ) => void;
+  onConnectionsChange: (connections: PlatformConnection[]) => void;
+  onDismissApplyConfirmation: () => void;
   onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
   onNavigate: (view: ViewId) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
   onUccChange: (ucc: UccStrategyData) => void;
+  onViewAppliedData: (platform: Platform) => void;
   ucc: UccStrategyData;
 }) {
+  const metricReview = useMetricReviewFlow(onApplyMetrics);
+
   return (
     <section className="space-y-4">
       <Card>
@@ -4730,82 +4741,59 @@ function PlatformStrategyView({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Platform Data Integration</CardTitle>
-            <CardDescription>
-              Direct APIs are prepared where credentials are available; CSV/PDF
-              import remains the fallback for manual or restricted platforms.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] text-left text-sm">
-                <thead className="border-b text-xs uppercase text-muted-foreground">
-                  <tr>
-                    <th className="py-3 pr-4 font-medium">Platform</th>
-                    <th className="py-3 pr-4 font-medium">Mode</th>
-                    <th className="py-3 pr-4 font-medium">Status</th>
-                    <th className="py-3 pr-4 font-medium">Metrics</th>
-                    <th className="py-3 pr-4 font-medium">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {ucc.connectors.map((connector) => (
-                    <tr key={connector.id}>
-                      <td className="py-3 pr-4 font-medium">{connector.platform}</td>
-                      <td className="py-3 pr-4">{connector.mode}</td>
-                      <td className="py-3 pr-4">
-                        <Badge
-                          variant={
-                            connector.status === "ready"
-                              ? "success"
-                              : connector.status === "needs credentials"
-                                ? "warning"
-                                : "secondary"
-                          }
-                        >
-                          {connector.status}
-                        </Badge>
-                      </td>
-                      <td className="min-w-[260px] py-3 pr-4">
-                        {connector.supportedMetrics.join(", ")}
-                      </td>
-                      <td className="min-w-[280px] py-3 pr-4 text-muted-foreground">
-                        {connector.notes}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Platform Data Integration &amp; KPI Tracking</CardTitle>
+          <CardDescription>
+            Connect and sync Metricool here; the same real numbers feed both
+            the connection status below and KPI Tracking, kept in one place.
+          </CardDescription>
+        </CardHeader>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Marketing Calendar Intelligence</CardTitle>
-            <CardDescription>
-              Singapore holidays, school periods, intake windows, agent cycles,
-              campus events, and shopping-date campaign moments.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {ucc.events.map((event) => (
-              <div className="rounded-lg border bg-muted/20 p-3" key={event.id}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold">{event.name}</p>
-                  <Badge variant="outline">{event.date}</Badge>
-                </div>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  {event.campaignOpportunity}
-                </p>
+      <PlatformDataIntegrationPanel
+        applyConfirmation={applyConfirmation}
+        approverName={metricReview.approverName}
+        connections={data.connections}
+        pendingReview={metricReview.pendingReview}
+        onApply={metricReview.handleApply}
+        onApproverNameChange={metricReview.setApproverName}
+        onConnectionsChange={onConnectionsChange}
+        onDiscardReview={() => metricReview.setPendingReview(null)}
+        onDismissApplyConfirmation={onDismissApplyConfirmation}
+        onRowChange={metricReview.handleRowChange}
+        onSyncReview={metricReview.setPendingReview}
+        onViewAppliedData={onViewAppliedData}
+      />
+
+      <KpiTrackerView
+        data={data}
+        onAiRecommendationsChange={onAiRecommendationsChange}
+        onRecordUsage={onRecordUsage}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Marketing Calendar Intelligence</CardTitle>
+          <CardDescription>
+            Singapore holidays, school periods, intake windows, agent cycles,
+            campus events, and shopping-date campaign moments.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {ucc.events.map((event) => (
+            <div className="rounded-lg border bg-muted/20 p-3" key={event.id}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold">{event.name}</p>
+                <Badge variant="outline">{event.date}</Badge>
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                {event.campaignOpportunity}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <TrendRadarPanel
         data={data}
@@ -4861,8 +4849,8 @@ const SKILL_ENGINE_LINKS: Record<
     runLabel: "Generate video script with AI",
   },
   "ai-kpi": {
-    view: "kpi",
-    screenLabel: "KPI Tracker",
+    view: "platform",
+    screenLabel: "Market Intelligence",
     runLabel: "Generate insights with AI",
   },
   "ai-budget": {
@@ -4881,8 +4869,8 @@ const SKILL_ENGINE_LINKS: Record<
     runLabel: "the copywriting AI, which writes the Chinese version when the audience language includes Chinese",
   },
   "ai-performance-recommendation": {
-    view: "kpi",
-    screenLabel: "KPI Tracker",
+    view: "platform",
+    screenLabel: "Market Intelligence",
     runLabel: "Generate insights with AI",
   },
 };
@@ -7572,6 +7560,121 @@ function WorkspaceDataModePanel({
   );
 }
 
+// The live Metricool connect/sync flow, plus its review-and-apply and
+// confirmation steps. Shared by Settings and Market Intelligence so both
+// trigger the exact same real sync against the same connections list,
+// instead of two independent copies of this wiring.
+// The review/apply state behind the Metricool sync flow. A hook (not a
+// component) because Settings also needs to feed a CSV-parsed result into
+// the same pendingReview state from a sibling panel (CsvImportPanel).
+function useMetricReviewFlow(
+  onApplyMetrics: (
+    metrics: PlatformDataMetrics[],
+    approvedBy: string,
+    source: { label: string; noteLabel: string; rangeLabel: string; editedCount: number },
+  ) => void,
+) {
+  const [pendingReview, setPendingReview] = useState<PendingMetricReview | null>(null);
+  const [approverName, setApproverName] = useState("");
+
+  function handleRowChange(rowId: string, patch: Partial<PdfMetricReview>) {
+    setPendingReview((current) =>
+      current
+        ? {
+            ...current,
+            rows: current.rows.map((row) =>
+              row.id === rowId ? { ...row, ...patch, edited: true } : row,
+            ),
+          }
+        : current,
+    );
+  }
+
+  function handleApply() {
+    if (!pendingReview) {
+      return;
+    }
+
+    const approvedRows = pendingReview.rows.filter((row) => row.approved);
+
+    onApplyMetrics(reviewRowsToApprovedMetrics(pendingReview.rows), approverName.trim(), {
+      label: pendingReview.sourceLabel,
+      noteLabel: pendingReview.noteLabel,
+      rangeLabel: pendingReview.rangeLabel,
+      editedCount: approvedRows.filter((row) => row.edited).length,
+    });
+    setPendingReview(null);
+  }
+
+  return {
+    approverName,
+    handleApply,
+    handleRowChange,
+    pendingReview,
+    setApproverName,
+    setPendingReview,
+  };
+}
+
+function PlatformDataIntegrationPanel({
+  applyConfirmation,
+  approverName,
+  connections,
+  pendingReview,
+  onApply,
+  onApproverNameChange,
+  onConnectionsChange,
+  onDiscardReview,
+  onDismissApplyConfirmation,
+  onRowChange,
+  onSyncReview,
+  onViewAppliedData,
+}: {
+  applyConfirmation: { appliedPlatforms: AppliedPlatformSummary[]; label: string } | null;
+  approverName: string;
+  connections: PlatformConnection[];
+  pendingReview: PendingMetricReview | null;
+  onApply: () => void;
+  onApproverNameChange: (approverName: string) => void;
+  onConnectionsChange: (connections: PlatformConnection[]) => void;
+  onDiscardReview: () => void;
+  onDismissApplyConfirmation: () => void;
+  onRowChange: (rowId: string, patch: Partial<PdfMetricReview>) => void;
+  onSyncReview: (review: PendingMetricReview) => void;
+  onViewAppliedData: (platform: Platform) => void;
+}) {
+  return (
+    <>
+      <ConnectionManagerPanel
+        connections={connections}
+        onConnectionsChange={onConnectionsChange}
+        onSyncReview={(review) => {
+          onDismissApplyConfirmation();
+          onSyncReview(review);
+        }}
+      />
+      {pendingReview ? (
+        <MetricReviewPanel
+          approverName={approverName}
+          onApply={onApply}
+          onApproverNameChange={onApproverNameChange}
+          onDiscard={onDiscardReview}
+          onRowChange={onRowChange}
+          pending={pendingReview}
+        />
+      ) : null}
+      {applyConfirmation ? (
+        <ApplyConfirmationPanel
+          appliedPlatforms={applyConfirmation.appliedPlatforms}
+          label={applyConfirmation.label}
+          onDismiss={onDismissApplyConfirmation}
+          onViewAppliedData={onViewAppliedData}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function SettingsWorkspaceView({
   aiIntegration,
   aiUsage,
@@ -7617,38 +7720,8 @@ function SettingsWorkspaceView({
   sync: WorkspaceSync;
   ucc: UccStrategyData;
 }) {
-  const [pendingReview, setPendingReview] = useState<PendingMetricReview | null>(null);
-  const [approverName, setApproverName] = useState("");
   const [csvMessage, setCsvMessage] = useState("");
-
-  function handleRowChange(rowId: string, patch: Partial<PdfMetricReview>) {
-    setPendingReview((current) =>
-      current
-        ? {
-            ...current,
-            rows: current.rows.map((row) =>
-              row.id === rowId ? { ...row, ...patch, edited: true } : row,
-            ),
-          }
-        : current,
-    );
-  }
-
-  function handleApply() {
-    if (!pendingReview) {
-      return;
-    }
-
-    const approvedRows = pendingReview.rows.filter((row) => row.approved);
-
-    onApplyMetrics(reviewRowsToApprovedMetrics(pendingReview.rows), approverName.trim(), {
-      label: pendingReview.sourceLabel,
-      noteLabel: pendingReview.noteLabel,
-      rangeLabel: pendingReview.rangeLabel,
-      editedCount: approvedRows.filter((row) => row.edited).length,
-    });
-    setPendingReview(null);
-  }
+  const metricReview = useMetricReviewFlow(onApplyMetrics);
 
   return (
     <section className="space-y-4">
@@ -7688,32 +7761,20 @@ function SettingsWorkspaceView({
         aiUsage={aiUsage}
         onAiIntegrationChange={onAiIntegrationChange}
       />
-      <ConnectionManagerPanel
+      <PlatformDataIntegrationPanel
+        applyConfirmation={applyConfirmation}
+        approverName={metricReview.approverName}
         connections={connections}
+        pendingReview={metricReview.pendingReview}
+        onApply={metricReview.handleApply}
+        onApproverNameChange={metricReview.setApproverName}
         onConnectionsChange={onConnectionsChange}
-        onSyncReview={(review) => {
-          onDismissApplyConfirmation();
-          setPendingReview(review);
-        }}
+        onDiscardReview={() => metricReview.setPendingReview(null)}
+        onDismissApplyConfirmation={onDismissApplyConfirmation}
+        onRowChange={metricReview.handleRowChange}
+        onSyncReview={metricReview.setPendingReview}
+        onViewAppliedData={onViewAppliedData}
       />
-      {pendingReview ? (
-        <MetricReviewPanel
-          approverName={approverName}
-          onApply={handleApply}
-          onApproverNameChange={setApproverName}
-          onDiscard={() => setPendingReview(null)}
-          onRowChange={handleRowChange}
-          pending={pendingReview}
-        />
-      ) : null}
-      {applyConfirmation ? (
-        <ApplyConfirmationPanel
-          appliedPlatforms={applyConfirmation.appliedPlatforms}
-          label={applyConfirmation.label}
-          onDismiss={onDismissApplyConfirmation}
-          onViewAppliedData={onViewAppliedData}
-        />
-      ) : null}
       <CsvImportPanel
         calendar={calendar}
         competitors={competitors}
@@ -7722,7 +7783,7 @@ function SettingsWorkspaceView({
         onCompetitorsChange={onCompetitorsChange}
         onMetricoolCsvParsed={(result) => {
           if (result.ok) {
-            setPendingReview(result.pending);
+            metricReview.setPendingReview(result.pending);
             setCsvMessage("");
           } else {
             setCsvMessage(result.message);

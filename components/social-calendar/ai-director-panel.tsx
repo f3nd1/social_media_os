@@ -41,7 +41,6 @@ type DirectorNavView =
   | "calendar"
   | "production"
   | "budget"
-  | "kpi"
   | "compliance"
   | "reports"
   | "settings";
@@ -167,7 +166,7 @@ function buildRawNotes(data: MarketingWorkspaceData, moduleId: DirectorModuleId)
     if (weakKpis.length > 0) {
       notes.push({
         text: `${weakKpis.length} KPI channel${weakKpis.length === 1 ? "" : "s"} behind target or needing attention.`,
-        view: "kpi",
+        view: "platform",
         action: "Open KPI Tracking",
       });
     }
@@ -232,14 +231,14 @@ function buildRawNotes(data: MarketingWorkspaceData, moduleId: DirectorModuleId)
     weakKpis.slice(0, 2).forEach((row) => {
       notes.push({
         text: `${row.channel}: ${row.recommendation}`,
-        view: "kpi",
+        view: "platform",
         action: "Open KPI Tracking",
       });
     });
     if (data.performanceResults.length === 0) {
       notes.push({
         text: "No performance results recorded yet, so reports rest on plans rather than outcomes.",
-        view: "kpi",
+        view: "platform",
         action: "Record results",
       });
     }
