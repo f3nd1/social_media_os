@@ -247,10 +247,7 @@ import {
   type DirectorModuleId,
 } from "@/components/social-calendar/ai-director-panel";
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
-import {
-  SeasonalIntelligenceView,
-  TeamView,
-} from "@/components/social-calendar/v2-foundation-insights";
+import { TeamView } from "@/components/social-calendar/v2-foundation-insights";
 import {
   CampaignReportsView,
   ContentPillarsView,
@@ -292,7 +289,6 @@ export type ViewId =
   | "brand"
   | "team"
   | "platformIntel"
-  | "seasonal"
   | "pillars"
   | "campaignReports"
   | "platformReports"
@@ -364,7 +360,6 @@ const modules: Array<{
       { id: "competitors", label: "Competitor Intelligence", icon: UsersRound },
       { id: "platform", label: "Market Intelligence", icon: Gauge },
       { id: "platformIntel", label: "Platform Intelligence", icon: Gauge },
-      { id: "seasonal", label: "Seasonal Intelligence", icon: CalendarDays },
       { id: "kpi", label: "KPI Tracking", icon: TrendingUp },
     ],
   },
@@ -1336,8 +1331,6 @@ export function SocialCalendarApp() {
                 onRecordUsage={recordAiUsage}
               />
             ) : null}
-
-            {activeView === "seasonal" ? <SeasonalIntelligenceView /> : null}
 
             {activeView === "pillars" ? (
               <ContentPillarsView
