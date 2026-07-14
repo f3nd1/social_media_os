@@ -91,6 +91,10 @@ export type SocialAudit = {
   url: string;
   followers: number;
   averageReach: number;
+  // Optional so older saves (before this field existed) upgrade safely, and
+  // so a platform with no real Metricool/import data yet shows "No data yet"
+  // instead of an invented zero.
+  impressions?: number;
   engagementRate: number;
   postingFrequency: string;
   scores: AuditScores;

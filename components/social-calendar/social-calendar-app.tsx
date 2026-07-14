@@ -9242,6 +9242,7 @@ function SocialAuditView({
                 <tr>
                   <th className="py-3 pr-4 font-medium">Platform</th>
                   <th className="py-3 pr-4 font-medium">Followers</th>
+                  <th className="py-3 pr-4 font-medium">Impressions</th>
                   <th className="py-3 pr-4 font-medium">Avg reach</th>
                   <th className="py-3 pr-4 font-medium">Engagement %</th>
                   <th className="py-3 pr-4 font-medium">Frequency</th>
@@ -9297,6 +9298,20 @@ function SocialAuditView({
                               updateAudit(audit.platform, (row) => ({
                                 ...row,
                                 followers: toNumber(event.target.value),
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="py-2 pr-4 align-top">
+                          <Input
+                            className="w-28"
+                            type="number"
+                            value={audit.impressions ?? ""}
+                            placeholder="No data yet"
+                            onChange={(event) =>
+                              updateAudit(audit.platform, (row) => ({
+                                ...row,
+                                impressions: toNumber(event.target.value),
                               }))
                             }
                           />
@@ -14951,6 +14966,7 @@ function applyPlatformMetricsImport(
       ...audit,
       followers: metrics.followers || audit.followers,
       averageReach: averageReach || audit.averageReach,
+      impressions: metrics.impressions || audit.impressions,
       engagementRate,
       postingFrequency:
         metrics.posts > 0
