@@ -2691,6 +2691,7 @@ function CoursesAudiencesView({
   const [showArchived, setShowArchived] = useState(false);
   const [courseEditor, setCourseEditor] = useState<UccCourse | null>(null);
   const [audienceEditor, setAudienceEditor] = useState<UccAudience | null>(null);
+  const [selectedCourseId, setSelectedCourseId] = useState("");
 
   function updateCourse(id: string, patch: Partial<UccCourse>) {
     onUccChange({
@@ -2761,6 +2762,12 @@ function CoursesAudiencesView({
 
   const liveCourses = ucc.courses.filter((course) => course.status !== "archived");
   const visibleCourses = showArchived ? ucc.courses : liveCourses;
+  const selectedCourse = visibleCourses.find((course) => course.id === selectedCourseId) ?? null;
+  const selectedCourseAudienceNames = selectedCourse
+    ? selectedCourse.audienceIds
+        .map((id) => ucc.audiences.find((audience) => audience.id === id)?.name)
+        .filter((name): name is string => Boolean(name))
+    : [];
 
   return (
     <section className="space-y-4">
@@ -2823,118 +2830,190 @@ function CoursesAudiencesView({
               title="No courses yet"
             />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1040px] text-left text-sm">
-                <thead className="border-b text-xs uppercase text-muted-foreground">
-                  <tr>
-                    <th className="py-3 pr-4 font-medium">Course</th>
-                    <th className="py-3 pr-4 font-medium">Category</th>
-                    <th className="py-3 pr-4 font-medium">Supporting evidence</th>
-                    <th className="py-3 pr-4 font-medium">Compliance</th>
-                    <th className="py-3 pr-4 font-medium">Status</th>
-                    <th className="py-3 pr-4 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {visibleCourses.map((course) => (
-                    <tr key={course.id}>
-                      <td className="min-w-[220px] py-3 pr-4">
-                        <Input
-                          value={course.name}
-                          onChange={(event) =>
-                            updateCourse(course.id, { name: event.target.value })
-                          }
-                        />
-                      </td>
-                      <td className="min-w-[170px] py-3 pr-4">{course.category}</td>
-                      <td className="min-w-[240px] py-3 pr-4">
-                        <Textarea
-                          value={course.courseProof.join("\n")}
-                          onChange={(event) =>
-                            updateCourse(course.id, {
-                              courseProof: textToList(event.target.value),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="min-w-[240px] py-3 pr-4">
-                        <Textarea
-                          value={course.complianceNotes}
-                          onChange={(event) =>
-                            updateCourse(course.id, {
-                              complianceNotes: event.target.value,
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="min-w-[130px] py-3 pr-4">
-                        {course.status === "archived" ? (
-                          <Badge variant="secondary">Archived</Badge>
-                        ) : (
-                          <NativeSelect
-                            value={course.status}
-                            onChange={(event) =>
-                              updateCourse(course.id, {
-                                status: event.target.value as UccCourse["status"],
-                              })
-                            }
-                          >
-                            <option value="active">Active</option>
-                            <option value="future">Future</option>
-                            <option value="paused">Paused</option>
-                          </NativeSelect>
-                        )}
-                      </td>
-                      <td className="min-w-[240px] py-3 pr-4">
-                        <div className="flex flex-wrap gap-1.5">
-                          <Button
-                            onClick={() => setCourseEditor(course)}
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                          >
-                            Edit
-                          </Button>
-                          {course.status === "archived" ? (
-                            <Button
-                              onClick={() => updateCourse(course.id, { status: "active" })}
-                              size="sm"
-                              type="button"
-                              variant="outline"
-                            >
-                              <ArchiveRestore className="h-4 w-4" />
-                              Unarchive
-                            </Button>
-                          ) : (
-                            <Button
-                              onClick={() => updateCourse(course.id, { status: "archived" })}
-                              size="sm"
-                              type="button"
-                              variant="outline"
-                            >
-                              <Archive className="h-4 w-4" />
-                              Archive
-                            </Button>
-                          )}
-                          <Button
-                            onClick={() => deleteCourse(course)}
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {visibleCourses.map((course) => (
+                <button
+                  className="rounded-lg border bg-card p-4 text-left transition hover:border-primary/50 hover:shadow-sm"
+                  key={course.id}
+                  onClick={() => setSelectedCourseId(course.id)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-semibold">{course.name || "Untitled course"}</p>
+                    <Badge variant={course.status === "archived" ? "secondary" : "outline"}>
+                      {course.status === "archived" ? "Archived" : course.status}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{course.category}</p>
+                  {course.description ? (
+                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+                      {course.description}
+                    </p>
+                  ) : null}
+                </button>
+              ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {selectedCourse ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setSelectedCourseId("")}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border bg-card p-6 shadow-lg"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-lg font-semibold">
+                  {selectedCourse.name || "Untitled course"}
+                </p>
+                <p className="text-sm text-muted-foreground">{selectedCourse.category}</p>
+              </div>
+              <Button
+                onClick={() => setSelectedCourseId("")}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-sm">
+              <Badge variant={selectedCourse.status === "archived" ? "secondary" : "outline"}>
+                {selectedCourse.status === "archived" ? "Archived" : selectedCourse.status}
+              </Badge>
+
+              {selectedCourse.description ? (
+                <div>
+                  <p className="font-medium">Description</p>
+                  <p className="text-muted-foreground">{selectedCourse.description}</p>
+                </div>
+              ) : null}
+              {selectedCourse.usp ? (
+                <div>
+                  <p className="font-medium">Unique selling point</p>
+                  <p className="text-muted-foreground">{selectedCourse.usp}</p>
+                </div>
+              ) : null}
+              {selectedCourse.duration ? (
+                <div>
+                  <p className="font-medium">Duration</p>
+                  <p className="text-muted-foreground">{selectedCourse.duration}</p>
+                </div>
+              ) : null}
+              {selectedCourse.entryRequirements ? (
+                <div>
+                  <p className="font-medium">Entry requirements</p>
+                  <p className="text-muted-foreground">{selectedCourse.entryRequirements}</p>
+                </div>
+              ) : null}
+              {selectedCourse.fees ? (
+                <div>
+                  <p className="font-medium">Fees</p>
+                  <p className="text-muted-foreground">{selectedCourse.fees}</p>
+                </div>
+              ) : null}
+              {selectedCourse.sellingPoints && selectedCourse.sellingPoints.length > 0 ? (
+                <div>
+                  <p className="font-medium">Selling points</p>
+                  <ul className="list-disc pl-5 text-muted-foreground">
+                    {selectedCourse.sellingPoints.map((point, index) => (
+                      <li key={index}>{point}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {selectedCourse.courseProof.length > 0 ? (
+                <div>
+                  <p className="font-medium">Supporting evidence</p>
+                  <ul className="list-disc pl-5 text-muted-foreground">
+                    {selectedCourse.courseProof.map((point, index) => (
+                      <li key={index}>{point}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {selectedCourse.complianceNotes ? (
+                <div>
+                  <p className="font-medium">Compliance notes</p>
+                  <p className="text-muted-foreground">{selectedCourse.complianceNotes}</p>
+                </div>
+              ) : null}
+              {selectedCourseAudienceNames.length > 0 ? (
+                <div>
+                  <p className="font-medium">Audiences</p>
+                  <p className="text-muted-foreground">{selectedCourseAudienceNames.join(", ")}</p>
+                </div>
+              ) : null}
+              {selectedCourse.sourceLink ? (
+                <div>
+                  <p className="font-medium">Source</p>
+                  <a
+                    className="text-primary underline"
+                    href={selectedCourse.sourceLink}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    View source
+                  </a>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-1.5">
+              <Button
+                onClick={() => {
+                  setCourseEditor(selectedCourse);
+                  setSelectedCourseId("");
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Edit
+              </Button>
+              {selectedCourse.status === "archived" ? (
+                <Button
+                  onClick={() => updateCourse(selectedCourse.id, { status: "active" })}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <ArchiveRestore className="h-4 w-4" />
+                  Unarchive
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => updateCourse(selectedCourse.id, { status: "archived" })}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Archive className="h-4 w-4" />
+                  Archive
+                </Button>
+              )}
+              <Button
+                onClick={() => {
+                  deleteCourse(selectedCourse);
+                  setSelectedCourseId("");
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -3110,6 +3189,13 @@ function CourseEditorSlideOver({
             </NativeSelect>
           </Field>
         </div>
+        <Field label="Source URL">
+          <Input
+            onChange={(event) => set("sourceLink", event.target.value)}
+            placeholder="https://..."
+            value={draft.sourceLink ?? ""}
+          />
+        </Field>
         <Field label="Description">
           <Textarea onChange={(event) => set("description", event.target.value)} value={draft.description ?? ""} />
         </Field>

@@ -182,6 +182,10 @@ export type UccCourse = {
   entryRequirements?: string;
   fees?: string;
   sellingPoints?: string[];
+  // A link to this course's real page on the website, so the card popup
+  // can point back to the authoritative source. Optional: not every course
+  // has one yet.
+  sourceLink?: string;
 };
 
 export type UccAudience = {
