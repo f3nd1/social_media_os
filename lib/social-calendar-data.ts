@@ -122,7 +122,6 @@ export type SocialGoalSettings = {
   monthlyTargets: SocialGoalTargets;
   contentPriorities: string[];
   reportingCadence: string;
-  owner: Role;
   notes: string;
 };
 
@@ -1512,7 +1511,6 @@ const seedSocialGoals: SocialGoalSettings = {
     "Agent Enablement",
   ],
   reportingCadence: "Weekly Monday review with a monthly learning summary",
-  owner: "marketing manager",
   notes:
     "Prioritize proof-based English and Chinese marketing that turns attention into enquiries without unsupported employment, salary, visa, admission, or ranking claims.",
 };
@@ -2886,7 +2884,6 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
     },
     contentPriorities: [],
     reportingCadence: "",
-    owner: "marketing manager",
     notes: "",
   };
 

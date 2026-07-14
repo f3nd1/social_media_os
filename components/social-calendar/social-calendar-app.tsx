@@ -1372,6 +1372,7 @@ export function SocialCalendarApp() {
                 auditInsights={data.auditInsights}
                 auditOverviewInsight={data.auditOverviewInsight ?? null}
                 audits={data.audits}
+                globalRole={globalRole}
                 highlightPlatform={highlightAuditPlatform}
                 socialGoals={data.socialGoals}
                 ucc={data.ucc}
@@ -8638,10 +8639,12 @@ const goalTargetFields: Array<{
 ];
 
 function SocialGoalSettingPanel({
+  canEdit,
   socialGoals,
   onChange,
   onMonthlyTargetChange,
 }: {
+  canEdit: boolean;
   socialGoals: SocialGoalSettings;
   onChange: (patch: Partial<SocialGoalSettings>) => void;
   onMonthlyTargetChange: <K extends keyof SocialGoalTargets>(
@@ -8672,15 +8675,25 @@ function SocialGoalSettingPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!canEdit ? (
+          <p className="rounded-md border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+            Only the Marketing Manager role can set the marketing goal. Switch
+            to Marketing Manager in the sidebar Role view to edit these
+            fields.
+          </p>
+        ) : null}
+
         <div className="grid gap-4 lg:grid-cols-2">
           <Field label="Primary objective">
             <Textarea
+              disabled={!canEdit}
               value={socialGoals.primaryObjective}
               onChange={(event) => onChange({ primaryObjective: event.target.value })}
             />
           </Field>
           <Field label="Target audience segment">
             <Textarea
+              disabled={!canEdit}
               value={socialGoals.targetAudienceSegment}
               onChange={(event) =>
                 onChange({ targetAudienceSegment: event.target.value })
@@ -8692,12 +8705,14 @@ function SocialGoalSettingPanel({
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Campaign window">
             <Input
+              disabled={!canEdit}
               value={socialGoals.campaignWindow}
               onChange={(event) => onChange({ campaignWindow: event.target.value })}
             />
           </Field>
           <Field label="Funnel stage">
             <NativeSelect
+              disabled={!canEdit}
               value={socialGoals.funnelStage}
               onChange={(event) =>
                 onChange({ funnelStage: event.target.value as FunnelStage })
@@ -8710,22 +8725,11 @@ function SocialGoalSettingPanel({
               ))}
             </NativeSelect>
           </Field>
-          <Field label="Goal owner">
-            <NativeSelect
-              value={socialGoals.owner}
-              onChange={(event) => onChange({ owner: event.target.value as Role })}
-            >
-              {roles.map((role) => (
-                <option key={role} value={role}>
-                  {roleLabel(role)}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
         </div>
 
         <Field label="Conversion action">
           <Input
+            disabled={!canEdit}
             value={socialGoals.conversionAction}
             onChange={(event) => onChange({ conversionAction: event.target.value })}
           />
@@ -8739,6 +8743,7 @@ function SocialGoalSettingPanel({
 
               return (
                 <Button
+                  disabled={!canEdit}
                   key={platform}
                   onClick={() => togglePriorityPlatform(platform)}
                   size="sm"
@@ -8757,6 +8762,7 @@ function SocialGoalSettingPanel({
             <Field key={field.key} label={field.label}>
               <div className="relative">
                 <Input
+                  disabled={!canEdit}
                   min={0}
                   step={field.key === "engagementRate" ? "0.1" : "1"}
                   type="number"
@@ -8777,6 +8783,7 @@ function SocialGoalSettingPanel({
 
         <div className="grid gap-4 lg:grid-cols-2">
           <TextListField
+            disabled={!canEdit}
             label="Content priorities"
             value={socialGoals.contentPriorities}
             onChange={(contentPriorities) => onChange({ contentPriorities })}
@@ -8784,6 +8791,7 @@ function SocialGoalSettingPanel({
           <div className="space-y-4">
             <Field label="Reporting cadence">
               <Input
+                disabled={!canEdit}
                 value={socialGoals.reportingCadence}
                 onChange={(event) =>
                   onChange({ reportingCadence: event.target.value })
@@ -8792,6 +8800,7 @@ function SocialGoalSettingPanel({
             </Field>
             <Field label="Goal notes">
               <Textarea
+                disabled={!canEdit}
                 value={socialGoals.notes}
                 onChange={(event) => onChange({ notes: event.target.value })}
               />
@@ -8839,6 +8848,7 @@ function SocialAuditView({
   auditInsights,
   audits,
   auditOverviewInsight,
+  globalRole,
   highlightPlatform,
   socialGoals,
   ucc,
@@ -8853,6 +8863,7 @@ function SocialAuditView({
   auditInsights: AuditInsight[];
   auditOverviewInsight: AuditOverviewInsight | null;
   audits: SocialAudit[];
+  globalRole: Role;
   highlightPlatform?: Platform | null;
   socialGoals: SocialGoalSettings;
   ucc: UccStrategyData;
@@ -9127,6 +9138,7 @@ function SocialAuditView({
     return (
       <section className="space-y-4">
         <SocialGoalSettingPanel
+          canEdit={globalRole === "marketing manager"}
           socialGoals={socialGoals}
           onChange={updateSocialGoals}
           onMonthlyTargetChange={updateMonthlyTarget}
@@ -9148,6 +9160,7 @@ function SocialAuditView({
   return (
     <section className="space-y-4">
       <SocialGoalSettingPanel
+        canEdit={globalRole === "marketing manager"}
         socialGoals={socialGoals}
         onChange={updateSocialGoals}
         onMonthlyTargetChange={updateMonthlyTarget}
@@ -14167,10 +14180,12 @@ function FilterField({
 }
 
 function TextListField({
+  disabled,
   label,
   onChange,
   value,
 }: {
+  disabled?: boolean;
   label: string;
   onChange: (value: string[]) => void;
   value: string[];
@@ -14178,6 +14193,7 @@ function TextListField({
   return (
     <Field label={label}>
       <Textarea
+        disabled={disabled}
         value={listToText(value)}
         onChange={(event) => onChange(textToList(event.target.value))}
       />

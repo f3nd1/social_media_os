@@ -69,7 +69,6 @@ export function buildExportSheets(data: MarketingWorkspaceData): ExportSheet[] {
       Value: data.socialGoals.contentPriorities.join(" | "),
     },
     { Field: "Reporting cadence", Value: data.socialGoals.reportingCadence },
-    { Field: "Owner", Value: data.socialGoals.owner },
     { Field: "Notes", Value: data.socialGoals.notes },
     ...Object.entries(data.socialGoals.monthlyTargets).map(([field, value]) => ({
       Field: `Target - ${field}`,
