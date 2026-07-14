@@ -221,6 +221,7 @@ import {
   type UccCourseCategory,
   type UccKpiRecord,
   type UccMarketingChannel,
+  type UccMarketingEvent,
   type UccStrategyData,
 } from "@/lib/social-calendar-data";
 import {
@@ -1431,6 +1432,9 @@ export function SocialCalendarApp() {
                   updateWorkspace((current) => ({ ...current, aiRecommendations }))
                 }
                 onApplyMetrics={applyApprovedMetrics}
+                onCalendarChange={(calendar) =>
+                  updateWorkspace((current) => ({ ...current, calendar }))
+                }
                 onConnectionsChange={(connections) =>
                   updateWorkspace((current) => ({ ...current, connections }))
                 }
@@ -4676,11 +4680,20 @@ function TrendRadarPanel({
   );
 }
 
+const UCC_EVENT_TYPES: UccMarketingEvent["type"][] = [
+  "public holiday",
+  "school period",
+  "marketing event",
+  "intake",
+  "campus event",
+];
+
 function PlatformStrategyView({
   applyConfirmation,
   data,
   onAiRecommendationsChange,
   onApplyMetrics,
+  onCalendarChange,
   onConnectionsChange,
   onDismissApplyConfirmation,
   onListeningResultsChange,
@@ -4699,6 +4712,7 @@ function PlatformStrategyView({
     approvedBy: string,
     source: { label: string; noteLabel: string; rangeLabel: string; editedCount: number },
   ) => void;
+  onCalendarChange: (calendar: CalendarItem[]) => void;
   onConnectionsChange: (connections: PlatformConnection[]) => void;
   onDismissApplyConfirmation: () => void;
   onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
@@ -4710,6 +4724,65 @@ function PlatformStrategyView({
   ucc: UccStrategyData;
 }) {
   const metricReview = useMetricReviewFlow(onApplyMetrics);
+  const [newEvent, setNewEvent] = useState({
+    name: "",
+    date: "",
+    type: "marketing event" as UccMarketingEvent["type"],
+    campaignOpportunity: "",
+  });
+
+  function addMarketingEvent() {
+    if (!newEvent.name.trim() || !newEvent.date) {
+      return;
+    }
+
+    const event: UccMarketingEvent = {
+      id: crypto.randomUUID(),
+      name: newEvent.name.trim(),
+      date: newEvent.date,
+      type: newEvent.type,
+      audienceIds: [],
+      campaignOpportunity: newEvent.campaignOpportunity.trim(),
+    };
+
+    onUccChange({ ...ucc, events: [...ucc.events, event] });
+
+    // Also reflect this event in the real Production Calendar, so it is
+    // visible to the team executing content, not just as a strategy note.
+    const calendarItem: CalendarItem = {
+      id: crypto.randomUUID(),
+      itemKind: "event",
+      date: event.date,
+      platform: platforms[0],
+      contentPillar: data.brief.contentPillars[0] || "Admissions Confidence",
+      contentTopic: event.name,
+      format: "Event promotion",
+      hook: `What families should know before ${event.name.toLowerCase()}`,
+      caption: event.campaignOpportunity || `Save the date: ${event.name}.`,
+      visualDirection:
+        "Use real venue, student, faculty, or parent-facing details. Keep date, time, place, and eligibility clear.",
+      cta: "Add this to your calendar or message admissions with questions.",
+      hashtags: ["#CollegePlanning", "#CampusLife", "#Admissions"],
+      bestPostingTime: "",
+      productionNotes:
+        "Added from Marketing Calendar Intelligence. Confirm platform, owner, and approval path before scheduling.",
+      assignedRole: "marketing manager",
+      owner: "Marketing Manager",
+      reviewer: "Compliance Reviewer",
+      dueDate: event.date,
+      status: "idea",
+      approvalStage: "idea",
+      businessGoalConnection: `Supports ${data.socialGoals.primaryObjective} by giving families a dated action to complete: ${data.socialGoals.conversionAction}`,
+      complianceNote:
+        "Keep event and program claims factual. Do not guarantee admission, jobs, salary, visas, or work eligibility.",
+      videoScript: "",
+      shotNotes:
+        "Capture location, signage, staff welcome, student activity, proof detail, and a clear CTA frame.",
+    };
+
+    onCalendarChange(sortCalendarItems([...data.calendar, calendarItem]));
+    setNewEvent({ name: "", date: "", type: "marketing event", campaignOpportunity: "" });
+  }
 
   return (
     <section className="space-y-4">
@@ -4781,6 +4854,66 @@ function PlatformStrategyView({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="grid gap-3 rounded-lg border bg-muted/10 p-3 md:grid-cols-[1.5fr_1fr_1fr_1.5fr_auto] md:items-end">
+            <Field label="Event name">
+              <Input
+                value={newEvent.name}
+                onChange={(event) =>
+                  setNewEvent((current) => ({ ...current, name: event.target.value }))
+                }
+              />
+            </Field>
+            <Field label="Date">
+              <Input
+                type="date"
+                value={newEvent.date}
+                onChange={(event) =>
+                  setNewEvent((current) => ({ ...current, date: event.target.value }))
+                }
+              />
+            </Field>
+            <Field label="Type">
+              <NativeSelect
+                value={newEvent.type}
+                onChange={(event) =>
+                  setNewEvent((current) => ({
+                    ...current,
+                    type: event.target.value as UccMarketingEvent["type"],
+                  }))
+                }
+              >
+                {UCC_EVENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {capitalize(type)}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field label="Campaign opportunity">
+              <Input
+                value={newEvent.campaignOpportunity}
+                onChange={(event) =>
+                  setNewEvent((current) => ({
+                    ...current,
+                    campaignOpportunity: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <Button
+              disabled={!newEvent.name.trim() || !newEvent.date}
+              onClick={addMarketingEvent}
+              size="sm"
+              type="button"
+            >
+              <Plus className="h-4 w-4" />
+              Add event
+            </Button>
+          </div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Adding an event here also creates a matching item in the
+            Production Calendar so the team executing content sees it too.
+          </p>
           {ucc.events.map((event) => (
             <div className="rounded-lg border bg-muted/20 p-3" key={event.id}>
               <div className="flex flex-wrap items-center justify-between gap-2">
