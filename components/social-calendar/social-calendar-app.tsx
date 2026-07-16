@@ -8081,38 +8081,6 @@ function BrandSetupView({
       <div className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle>Brand Colors</CardTitle>
-            <CardDescription>Editable swatches for template direction.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {brand.brandColors.map((color, index) => (
-              <div className="flex items-center gap-3" key={`${color}-${index}`}>
-                <input
-                  aria-label={`Brand color ${index + 1}`}
-                  className="h-10 w-12 rounded-md border bg-background"
-                  onChange={(event) => {
-                    const nextColors = [...brand.brandColors];
-                    nextColors[index] = event.target.value;
-                    onBrandChange("brandColors", nextColors);
-                  }}
-                  type="color"
-                  value={color}
-                />
-                <Input
-                  value={color}
-                  onChange={(event) => {
-                    const nextColors = [...brand.brandColors];
-                    nextColors[index] = event.target.value;
-                    onBrandChange("brandColors", nextColors);
-                  }}
-                />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>Brand Guidelines</CardTitle>
             <CardDescription>
               Paste notes, or upload a PDF, text, or Markdown guideline file.
