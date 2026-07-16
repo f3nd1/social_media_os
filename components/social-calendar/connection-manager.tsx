@@ -34,7 +34,8 @@ import {
   reviewRowsToPlatformMetrics,
   type PendingMetricReview,
 } from "@/lib/pdf-data-import";
-import { parseMetricoolCsv } from "@/lib/metricool-csv";
+import { importMetricoolPdf } from "@/lib/metricool-pdf-client";
+import type { OpenAiUsage } from "@/lib/openai-shared";
 import {
   CONNECTION_AGGREGATOR_SOURCES,
   CONNECTION_AVAILABLE_MODES,
@@ -57,14 +58,20 @@ type ActionMessage = {
 };
 
 type ConnectionManagerPanelProps = {
+  apiKey: string;
   connections: PlatformConnection[];
+  model: string;
   onConnectionsChange: (connections: PlatformConnection[]) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onSyncReview: (pending: PendingMetricReview) => void;
 };
 
 export function ConnectionManagerPanel({
+  apiKey,
   connections: connectionsProp,
+  model,
   onConnectionsChange,
+  onRecordUsage,
   onSyncReview,
 }: ConnectionManagerPanelProps) {
   // Defensive default: workspace snapshots saved before this field existed
@@ -274,32 +281,34 @@ export function ConnectionManagerPanel({
     }
   }
 
-  async function handleMetricoolCsvFile(connection: PlatformConnection, file: File) {
-    const text = await file.text();
-    const result = parseMetricoolCsv(text);
-
-    if (!result.ok) {
+  async function handleMetricoolPdfFile(connection: PlatformConnection, file: File) {
+    if (!apiKey) {
       setMessage(
         connection.id,
         "error",
-        `${result.error} Headers found in the file: ${
-          result.foundHeaders.length > 0 ? result.foundHeaders.join(", ") : "none"
-        }.`,
+        "Connect OpenAI in Settings to import a Metricool PDF report.",
       );
       return;
     }
 
-    onSyncReview({
-      rows: buildPdfMetricReviewRows(result.metrics, "metricool-csv"),
-      sourceLabel: `Metricool CSV import (${file.name})`,
-      noteLabel: "Metricool CSV import",
-      rangeLabel: "the date range in the CSV export",
-    });
+    setMessage(connection.id, "info", `Reading ${file.name} with AI...`);
+    const result = await importMetricoolPdf({ apiKey, file, model });
+
+    if (!result.ok) {
+      setMessage(connection.id, "error", result.message);
+      return;
+    }
+
+    if (result.usage) {
+      onRecordUsage("Metricool PDF import", result.model ?? model, result.usage);
+    }
+
+    onSyncReview(result.pending);
     setMessage(
       connection.id,
       "success",
-      `Parsed ${result.metrics.length} network${
-        result.metrics.length === 1 ? "" : "s"
+      `Read ${result.pending.rows.length} network${
+        result.pending.rows.length === 1 ? "" : "s"
       } from ${file.name}. Review and approve below before it applies.`,
     );
   }
@@ -359,7 +368,7 @@ export function ConnectionManagerPanel({
                 pendingAction={pendingAction[connection.id]}
                 rangeDays={syncRanges[connection.id] ?? 30}
                 syncReport={syncReports[connection.id] ?? []}
-                onCsvFile={(file) => void handleMetricoolCsvFile(connection, file)}
+                onPdfFile={(file) => void handleMetricoolPdfFile(connection, file)}
                 onEdit={() => openEditFlow(connection.id)}
                 onRangeDaysChange={(days) =>
                   setSyncRanges((current) => ({ ...current, [connection.id]: days }))
@@ -387,7 +396,7 @@ export function ConnectionManagerPanel({
 function ConnectionRow({
   connection,
   message,
-  onCsvFile,
+  onPdfFile,
   onEdit,
   onRangeDaysChange,
   onRemove,
@@ -399,7 +408,7 @@ function ConnectionRow({
 }: {
   connection: PlatformConnection;
   message?: ActionMessage;
-  onCsvFile: (file: File) => void;
+  onPdfFile: (file: File) => void;
   onEdit: () => void;
   onRangeDaysChange: (days: number) => void;
   onRemove: () => void;
@@ -478,15 +487,15 @@ function ConnectionRow({
       {connection.source === "metricool" ? (
         <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border border-dashed bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted">
           <Upload className="h-3.5 w-3.5" />
-          Import Metricool CSV
+          Import Metricool PDF
           <input
-            accept=".csv,text/csv"
+            accept=".pdf,application/pdf"
             className="sr-only"
             onChange={(event) => {
               const file = event.target.files?.[0];
 
               if (file) {
-                onCsvFile(file);
+                onPdfFile(file);
               }
 
               event.target.value = "";

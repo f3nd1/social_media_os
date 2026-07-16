@@ -223,12 +223,11 @@ import {
   type UccStrategyData,
 } from "@/lib/social-calendar-data";
 import {
-  buildPdfMetricReviewRows,
   getPdfConfidenceLevel,
   type PendingMetricReview,
   type PlatformDataMetrics,
 } from "@/lib/pdf-data-import";
-import { parseMetricoolCsv } from "@/lib/metricool-csv";
+import { importMetricoolPdf } from "@/lib/metricool-pdf-client";
 import {
   ConnectionManagerPanel,
   MetricReviewPanel,
@@ -1308,6 +1307,7 @@ export function SocialCalendarApp() {
                 onCalendarChange={(calendar) =>
                   updateWorkspace((current) => ({ ...current, calendar }))
                 }
+                onRecordUsage={recordAiUsage}
               />
             ) : null}
 
@@ -4610,15 +4610,18 @@ function PlatformStrategyView({
       </Card>
 
       <PlatformDataIntegrationPanel
+        apiKey={data.aiIntegration.apiKey}
         applyConfirmation={applyConfirmation}
         approverName={metricReview.approverName}
         connections={data.connections}
+        model={resolveModelForTask(data.aiIntegration, "analysis")}
         pendingReview={metricReview.pendingReview}
         onApply={metricReview.handleApply}
         onApproverNameChange={metricReview.setApproverName}
         onConnectionsChange={onConnectionsChange}
         onDiscardReview={() => metricReview.setPendingReview(null)}
         onDismissApplyConfirmation={onDismissApplyConfirmation}
+        onRecordUsage={onRecordUsage}
         onRowChange={metricReview.handleRowChange}
         onSyncReview={metricReview.setPendingReview}
         onViewAppliedData={onViewAppliedData}
@@ -7535,28 +7538,34 @@ function useMetricReviewFlow(
 }
 
 function PlatformDataIntegrationPanel({
+  apiKey,
   applyConfirmation,
   approverName,
   connections,
+  model,
   pendingReview,
   onApply,
   onApproverNameChange,
   onConnectionsChange,
   onDiscardReview,
   onDismissApplyConfirmation,
+  onRecordUsage,
   onRowChange,
   onSyncReview,
   onViewAppliedData,
 }: {
+  apiKey: string;
   applyConfirmation: { appliedPlatforms: AppliedPlatformSummary[]; label: string } | null;
   approverName: string;
   connections: PlatformConnection[];
+  model: string;
   pendingReview: PendingMetricReview | null;
   onApply: () => void;
   onApproverNameChange: (approverName: string) => void;
   onConnectionsChange: (connections: PlatformConnection[]) => void;
   onDiscardReview: () => void;
   onDismissApplyConfirmation: () => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onRowChange: (rowId: string, patch: Partial<PdfMetricReview>) => void;
   onSyncReview: (review: PendingMetricReview) => void;
   onViewAppliedData: (platform: Platform) => void;
@@ -7564,8 +7573,11 @@ function PlatformDataIntegrationPanel({
   return (
     <>
       <ConnectionManagerPanel
+        apiKey={apiKey}
         connections={connections}
+        model={model}
         onConnectionsChange={onConnectionsChange}
+        onRecordUsage={onRecordUsage}
         onSyncReview={(review) => {
           onDismissApplyConfirmation();
           onSyncReview(review);
@@ -7608,6 +7620,7 @@ function SettingsWorkspaceView({
   onCalendarChange,
   onCompetitorsChange,
   onConnectionsChange,
+  onRecordUsage,
   onRunSetupGuide,
   onUccChange,
   onViewAppliedData,
@@ -7633,6 +7646,7 @@ function SettingsWorkspaceView({
   onCompetitorsChange: (competitors: Competitor[]) => void;
   onConnectionsChange: (connections: PlatformConnection[]) => void;
   onDismissApplyConfirmation: () => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   onViewAppliedData: (platform: Platform) => void;
   sync: WorkspaceSync;
@@ -7680,26 +7694,31 @@ function SettingsWorkspaceView({
         onAiIntegrationChange={onAiIntegrationChange}
       />
       <PlatformDataIntegrationPanel
+        apiKey={aiIntegration.apiKey}
         applyConfirmation={applyConfirmation}
         approverName={metricReview.approverName}
         connections={connections}
+        model={resolveModelForTask(aiIntegration, "analysis")}
         pendingReview={metricReview.pendingReview}
         onApply={metricReview.handleApply}
         onApproverNameChange={metricReview.setApproverName}
         onConnectionsChange={onConnectionsChange}
         onDiscardReview={() => metricReview.setPendingReview(null)}
         onDismissApplyConfirmation={onDismissApplyConfirmation}
+        onRecordUsage={onRecordUsage}
         onRowChange={metricReview.handleRowChange}
         onSyncReview={metricReview.setPendingReview}
         onViewAppliedData={onViewAppliedData}
       />
       <CsvImportPanel
+        apiKey={aiIntegration.apiKey}
         calendar={calendar}
         competitors={competitors}
+        model={resolveModelForTask(aiIntegration, "analysis")}
         platformPlaybook={workspaceData.platformPlaybook ?? createDefaultPlatformPlaybook()}
         onCalendarChange={onCalendarChange}
         onCompetitorsChange={onCompetitorsChange}
-        onMetricoolCsvParsed={(result) => {
+        onMetricoolPdfParsed={(result) => {
           if (result.ok) {
             metricReview.setPendingReview(result.pending);
             setCsvMessage("");
@@ -7707,6 +7726,7 @@ function SettingsWorkspaceView({
             setCsvMessage(result.message);
           }
         }}
+        onRecordUsage={onRecordUsage}
         onUccChange={onUccChange}
         ucc={ucc}
       />
@@ -7790,48 +7810,61 @@ function ApplyConfirmationPanel({
 }
 
 function CsvImportPanel({
+  apiKey,
   calendar,
   competitors,
+  model,
   platformPlaybook,
   onCalendarChange,
   onCompetitorsChange,
-  onMetricoolCsvParsed,
+  onMetricoolPdfParsed,
+  onRecordUsage,
   onUccChange,
   ucc,
 }: {
+  apiKey: string;
   calendar: CalendarItem[];
   competitors: Competitor[];
+  model: string;
   platformPlaybook: PlatformPlaybook;
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
-  onMetricoolCsvParsed: (
+  onMetricoolPdfParsed: (
     result: { ok: true; pending: PendingMetricReview } | { ok: false; message: string },
   ) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onUccChange: (ucc: UccStrategyData) => void;
   ucc: UccStrategyData;
 }) {
-  async function importMetricoolCsv(file: File) {
-    const result = parseMetricoolCsv(await file.text());
+  const [importingMetricoolPdf, setImportingMetricoolPdf] = useState(false);
 
-    if (!result.ok) {
-      onMetricoolCsvParsed({
+  async function importMetricoolReport(file: File) {
+    if (!apiKey) {
+      onMetricoolPdfParsed({
         ok: false,
-        message: `${result.error} Headers found in the file: ${
-          result.foundHeaders.length > 0 ? result.foundHeaders.join(", ") : "none"
-        }.`,
+        message: "Connect OpenAI in Settings to import a Metricool PDF report.",
       });
       return;
     }
 
-    onMetricoolCsvParsed({
-      ok: true,
-      pending: {
-        rows: buildPdfMetricReviewRows(result.metrics, "metricool-csv"),
-        sourceLabel: `Metricool CSV import (${file.name})`,
-        noteLabel: "Metricool CSV import",
-        rangeLabel: "the date range in the CSV export",
-      },
-    });
+    setImportingMetricoolPdf(true);
+
+    try {
+      const result = await importMetricoolPdf({ apiKey, file, model });
+
+      if (!result.ok) {
+        onMetricoolPdfParsed({ ok: false, message: result.message });
+        return;
+      }
+
+      if (result.usage) {
+        onRecordUsage("Metricool PDF import", result.model ?? model, result.usage);
+      }
+
+      onMetricoolPdfParsed({ ok: true, pending: result.pending });
+    } finally {
+      setImportingMetricoolPdf(false);
+    }
   }
 
   async function importCsv(
@@ -7932,15 +7965,16 @@ function CsvImportPanel({
           key="metricool"
         >
           <FileUp className="h-4 w-4" />
-          Import Metricool CSV
+          {importingMetricoolPdf ? "Reading PDF with AI..." : "Import Metricool PDF"}
           <input
-            accept=".csv,text/csv"
+            accept=".pdf,application/pdf"
             className="sr-only"
+            disabled={importingMetricoolPdf}
             onChange={(event) => {
               const file = event.target.files?.[0];
 
               if (file) {
-                void importMetricoolCsv(file);
+                void importMetricoolReport(file);
               }
 
               event.target.value = "";
@@ -8649,7 +8683,7 @@ function SocialAuditView({
               icon={SearchCheck}
               kicker="Plan"
               title="Start your social audit"
-              description="Connect Metricool, or import a Metricool CSV or PDF report, in Integrations & Settings. A platform's Social Audit row is created automatically the first time real numbers arrive for it; there is no manual add step."
+              description="Connect Metricool, or import a Metricool PDF report, in Integrations & Settings. A platform's Social Audit row is created automatically the first time real numbers arrive for it; there is no manual add step."
             />
           </CardHeader>
         </Card>
@@ -8727,11 +8761,11 @@ function SocialAuditView({
           ) : null}
 
           <p className="mb-3 text-xs leading-5 text-muted-foreground">
-            Numbers come from the Metricool or CSV/PDF data you approve in
+            Numbers come from the Metricool or PDF data you approve in
             Integrations &amp; Settings, or you can type them in below. The
             Metricool API returns brand-level totals, so per-platform figures
-            come from its CSV export. Engagement and posting-consistency scores
-            are derived
+            come from a Metricool PDF report the AI breaks down. Engagement and
+            posting-consistency scores are derived
             from these numbers; the craft scores are set by hand. Where a
             platform has no data yet, it says so rather than showing a false
             zero.
