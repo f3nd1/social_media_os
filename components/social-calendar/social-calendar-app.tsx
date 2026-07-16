@@ -9375,8 +9375,125 @@ function CompetitorIntelligenceView({
 }) {
   const [analysing, setAnalysing] = useState(false);
   const [analyseError, setAnalyseError] = useState("");
+  const [observingId, setObservingId] = useState<string | null>(null);
+  const [observeMessages, setObserveMessages] = useState<
+    Record<string, { tone: "success" | "error"; text: string }>
+  >({});
 
   const liveAi = isLiveAiEnabled(aiIntegration);
+
+  // Observe a competitor from its public profile/website link: a real web
+  // search over what is publicly indexed, then pre-fill the record's formats,
+  // frequency, tone, and strengths for the manager to review and edit.
+  async function observeFromLink(competitor: Competitor) {
+    if (!competitor.website.trim()) {
+      setObserveMessages((current) => ({
+        ...current,
+        [competitor.id]: { tone: "error", text: "Add a profile or website link first." },
+      }));
+      return;
+    }
+
+    setObservingId(competitor.id);
+    setObserveMessages((current) => {
+      const next = { ...current };
+      delete next[competitor.id];
+      return next;
+    });
+
+    try {
+      const response = await fetch(apiUrl("/api/ai/competitor-observe"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: aiIntegration.apiKey,
+          searchModel: resolveModelForTask(aiIntegration, "utility"),
+          synthesisModel: resolveModelForTask(aiIntegration, "analysis"),
+          name: competitor.name,
+          profileUrl: competitor.website,
+        }),
+      });
+      const result = (await response.json()) as
+        | {
+            ok: true;
+            draft: {
+              contentFormats: string[];
+              postingFrequency: string;
+              tone: string;
+              observedStrengths: string[];
+            };
+            citations?: Array<{ title: string; url: string }>;
+            searchUsage?: OpenAiUsage;
+            searchModel?: string;
+            synthesisUsage?: OpenAiUsage;
+            synthesisModel?: string;
+          }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setObserveMessages((current) => ({
+          ...current,
+          [competitor.id]: { tone: "error", text: result.error },
+        }));
+        return;
+      }
+
+      // Pre-fill only the fields we observed; leave anything empty untouched so
+      // the manager never loses what they typed by hand.
+      onCompetitorsChange(
+        competitors.map((row) =>
+          row.id === competitor.id
+            ? {
+                ...row,
+                contentFormats:
+                  result.draft.contentFormats.length > 0
+                    ? result.draft.contentFormats
+                    : row.contentFormats,
+                postingFrequency: result.draft.postingFrequency || row.postingFrequency,
+                tone: result.draft.tone || row.tone,
+                observedStrengths:
+                  result.draft.observedStrengths.length > 0
+                    ? result.draft.observedStrengths
+                    : row.observedStrengths,
+              }
+            : row,
+        ),
+      );
+
+      if (result.searchUsage) {
+        onRecordUsage("Competitor observe (search)", result.searchModel ?? "unknown", result.searchUsage);
+      }
+
+      if (result.synthesisUsage) {
+        onRecordUsage(
+          "Competitor observe (synthesis)",
+          result.synthesisModel ?? "unknown",
+          result.synthesisUsage,
+        );
+      }
+
+      const sourceCount = result.citations?.length ?? 0;
+      setObserveMessages((current) => ({
+        ...current,
+        [competitor.id]: {
+          tone: "success",
+          text: `Pre-filled from ${sourceCount} public source${
+            sourceCount === 1 ? "" : "s"
+          }. Review and edit before you rely on it.`,
+        },
+      }));
+    } catch (error) {
+      setObserveMessages((current) => ({
+        ...current,
+        [competitor.id]: {
+          tone: "error",
+          text: error instanceof Error ? error.message : String(error),
+        },
+      }));
+    } finally {
+      setObservingId(null);
+    }
+  }
 
   async function analyseWithAi() {
     setAnalysing(true);
@@ -9653,6 +9770,7 @@ function CompetitorIntelligenceView({
                           }
                         />
                         <Input
+                          placeholder="Profile or website link"
                           value={competitor.website}
                           onChange={(event) =>
                             updateCompetitor(
@@ -9662,6 +9780,33 @@ function CompetitorIntelligenceView({
                             )
                           }
                         />
+                        <Button
+                          className="mt-2"
+                          disabled={
+                            !liveAi ||
+                            observingId !== null ||
+                            !competitor.website.trim()
+                          }
+                          onClick={() => void observeFromLink(competitor)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <SearchCheck className="h-4 w-4" />
+                          {observingId === competitor.id ? "Observing" : "Observe from link"}
+                        </Button>
+                        {observeMessages[competitor.id] ? (
+                          <p
+                            className={cn(
+                              "mt-2 text-xs leading-5",
+                              observeMessages[competitor.id].tone === "error"
+                                ? "text-destructive"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {observeMessages[competitor.id].text}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="min-w-[230px] py-3 pr-4 align-top">
                         <CompetitorPlatformsField
