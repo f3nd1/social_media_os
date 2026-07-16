@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { NextResponse } from "next/server";
 
+import { extractPdfText } from "@/lib/pdf-extract";
 import { sanitizeFileName } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -67,16 +68,21 @@ export async function POST(request: Request) {
 
     if (isText) {
       fullText = (await file.text()).trim();
+    } else if (isPdf) {
+      source = "pdf";
+      const extracted = await extractPdfText(Buffer.from(await file.arrayBuffer()));
+      fullText = extracted.text.trim();
     } else {
-      const script = isPdf ? "extract_pdf_text.py" : "extract_docx_text.py";
-      source = isPdf ? "pdf" : "docx";
+      // .docx still uses the stdlib-only Python script (zip + XML, no extra
+      // packages needed), so it keeps working without a JS docx dependency.
+      source = "docx";
       const tempDir = await mkdtemp(path.join(os.tmpdir(), "compliance-doc-"));
       const filePath = path.join(tempDir, sanitizeFileName(file.name, "guideline-document"));
 
       try {
         await writeFile(filePath, Buffer.from(await file.arrayBuffer()));
         const extracted = await runExtractor(
-          path.join(process.cwd(), "scripts", script),
+          path.join(process.cwd(), "scripts", "extract_docx_text.py"),
           filePath,
         );
         fullText = extracted.text?.trim() ?? "";
