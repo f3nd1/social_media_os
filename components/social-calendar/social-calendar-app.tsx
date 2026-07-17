@@ -12030,6 +12030,37 @@ function CalendarListView({
   );
 }
 
+function CollapsibleSection({
+  children,
+  defaultOpen = false,
+  title,
+}: {
+  children: ReactNode;
+  defaultOpen?: boolean;
+  title: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="rounded-lg border bg-muted/10">
+      <button
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 rounded-lg px-4 py-3 text-left transition-colors hover:bg-muted/30"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        <span className="text-sm font-semibold">{title}</span>
+        {open ? (
+          <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+      </button>
+      {open ? <div className="space-y-4 border-t px-4 py-4">{children}</div> : null}
+    </div>
+  );
+}
+
 function CalendarItemEditor({
   item,
   liveAi,
@@ -12055,60 +12086,78 @@ function CalendarItemEditor({
   regenerating: boolean;
   ucc: UccStrategyData;
 }) {
-
   const isApproved = item.approvalStage === "calendar approved" || item.status === "approved";
+  // Only surface the format-specific outputs when they apply to this item, or
+  // when they already hold content (so changing the format never hides data).
+  const format = item.format.toLowerCase();
+  const showCarousel = format.includes("carousel") || Boolean(item.carouselOutline?.trim());
+  const showStories = format.includes("stor") || Boolean(item.storyboardFrames?.trim());
+  const showYouTube =
+    item.platform === "YouTube Shorts" || Boolean(item.youtubeBrief?.trim());
 
   return (
-    <Card className="border-none shadow-none">
-      <CardHeader className="flex-col gap-4 px-0 pt-0 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <CardTitle>{item.contentTopic || "Selected Item"}</CardTitle>
-          <CardDescription>Every required calendar field is editable.</CardDescription>
-        </div>
-        <div className="flex items-center gap-3">
-          <Badge variant={isApproved ? "success" : "secondary"}>
-            {isApproved ? "Approved" : "Draft, not approved"}
-          </Badge>
-          <Button onClick={onClose} size="icon" type="button" variant="outline">
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6 px-0">
-        <div className="rounded-lg border bg-muted/20 p-4">
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => onApprove(item.id)} size="sm" type="button">
-              <CheckCircle2 className="h-4 w-4" />
-              Approve
-            </Button>
-            <Button onClick={() => onReject(item.id)} size="sm" type="button" variant="outline">
-              Reject
-            </Button>
-            <Button
-              disabled={!liveAi || regenerating}
-              onClick={() => onRegenerate(item.id)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <Sparkles className="h-4 w-4" />
-              {regenerating ? "Regenerating" : "Regenerate"}
-            </Button>
-            <Button onClick={() => onDuplicate(item.id)} size="sm" type="button" variant="outline">
-              Duplicate
-            </Button>
-            <Button onClick={() => onDelete(item.id)} size="sm" type="button" variant="outline">
-              <Trash2 className="h-4 w-4" />
-              Delete
+    <div className="space-y-4">
+      <div className="sticky top-0 z-10 -mx-6 -mt-6 border-b bg-background px-6 pb-4 pt-6 sm:-mx-8 sm:-mt-8 sm:px-8 sm:pt-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-semibold">
+              {item.contentTopic || "Selected Item"}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Every calendar field stays editable, grouped by task.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <Badge variant={isApproved ? "success" : "secondary"}>
+              {isApproved ? "Approved" : "Draft, not approved"}
+            </Badge>
+            <Button onClick={onClose} size="icon" type="button" variant="outline">
+              <X className="h-4 w-4" />
             </Button>
           </div>
-          {!liveAi ? (
-            <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              Connect OpenAI in Settings to regenerate a single item with AI.
-            </p>
-          ) : null}
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button onClick={() => onApprove(item.id)} size="sm" type="button">
+            <CheckCircle2 className="h-4 w-4" />
+            Approve
+          </Button>
+          <Button onClick={() => onReject(item.id)} size="sm" type="button" variant="outline">
+            Reject
+          </Button>
+          <Button
+            disabled={!liveAi || regenerating}
+            onClick={() => onRegenerate(item.id)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Sparkles className="h-4 w-4" />
+            {regenerating ? "Regenerating" : "Regenerate"}
+          </Button>
+          <Button onClick={() => onDuplicate(item.id)} size="sm" type="button" variant="outline">
+            Duplicate
+          </Button>
+          <Button onClick={() => onDelete(item.id)} size="sm" type="button" variant="outline">
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </Button>
+        </div>
+        {!liveAi ? (
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            Connect OpenAI in Settings to regenerate a single item with AI.
+          </p>
+        ) : null}
+      </div>
+
+      {!canPublishCalendarItem(item) ? (
+        <div className="rounded-md border border-warning-border bg-warning p-4 text-sm leading-6 text-warning-foreground">
+          Publishing is locked until the approval stage reaches Published. Use
+          Compliance Approved and Scheduled before the final publish gate.
+        </div>
+      ) : null}
+
+      <CollapsibleSection title="Scheduling">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Type">
             <NativeSelect
               value={item.itemKind ?? "post"}
@@ -12205,20 +12254,6 @@ function CalendarItemEditor({
               ))}
             </NativeSelect>
           </Field>
-          <Field label="Assigned role">
-            <NativeSelect
-              value={item.assignedRole}
-              onChange={(event) =>
-                onChange(item.id, { assignedRole: event.target.value as Role })
-              }
-            >
-              {roles.map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
           <Field label="Format">
             <Input
               value={item.format}
@@ -12226,15 +12261,10 @@ function CalendarItemEditor({
             />
           </Field>
         </div>
+      </CollapsibleSection>
 
-        {!canPublishCalendarItem(item) ? (
-          <div className="rounded-md border border-warning-border bg-warning p-4 text-sm leading-6 text-warning-foreground">
-            Publishing is locked until the approval stage reaches Published. Use
-            Compliance Approved and Scheduled before the final publish gate.
-          </div>
-        ) : null}
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <CollapsibleSection title="Assignment">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Owner">
             <Input
               value={item.owner ?? ""}
@@ -12266,9 +12296,25 @@ function CalendarItemEditor({
               }
             />
           </Field>
+          <Field label="Assigned role">
+            <NativeSelect
+              value={item.assignedRole}
+              onChange={(event) =>
+                onChange(item.id, { assignedRole: event.target.value as Role })
+              }
+            >
+              {roles.map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
         </div>
+      </CollapsibleSection>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+      <CollapsibleSection title="Strategy link">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Campaign">
             <NativeSelect
               value={item.campaignId ?? ""}
@@ -12314,77 +12360,161 @@ function CalendarItemEditor({
               ))}
             </NativeSelect>
           </Field>
+          <Field label="Content pillar">
+            <Input
+              value={item.contentPillar}
+              onChange={(event) =>
+                onChange(item.id, { contentPillar: event.target.value })
+              }
+            />
+          </Field>
+          <Field label="Content topic">
+            <Input
+              value={item.contentTopic}
+              onChange={(event) =>
+                onChange(item.id, { contentTopic: event.target.value })
+              }
+            />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Business goal connection">
+              <Textarea
+                value={item.businessGoalConnection}
+                onChange={(event) =>
+                  onChange(item.id, { businessGoalConnection: event.target.value })
+                }
+              />
+            </Field>
+          </div>
         </div>
+      </CollapsibleSection>
 
-        <Field label="Content pillar">
-          <Input
-            value={item.contentPillar}
-            onChange={(event) =>
-              onChange(item.id, { contentPillar: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Content topic">
-          <Input
-            value={item.contentTopic}
-            onChange={(event) =>
-              onChange(item.id, { contentTopic: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Hook">
-          <Textarea
-            value={item.hook}
-            onChange={(event) => onChange(item.id, { hook: event.target.value })}
-          />
-        </Field>
-        <Field label="Caption or copy">
-          <Textarea
-            className="min-h-36"
-            value={item.caption}
-            onChange={(event) => onChange(item.id, { caption: event.target.value })}
-          />
-        </Field>
-        <Field label="Final caption">
-          <Textarea
-            className="min-h-28"
-            value={item.finalCaption ?? ""}
-            onChange={(event) =>
-              onChange(item.id, { finalCaption: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Visual direction">
-          <Textarea
-            value={item.visualDirection}
-            onChange={(event) =>
-              onChange(item.id, { visualDirection: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="CTA">
-          <Input
-            value={item.cta}
-            onChange={(event) => onChange(item.id, { cta: event.target.value })}
-          />
-        </Field>
-        <Field label="Hashtags">
-          <Textarea
-            value={item.hashtags.join("\n")}
-            onChange={(event) =>
-              onChange(item.id, { hashtags: textToList(event.target.value) })
-            }
-          />
-        </Field>
-        <Field label="Production notes">
-          <Textarea
-            value={item.productionNotes}
-            onChange={(event) =>
-              onChange(item.id, { productionNotes: event.target.value })
-            }
-          />
-        </Field>
+      <CollapsibleSection defaultOpen title="Content">
         <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field label="Hook">
+              <Textarea
+                value={item.hook}
+                onChange={(event) => onChange(item.id, { hook: event.target.value })}
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Caption or copy">
+              <Textarea
+                className="min-h-36"
+                value={item.caption}
+                onChange={(event) => onChange(item.id, { caption: event.target.value })}
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Final caption">
+              <Textarea
+                className="min-h-28"
+                value={item.finalCaption ?? ""}
+                onChange={(event) =>
+                  onChange(item.id, { finalCaption: event.target.value })
+                }
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Visual direction">
+              <Textarea
+                value={item.visualDirection}
+                onChange={(event) =>
+                  onChange(item.id, { visualDirection: event.target.value })
+                }
+              />
+            </Field>
+          </div>
+          <Field label="CTA">
+            <Input
+              value={item.cta}
+              onChange={(event) => onChange(item.id, { cta: event.target.value })}
+            />
+          </Field>
+          <Field label="Hashtags">
+            <Textarea
+              value={item.hashtags.join("\n")}
+              onChange={(event) =>
+                onChange(item.id, { hashtags: textToList(event.target.value) })
+              }
+            />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Video script">
+              <Textarea
+                value={item.videoScript}
+                onChange={(event) =>
+                  onChange(item.id, { videoScript: event.target.value })
+                }
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Shot notes">
+              <Textarea
+                value={item.shotNotes}
+                onChange={(event) => onChange(item.id, { shotNotes: event.target.value })}
+              />
+            </Field>
+          </div>
+          {showCarousel ? (
+            <div className="sm:col-span-2">
+              <Field label="Carousel outline (slide by slide)">
+                <Textarea
+                  placeholder="Slide 1: ... (filled by AI for carousel formats, or write your own)"
+                  value={item.carouselOutline ?? ""}
+                  onChange={(event) =>
+                    onChange(item.id, { carouselOutline: event.target.value })
+                  }
+                />
+              </Field>
+            </div>
+          ) : null}
+          {showStories ? (
+            <div className="sm:col-span-2">
+              <Field label="Stories plan (frame by frame)">
+                <Textarea
+                  placeholder="Frame 1: ... (filled by AI for Stories formats, max 7 frames)"
+                  value={item.storyboardFrames ?? ""}
+                  onChange={(event) =>
+                    onChange(item.id, { storyboardFrames: event.target.value })
+                  }
+                />
+              </Field>
+            </div>
+          ) : null}
+          {showYouTube ? (
+            <div className="sm:col-span-2">
+              <Field label="YouTube brief (title, thumbnail, description)">
+                <Textarea
+                  placeholder="Search title under 60 characters, thumbnail brief, first two description lines (filled by AI for YouTube Shorts)"
+                  value={item.youtubeBrief ?? ""}
+                  onChange={(event) =>
+                    onChange(item.id, { youtubeBrief: event.target.value })
+                  }
+                />
+              </Field>
+            </div>
+          ) : null}
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Production">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field label="Production notes">
+              <Textarea
+                value={item.productionNotes}
+                onChange={(event) =>
+                  onChange(item.id, { productionNotes: event.target.value })
+                }
+              />
+            </Field>
+          </div>
           <Field label="Final asset link">
             <Input
               value={item.finalAssetLink ?? ""}
@@ -12402,79 +12532,37 @@ function CalendarItemEditor({
             />
           </Field>
         </div>
-        <Field label="Business goal connection">
-          <Textarea
-            value={item.businessGoalConnection}
-            onChange={(event) =>
-              onChange(item.id, { businessGoalConnection: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Compliance note">
-          <Textarea
-            value={item.complianceNote}
-            onChange={(event) =>
-              onChange(item.id, { complianceNote: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="KPI result">
-          <Textarea
-            value={item.kpiResult ?? ""}
-            onChange={(event) => onChange(item.id, { kpiResult: event.target.value })}
-          />
-        </Field>
-        <Field label="Follow-up action">
-          <Textarea
-            value={item.followUpAction ?? ""}
-            onChange={(event) =>
-              onChange(item.id, { followUpAction: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Video script">
-          <Textarea
-            value={item.videoScript}
-            onChange={(event) =>
-              onChange(item.id, { videoScript: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Shot notes">
-          <Textarea
-            value={item.shotNotes}
-            onChange={(event) => onChange(item.id, { shotNotes: event.target.value })}
-          />
-        </Field>
-        <Field label="Carousel outline (slide by slide)">
-          <Textarea
-            placeholder="Slide 1: ... (filled by AI for carousel formats, or write your own)"
-            value={item.carouselOutline ?? ""}
-            onChange={(event) =>
-              onChange(item.id, { carouselOutline: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="Stories plan (frame by frame)">
-          <Textarea
-            placeholder="Frame 1: ... (filled by AI for Stories formats, max 7 frames)"
-            value={item.storyboardFrames ?? ""}
-            onChange={(event) =>
-              onChange(item.id, { storyboardFrames: event.target.value })
-            }
-          />
-        </Field>
-        <Field label="YouTube brief (title, thumbnail, description)">
-          <Textarea
-            placeholder="Search title under 60 characters, thumbnail brief, first two description lines (filled by AI for YouTube Shorts)"
-            value={item.youtubeBrief ?? ""}
-            onChange={(event) =>
-              onChange(item.id, { youtubeBrief: event.target.value })
-            }
-          />
-        </Field>
-      </CardContent>
-    </Card>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Compliance & results">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Field label="Compliance note">
+              <Textarea
+                value={item.complianceNote}
+                onChange={(event) =>
+                  onChange(item.id, { complianceNote: event.target.value })
+                }
+              />
+            </Field>
+          </div>
+          <Field label="KPI result">
+            <Textarea
+              value={item.kpiResult ?? ""}
+              onChange={(event) => onChange(item.id, { kpiResult: event.target.value })}
+            />
+          </Field>
+          <Field label="Follow-up action">
+            <Textarea
+              value={item.followUpAction ?? ""}
+              onChange={(event) =>
+                onChange(item.id, { followUpAction: event.target.value })
+              }
+            />
+          </Field>
+        </div>
+      </CollapsibleSection>
+    </div>
   );
 }
 
