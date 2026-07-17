@@ -5673,11 +5673,6 @@ function ComplianceCheckerView({
         body: formData,
       });
 
-      if (response.status === 413) {
-        setDocMessage({ tone: "error", text: oversizedFileMessage(file.size, "document") });
-        return;
-      }
-
       const result = await readJsonResponse<
         | {
             ok: true;
@@ -8357,11 +8352,6 @@ function BrandSetupView({
         method: "POST",
         body: formData,
       });
-
-      if (response.status === 413) {
-        setGuidelineMessage({ tone: "error", text: oversizedFileMessage(file.size, "PDF") });
-        return;
-      }
 
       const result = await readJsonResponse<
         | { ok: true; text: string; characters: number; truncated: boolean }

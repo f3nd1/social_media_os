@@ -39,10 +39,6 @@ export async function importMetricoolPdf({
       body: formData,
     });
 
-    if (response.status === 413) {
-      return { ok: false, message: oversizedFileMessage(file.size, "PDF") };
-    }
-
     const result = await readJsonResponse<
       | { ok: true; metrics: PlatformDataMetrics[]; usage?: OpenAiUsage; model?: string }
       | { ok: false; error: string }
