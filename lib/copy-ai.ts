@@ -54,6 +54,8 @@ export type CopyAiDraft = {
   carouselOutline: string;
   storyboardFrames: string;
   youtubeBrief: string;
+  tiktokDuetStitch: string;
+  trendingAudioNote: string;
 };
 
 export function buildCopySystemPrompt(): string {
@@ -89,6 +91,10 @@ export function buildCopyUserPrompt(context: CopyAiContext): string {
       "string, frame-by-frame plan (Frame 1: ..., one idea per frame, 7 frames maximum, include at least one interactive element such as a poll or question sticker) ONLY when the item's format is a Stories sequence; empty string otherwise",
     youtubeBrief:
       "string, ONLY when the item's platform is YouTube Shorts: a search-optimised title under 60 characters containing the target keyword, then a one-line thumbnail brief, then the first two description lines; empty string otherwise",
+    tiktokDuetStitch:
+      "string, ONLY when the item's platform is TikTok: a Duet or Stitch opportunity (which post or trend to react to, and the angle); empty string otherwise",
+    trendingAudioNote:
+      "string, ONLY when the item's platform is TikTok: where to place trending audio and the kind of sound that fits; empty string otherwise",
   };
 
   const instruction =
@@ -139,6 +145,8 @@ export function copyDraftToPatch(draft: CopyAiDraft): Partial<CalendarItem> {
   const carouselOutline = asString(draft.carouselOutline);
   const storyboardFrames = asString(draft.storyboardFrames);
   const youtubeBrief = asString(draft.youtubeBrief);
+  const tiktokDuetStitch = asString(draft.tiktokDuetStitch);
+  const trendingAudioNote = asString(draft.trendingAudioNote);
 
   if (hook) patch.hook = hook;
   if (caption) patch.caption = caption;
@@ -150,6 +158,8 @@ export function copyDraftToPatch(draft: CopyAiDraft): Partial<CalendarItem> {
   if (carouselOutline) patch.carouselOutline = carouselOutline;
   if (storyboardFrames) patch.storyboardFrames = storyboardFrames;
   if (youtubeBrief) patch.youtubeBrief = youtubeBrief;
+  if (tiktokDuetStitch) patch.tiktokDuetStitch = tiktokDuetStitch;
+  if (trendingAudioNote) patch.trendingAudioNote = trendingAudioNote;
 
   if (Array.isArray(draft.hashtags)) {
     const hashtags = draft.hashtags

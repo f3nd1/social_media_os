@@ -562,6 +562,10 @@ export type CalendarItem = {
   carouselOutline?: string;
   storyboardFrames?: string;
   youtubeBrief?: string;
+  // TikTok-only outputs: Duet/Stitch opportunities and the trending-audio note.
+  // Populated by AI only for TikTok items, empty otherwise.
+  tiktokDuetStitch?: string;
+  trendingAudioNote?: string;
   finalCaption?: string;
   finalAssetLink?: string;
   publishedUrl?: string;

@@ -68,6 +68,8 @@ export type CalendarDraftItem = {
   carouselOutline: string;
   storyboardFrames: string;
   youtubeBrief: string;
+  tiktokDuetStitch: string;
+  trendingAudioNote: string;
 };
 
 export function buildCalendarSystemPrompt(): string {
@@ -106,6 +108,10 @@ export function buildCalendarUserPrompt(context: CalendarAiContext): string {
       "string, frame-by-frame plan (Frame 1: ..., one idea per frame, 7 frames maximum, include at least one interactive element such as a poll or question sticker) ONLY when the format is a Stories sequence; empty string for every other format",
     youtubeBrief:
       "string, ONLY for YouTube Shorts items: a search-optimised title under 60 characters containing the target keyword, then a one-line thumbnail brief, then the first two description lines; empty string for every other platform",
+    tiktokDuetStitch:
+      "string, ONLY for TikTok items: a Duet or Stitch opportunity (which existing post or trend to react to, and the angle); empty string for every other platform",
+    trendingAudioNote:
+      "string, ONLY for TikTok items: where to place trending audio and the kind of sound that fits; empty string for every other platform",
   };
 
   const instruction = context.focus
@@ -221,6 +227,8 @@ function draftContentFields(
     carouselOutline: draft.carouselOutline?.trim() || "",
     storyboardFrames: draft.storyboardFrames?.trim() || "",
     youtubeBrief: draft.youtubeBrief?.trim() || "",
+    tiktokDuetStitch: draft.tiktokDuetStitch?.trim() || "",
+    trendingAudioNote: draft.trendingAudioNote?.trim() || "",
   };
 }
 

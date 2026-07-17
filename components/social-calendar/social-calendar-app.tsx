@@ -12269,6 +12269,10 @@ function CalendarItemEditor({
   const showStories = format.includes("stor") || Boolean(item.storyboardFrames?.trim());
   const showYouTube =
     item.platform === "YouTube Shorts" || Boolean(item.youtubeBrief?.trim());
+  const showTikTok =
+    item.platform === "TikTok" ||
+    Boolean(item.tiktokDuetStitch?.trim()) ||
+    Boolean(item.trendingAudioNote?.trim());
 
   return (
     <div className="space-y-4">
@@ -12674,6 +12678,32 @@ function CalendarItemEditor({
                 />
               </Field>
             </div>
+          ) : null}
+          {showTikTok ? (
+            <>
+              <div className="sm:col-span-2">
+                <Field label="TikTok Duet / Stitch opportunity">
+                  <Textarea
+                    placeholder="Which post or trend to react to, and the angle (filled by AI for TikTok)"
+                    value={item.tiktokDuetStitch ?? ""}
+                    onChange={(event) =>
+                      onChange(item.id, { tiktokDuetStitch: event.target.value })
+                    }
+                  />
+                </Field>
+              </div>
+              <div className="sm:col-span-2">
+                <Field label="Trending audio note">
+                  <Textarea
+                    placeholder="Where to place trending audio and the kind of sound that fits (filled by AI for TikTok)"
+                    value={item.trendingAudioNote ?? ""}
+                    onChange={(event) =>
+                      onChange(item.id, { trendingAudioNote: event.target.value })
+                    }
+                  />
+                </Field>
+              </div>
+            </>
           ) : null}
         </div>
       </CollapsibleSection>
@@ -13360,6 +13390,22 @@ function ContentProductionView({
                   eyebrow="YouTube brief"
                   primary={selectedItem.format}
                   secondary={selectedItem.youtubeBrief}
+                />
+              ) : null}
+              {selectedItem.tiktokDuetStitch || selectedItem.trendingAudioNote ? (
+                <ProductionBlock
+                  eyebrow="TikTok notes"
+                  primary={selectedItem.format}
+                  secondary={[
+                    selectedItem.tiktokDuetStitch
+                      ? `Duet/Stitch: ${selectedItem.tiktokDuetStitch}`
+                      : "",
+                    selectedItem.trendingAudioNote
+                      ? `Trending audio: ${selectedItem.trendingAudioNote}`
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n")}
                 />
               ) : null}
             </div>
