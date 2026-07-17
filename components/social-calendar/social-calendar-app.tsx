@@ -12455,6 +12455,24 @@ function CalendarItemEditor({
             }
           />
         </Field>
+        <Field label="Stories plan (frame by frame)">
+          <Textarea
+            placeholder="Frame 1: ... (filled by AI for Stories formats, max 7 frames)"
+            value={item.storyboardFrames ?? ""}
+            onChange={(event) =>
+              onChange(item.id, { storyboardFrames: event.target.value })
+            }
+          />
+        </Field>
+        <Field label="YouTube brief (title, thumbnail, description)">
+          <Textarea
+            placeholder="Search title under 60 characters, thumbnail brief, first two description lines (filled by AI for YouTube Shorts)"
+            value={item.youtubeBrief ?? ""}
+            onChange={(event) =>
+              onChange(item.id, { youtubeBrief: event.target.value })
+            }
+          />
+        </Field>
       </CardContent>
     </Card>
   );
@@ -13067,6 +13085,20 @@ function ContentProductionView({
                   secondary={selectedItem.carouselOutline}
                 />
               ) : null}
+              {selectedItem.storyboardFrames ? (
+                <ProductionBlock
+                  eyebrow="Stories plan"
+                  primary={selectedItem.format}
+                  secondary={selectedItem.storyboardFrames}
+                />
+              ) : null}
+              {selectedItem.youtubeBrief ? (
+                <ProductionBlock
+                  eyebrow="YouTube brief"
+                  primary={selectedItem.format}
+                  secondary={selectedItem.youtubeBrief}
+                />
+              ) : null}
             </div>
             <div className="space-y-3">
               <ProductionBlock
@@ -13132,6 +13164,10 @@ function ContentProductionView({
                       item.carouselOutline
                         ? `\n\nCarousel outline:\n${item.carouselOutline}`
                         : ""
+                    }${
+                      item.storyboardFrames
+                        ? `\n\nStories plan:\n${item.storyboardFrames}`
+                        : ""
                     }\n\nHashtags: ${item.hashtags.join(" ")}`}
                   />
                 ) : null}
@@ -13140,7 +13176,11 @@ function ContentProductionView({
                   <ProductionBlock
                     eyebrow="Video handoff"
                     primary={item.hook}
-                    secondary={`${item.videoScript}\n\nShot notes: ${item.shotNotes}`}
+                    secondary={`${item.videoScript}\n\nShot notes: ${item.shotNotes}${
+                      item.youtubeBrief
+                        ? `\n\nYouTube brief:\n${item.youtubeBrief}`
+                        : ""
+                    }`}
                   />
                 ) : null}
 

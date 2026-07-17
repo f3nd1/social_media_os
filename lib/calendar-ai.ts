@@ -66,6 +66,8 @@ export type CalendarDraftItem = {
   assets: string;
   notes: string;
   carouselOutline: string;
+  storyboardFrames: string;
+  youtubeBrief: string;
 };
 
 export function buildCalendarSystemPrompt(): string {
@@ -100,6 +102,10 @@ export function buildCalendarUserPrompt(context: CalendarAiContext): string {
     notes: "string, production notes",
     carouselOutline:
       "string, slide-by-slide copy (Slide 1: ..., Slide 2: ...) ONLY when the format is a carousel; the first slide must work alone as a hook and the last slide carries the CTA; empty string for every other format",
+    storyboardFrames:
+      "string, frame-by-frame plan (Frame 1: ..., one idea per frame, 7 frames maximum, include at least one interactive element such as a poll or question sticker) ONLY when the format is a Stories sequence; empty string for every other format",
+    youtubeBrief:
+      "string, ONLY for YouTube Shorts items: a search-optimised title under 60 characters containing the target keyword, then a one-line thumbnail brief, then the first two description lines; empty string for every other platform",
   };
 
   const instruction = context.focus
@@ -206,6 +212,8 @@ function draftContentFields(
     productionNotes: draft.notes?.trim() || "",
     businessGoalConnection: draft.objective?.trim() || "",
     carouselOutline: draft.carouselOutline?.trim() || "",
+    storyboardFrames: draft.storyboardFrames?.trim() || "",
+    youtubeBrief: draft.youtubeBrief?.trim() || "",
   };
 }
 

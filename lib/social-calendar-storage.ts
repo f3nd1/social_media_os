@@ -216,6 +216,8 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
           blocker: item.blocker ?? "",
           approvalStage: normalizeApprovalStage(item.approvalStage),
           carouselOutline: item.carouselOutline ?? "",
+          storyboardFrames: item.storyboardFrames ?? "",
+          youtubeBrief: item.youtubeBrief ?? "",
           finalCaption: item.finalCaption ?? "",
           finalAssetLink: item.finalAssetLink ?? "",
           publishedUrl: item.publishedUrl ?? "",

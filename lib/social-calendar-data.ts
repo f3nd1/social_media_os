@@ -528,10 +528,13 @@ export type CalendarItem = {
   complianceNote: string;
   videoScript: string;
   shotNotes: string;
-  // Richer per-post output, adapted from Darthflute/social-calendar-skill
+  // Richer per-post outputs, adapted from Darthflute/social-calendar-skill
   // (MIT License). Optional so old local and cloud saves upgrade cleanly;
-  // the AI fills it only when the item's format is a carousel.
+  // the AI fills each only when the item's format or platform calls for it
+  // (carousel formats, Stories sequences, YouTube Shorts respectively).
   carouselOutline?: string;
+  storyboardFrames?: string;
+  youtubeBrief?: string;
   finalCaption?: string;
   finalAssetLink?: string;
   publishedUrl?: string;

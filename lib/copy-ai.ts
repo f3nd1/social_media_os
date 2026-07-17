@@ -52,6 +52,8 @@ export type CopyAiDraft = {
   videoScript: string;
   shotNotes: string;
   carouselOutline: string;
+  storyboardFrames: string;
+  youtubeBrief: string;
 };
 
 export function buildCopySystemPrompt(): string {
@@ -83,6 +85,10 @@ export function buildCopyUserPrompt(context: CopyAiContext): string {
     shotNotes: "string, shot list notes for video formats; empty string otherwise",
     carouselOutline:
       "string, slide-by-slide copy (Slide 1: ..., Slide 2: ...) ONLY when the item's format is a carousel; the first slide must work alone as a hook and the last slide carries the CTA; empty string otherwise",
+    storyboardFrames:
+      "string, frame-by-frame plan (Frame 1: ..., one idea per frame, 7 frames maximum, include at least one interactive element such as a poll or question sticker) ONLY when the item's format is a Stories sequence; empty string otherwise",
+    youtubeBrief:
+      "string, ONLY when the item's platform is YouTube Shorts: a search-optimised title under 60 characters containing the target keyword, then a one-line thumbnail brief, then the first two description lines; empty string otherwise",
   };
 
   const instruction =
@@ -131,6 +137,8 @@ export function copyDraftToPatch(draft: CopyAiDraft): Partial<CalendarItem> {
   const videoScript = asString(draft.videoScript);
   const shotNotes = asString(draft.shotNotes);
   const carouselOutline = asString(draft.carouselOutline);
+  const storyboardFrames = asString(draft.storyboardFrames);
+  const youtubeBrief = asString(draft.youtubeBrief);
 
   if (hook) patch.hook = hook;
   if (caption) patch.caption = caption;
@@ -140,6 +148,8 @@ export function copyDraftToPatch(draft: CopyAiDraft): Partial<CalendarItem> {
   if (videoScript) patch.videoScript = videoScript;
   if (shotNotes) patch.shotNotes = shotNotes;
   if (carouselOutline) patch.carouselOutline = carouselOutline;
+  if (storyboardFrames) patch.storyboardFrames = storyboardFrames;
+  if (youtubeBrief) patch.youtubeBrief = youtubeBrief;
 
   if (Array.isArray(draft.hashtags)) {
     const hashtags = draft.hashtags
