@@ -240,10 +240,10 @@ export function buildAiGenerationLog(workspace: MarketingWorkspaceData): AiLogEn
   }
 
   // Copywriting saved-output history (real status: draft/in review/approved/rejected).
-  for (const module of workspace.ucc?.aiModules ?? []) {
-    for (const record of module.outputHistory ?? []) {
+  for (const aiModule of workspace.ucc?.aiModules ?? []) {
+    for (const record of aiModule.outputHistory ?? []) {
       entries.push({
-        id: `output:${module.id}:${record.id}`,
+        id: `output:${aiModule.id}:${record.id}`,
         at: record.generatedAt,
         module: "Copywriting",
         model: "",

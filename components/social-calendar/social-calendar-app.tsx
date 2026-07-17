@@ -232,6 +232,11 @@ import {
 } from "@/lib/pdf-data-import";
 import { importMetricoolPdf } from "@/lib/metricool-pdf-client";
 import {
+  aiLogModules,
+  buildAiGenerationLog,
+  type AiLogEntry,
+} from "@/lib/ai-generation-log";
+import {
   ConnectionManagerPanel,
   MetricReviewPanel,
   reviewRowsToApprovedMetrics,
@@ -286,6 +291,7 @@ export type ViewId =
   | "compliance"
   | "reports"
   | "settings"
+  | "aiLog"
   | "changelog";
 
 type NavItem = { id: ViewId; label: string; icon: LucideIcon };
@@ -384,6 +390,7 @@ const modules: Array<{
     icon: Settings2,
     tabs: [
       { id: "settings", label: "Integrations & Settings", icon: Settings2 },
+      { id: "aiLog", label: "AI Generation Log", icon: SearchCheck },
       { id: "changelog", label: "Changelog", icon: FileClock },
     ],
   },
@@ -1314,6 +1321,8 @@ export function SocialCalendarApp() {
                 onRecordUsage={recordAiUsage}
               />
             ) : null}
+
+            {activeView === "aiLog" ? <AiGenerationLogView workspace={data} /> : null}
 
             {activeView === "changelog" ? <ChangelogView /> : null}
               </>
@@ -7606,6 +7615,201 @@ function PlatformDataIntegrationPanel({
         />
       ) : null}
     </>
+  );
+}
+
+function AiLogEntryCard({ entry }: { entry: AiLogEntry }) {
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline">{entry.module}</Badge>
+            <Badge variant="secondary">{entry.status}</Badge>
+            <Badge variant={entry.sourceCited ? "success" : "secondary"}>
+              {entry.sourceCited ? "Source cited" : "Synthesised from brand data only"}
+            </Badge>
+          </div>
+          <p className="mt-2 text-sm leading-6">{entry.summary}</p>
+        </div>
+        <div className="shrink-0 text-right text-xs text-muted-foreground">
+          <p>{formatDateTime(entry.at)}</p>
+          <p>
+            {entry.model || "model n/a"}
+            {entry.modelTier !== "unknown" ? ` (${entry.modelTier})` : ""}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-md border bg-muted/20 p-3 text-xs leading-5">
+        {entry.grounding.kind === "sources" ? (
+          <>
+            <p className="font-medium text-foreground">Sources cited</p>
+            <ul className="mt-1 space-y-1">
+              {entry.grounding.sources.map((source, index) => (
+                <li key={index}>
+                  <a
+                    className="text-primary underline"
+                    href={source.url}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {source.title || source.url}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <>
+            <p className="font-medium text-foreground">
+              No external source, synthesised from these workspace inputs
+            </p>
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+              {entry.grounding.inputs.map((input, index) => (
+                <li key={index}>{input}</li>
+              ))}
+            </ul>
+          </>
+        )}
+        {entry.decisionInApprovalsLog ? (
+          <p className="mt-2 text-muted-foreground">
+            This is the generation event. The approve or reject decision is
+            recorded in the Approvals Log (Reporting, Performance Review).
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function AiGenerationLogView({ workspace }: { workspace: MarketingWorkspaceData }) {
+  const allEntries = buildAiGenerationLog(workspace);
+  const modules = aiLogModules(allEntries);
+  const statuses = Array.from(new Set(allEntries.map((entry) => entry.status))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+
+  const [query, setQuery] = useState("");
+  const [moduleFilter, setModuleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const entries = allEntries.filter((entry) => {
+    if (moduleFilter !== "all" && entry.module !== moduleFilter) {
+      return false;
+    }
+    if (statusFilter !== "all" && entry.status !== statusFilter) {
+      return false;
+    }
+    const day = entry.at.slice(0, 10);
+    if (fromDate && day < fromDate) {
+      return false;
+    }
+    if (toDate && day > toDate) {
+      return false;
+    }
+    if (query.trim()) {
+      const haystack = [
+        entry.module,
+        entry.summary,
+        entry.status,
+        entry.model,
+        entry.grounding.kind === "sources"
+          ? entry.grounding.sources.map((source) => `${source.title} ${source.url}`).join(" ")
+          : entry.grounding.inputs.join(" "),
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(query.toLowerCase().trim())) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  return (
+    <section className="space-y-4">
+      <Card>
+        <CardHeader>
+          <SectionTitle
+            icon={SearchCheck}
+            kicker="Audit"
+            title="AI Generation Log"
+            description="Every AI generation across the app, newest first, with the real sources or workspace inputs behind each output so you can check it is grounded, not invented."
+          />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <Field label="Search">
+              <Input
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Module, summary, or source"
+                value={query}
+              />
+            </Field>
+            <Field label="Module">
+              <NativeSelect
+                onChange={(event) => setModuleFilter(event.target.value)}
+                value={moduleFilter}
+              >
+                <option value="all">All modules</option>
+                {modules.map((moduleName) => (
+                  <option key={moduleName} value={moduleName}>
+                    {moduleName}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field label="Status">
+              <NativeSelect
+                onChange={(event) => setStatusFilter(event.target.value)}
+                value={statusFilter}
+              >
+                <option value="all">All statuses</option>
+                {statuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field label="From">
+              <Input
+                onChange={(event) => setFromDate(event.target.value)}
+                type="date"
+                value={fromDate}
+              />
+            </Field>
+            <Field label="To">
+              <Input
+                onChange={(event) => setToDate(event.target.value)}
+                type="date"
+                value={toDate}
+              />
+            </Field>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Showing {entries.length} of {allEntries.length} AI generations.
+          </p>
+        </CardContent>
+      </Card>
+
+      {entries.length === 0 ? (
+        <EmptyState
+          action="Adjust the filters, or generate something with AI to populate the log."
+          icon={SearchCheck}
+          title="No AI generations match"
+        />
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry) => (
+            <AiLogEntryCard entry={entry} key={entry.id} />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
