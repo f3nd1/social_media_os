@@ -103,6 +103,33 @@ export type SocialAudit = {
   // so the Social Audit screen can show where a figure came from. Unset for
   // rows never touched by a Metricool sync (hand-entered or PDF-only).
   lastMetricoolSyncAt?: string;
+  // Append-only provenance for this platform's numbers, newest first: every
+  // Metricool sync, CSV or PDF import, and hand edit. Drives the inline
+  // "Source" tag and the Data source log. Optional so old saves upgrade.
+  sourceLog?: AuditSourceLogEntry[];
+};
+
+export type AuditSourceKind =
+  | "metricool-sync"
+  | "metricool-csv"
+  | "metricool-pdf"
+  | "manual";
+
+export type AuditSourceLogEntry = {
+  id: string;
+  at: string;
+  source: AuditSourceKind;
+  // Who made the change, when known: the approver name for an import, or the
+  // active role view for a hand edit.
+  by?: string;
+  change: string;
+};
+
+export const AUDIT_SOURCE_LABELS: Record<AuditSourceKind, string> = {
+  "metricool-sync": "Metricool sync",
+  "metricool-csv": "Metricool CSV import",
+  "metricool-pdf": "Metricool PDF import",
+  manual: "Manual entry",
 };
 
 export type SocialGoalTargets = {

@@ -184,8 +184,11 @@ import {
   type ListeningResult,
   type TrendInsight,
   type WeeklyReport,
+  AUDIT_SOURCE_LABELS,
   type AuditInsight,
   type AuditOverviewInsight,
+  type AuditSourceKind,
+  type AuditSourceLogEntry,
   type CampaignSuggestion,
   type CompetitorInsight,
   type ComplianceDoc,
@@ -8355,6 +8358,58 @@ function auditHasData(audit: SocialAudit): boolean {
   return audit.followers > 0 || audit.averageReach > 0 || audit.engagementRate > 0;
 }
 
+// Record a hand edit in an audit's source log. Consecutive manual edits are
+// coalesced into one rolling entry (keeping the latest time) so a burst of
+// typing does not flood the log with an entry per keystroke.
+function recordManualAuditEdit(
+  log: AuditSourceLogEntry[],
+  at: string,
+  by: string,
+): AuditSourceLogEntry[] {
+  if (log[0]?.source === "manual") {
+    return [{ ...log[0], at, by: by || log[0].by }, ...log.slice(1)];
+  }
+
+  return [
+    { id: crypto.randomUUID(), at, source: "manual", by: by || undefined, change: "Edited by hand." },
+    ...log,
+  ];
+}
+
+// Derive the inline "Source" tag for an audit row from its log: the most
+// recent import, plus a note when it was later edited by hand, or a manual
+// entry when there has never been an import.
+function describeAuditSource(audit: SocialAudit): string | null {
+  const log = audit.sourceLog ?? [];
+
+  if (log.length === 0) {
+    return null;
+  }
+
+  const latestImport = log.find((entry) => entry.source !== "manual");
+  const latestManual = log.find((entry) => entry.source === "manual");
+
+  if (latestImport) {
+    let label = `${AUDIT_SOURCE_LABELS[latestImport.source]}, ${formatMetricoolSyncStamp(
+      latestImport.at,
+    )}`;
+
+    if (latestManual && latestManual.at > latestImport.at) {
+      label += `, edited manually ${formatMetricoolSyncStamp(latestManual.at)}`;
+    }
+
+    return label;
+  }
+
+  if (latestManual) {
+    return `Manual entry, ${formatMetricoolSyncStamp(latestManual.at)}${
+      latestManual.by ? ` by ${latestManual.by}` : ""
+    }`;
+  }
+
+  return null;
+}
+
 function makeNewAudit(platform: Platform): SocialAudit {
   return {
     platform,
@@ -8378,6 +8433,70 @@ function makeNewAudit(platform: Platform): SocialAudit {
 
 // The control that lets the owner add a platform to the audit. Without this a
 // blank workspace could never start an audit, which stalled the whole setup.
+function AuditSourceLogPanel({ audits }: { audits: SocialAudit[] }) {
+  const entries = audits
+    .flatMap((audit) =>
+      (audit.sourceLog ?? []).map((entry) => ({ ...entry, platform: audit.platform })),
+    )
+    .sort((a, b) => b.at.localeCompare(a.at));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Data source log</CardTitle>
+        <CardDescription>
+          Every update to a platform&apos;s audit numbers, newest first: where it
+          came from and what changed.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No updates yet. Sync Metricool, import a CSV or PDF, or enter numbers
+            by hand to start the log.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="border-b text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="py-3 pr-4 font-medium">Date</th>
+                  <th className="py-3 pr-4 font-medium">Platform</th>
+                  <th className="py-3 pr-4 font-medium">Source</th>
+                  <th className="py-3 pr-4 font-medium">What changed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {entries.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="whitespace-nowrap py-3 pr-4 align-top text-xs text-muted-foreground">
+                      {formatMetricoolSyncStamp(entry.at)}
+                    </td>
+                    <td className="py-3 pr-4 align-top">
+                      <PlatformBadge platform={entry.platform} />
+                    </td>
+                    <td className="py-3 pr-4 align-top">
+                      <Badge variant={entry.source === "manual" ? "secondary" : "outline"}>
+                        {AUDIT_SOURCE_LABELS[entry.source]}
+                      </Badge>
+                    </td>
+                    <td className="py-3 pr-4 align-top text-sm leading-6">
+                      {entry.change}
+                      {entry.by ? (
+                        <span className="text-muted-foreground"> ({entry.by})</span>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SocialAuditView({
   aiIntegration,
   auditInsights,
@@ -8647,8 +8766,20 @@ function SocialAuditView({
   }
 
   function updateAudit(platform: Platform, updater: (audit: SocialAudit) => SocialAudit) {
+    const editedAt = new Date().toISOString();
+    const editor = roleLabel(globalRole);
     onAuditsChange(
-      audits.map((audit) => (audit.platform === platform ? updater(audit) : audit)),
+      audits.map((audit) => {
+        if (audit.platform !== platform) {
+          return audit;
+        }
+
+        const updated = updater(audit);
+        return {
+          ...updated,
+          sourceLog: recordManualAuditEdit(updated.sourceLog ?? [], editedAt, editor),
+        };
+      }),
     );
   }
 
@@ -8788,6 +8919,7 @@ function SocialAuditView({
               <tbody className="divide-y">
                 {audits.map((audit) => {
                   const hasData = auditHasData(audit);
+                  const sourceTag = describeAuditSource(audit);
                   const isOpen = expandedPlatform === audit.platform;
                   const isJustUpdated = highlightPlatform === audit.platform;
                   const craftScoreFields = scoreFields.filter(
@@ -8814,13 +8946,12 @@ function SocialAuditView({
                           </div>
                           {!hasData ? (
                             <p className="mt-1 text-xs text-muted-foreground">
-                              No data yet
+                              No data yet, sync Metricool or enter manually
                             </p>
                           ) : null}
-                          {audit.lastMetricoolSyncAt ? (
+                          {sourceTag ? (
                             <p className="mt-1 text-xs text-muted-foreground">
-                              Updated from Metricool,{" "}
-                              {formatMetricoolSyncStamp(audit.lastMetricoolSyncAt)}
+                              Source: {sourceTag}
                             </p>
                           ) : null}
                         </td>
@@ -9001,6 +9132,8 @@ function SocialAuditView({
           </div>
         </CardContent>
       </Card>
+
+      <AuditSourceLogPanel audits={audits} />
 
       {(() => {
         const auditsWithData = audits.filter(auditHasData);
@@ -14794,6 +14927,22 @@ type AppliedPlatformSummary = {
   kpiUpdated: boolean;
 };
 
+// Map the human note label an import carries to the structured source kind
+// used by the Social Audit data source log.
+function auditSourceKindFromNote(noteLabel: string): AuditSourceKind {
+  const lower = noteLabel.toLowerCase();
+
+  if (lower.includes("csv")) {
+    return "metricool-csv";
+  }
+
+  if (lower.includes("pdf")) {
+    return "metricool-pdf";
+  }
+
+  return "metricool-sync";
+}
+
 function applyPlatformMetricsImport(
   current: MarketingWorkspaceData,
   platformMetrics: PlatformDataMetrics[],
@@ -14853,6 +15002,18 @@ function applyPlatformMetricsImport(
             : audit.scores.engagementPerformance,
       },
       lastMetricoolSyncAt: isMetricoolSource ? importedAt : audit.lastMetricoolSyncAt,
+      sourceLog: [
+        {
+          id: crypto.randomUUID(),
+          at: importedAt,
+          source: auditSourceKindFromNote(source.noteLabel),
+          by: approvedBy.trim() || undefined,
+          change: `${formatNumber(metrics.impressions)} impressions, ${formatNumber(
+            metrics.reach,
+          )} reach, ${formatNumber(engagementActions)} engagement actions from ${sourceFileLabel}.`,
+        },
+        ...(audit.sourceLog ?? []),
+      ],
       notes: mergeImportNote(
         audit.notes,
         `${source.noteLabel} ${formatDateTime(importedAt)}: ${formatNumber(
