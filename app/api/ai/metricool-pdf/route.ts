@@ -8,13 +8,13 @@ import {
 } from "@/lib/metricool-pdf-ai";
 import { callOpenAiJson } from "@/lib/openai-shared";
 import { extractPdfText } from "@/lib/pdf-extract";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 // Web-free but the PDF parse plus a model round-trip can be slow on big reports.
 export const maxDuration = 120;
 
-const MAX_PDF_BYTES = 15 * 1024 * 1024;
 const MAX_REPORT_CHARACTERS = 40_000;
 
 export async function POST(request: Request) {
@@ -39,9 +39,9 @@ export async function POST(request: Request) {
     );
   }
 
-  if (file.size > MAX_PDF_BYTES) {
+  if (file.size > MAX_UPLOAD_BYTES) {
     return NextResponse.json(
-      { ok: false, error: "PDF reports must be 15 MB or smaller." },
+      { ok: false, error: `PDF reports must be ${MAX_UPLOAD_MB} MB or smaller.` },
       { status: 413 },
     );
   }

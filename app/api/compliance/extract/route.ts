@@ -6,6 +6,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 
 import { extractPdfText } from "@/lib/pdf-extract";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { sanitizeFileName } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,6 @@ export const runtime = "nodejs";
 // the Python paths work in this dev environment but need Python 3 available
 // at deploy time.
 
-const MAX_BYTES = 15 * 1024 * 1024;
 const MAX_STORED_CHARACTERS = 20_000;
 
 type ExtractorResult = {
@@ -49,9 +49,9 @@ export async function POST(request: Request) {
     );
   }
 
-  if (file.size > MAX_BYTES) {
+  if (file.size > MAX_UPLOAD_BYTES) {
     return NextResponse.json(
-      { ok: false, error: "Guideline documents must be 15 MB or smaller." },
+      { ok: false, error: `Guideline documents must be ${MAX_UPLOAD_MB} MB or smaller.` },
       { status: 413 },
     );
   }

@@ -6,12 +6,12 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 
 import { parsePdfReportMetrics } from "@/lib/pdf-data-import";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { sanitizeFileName } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const MAX_PDF_BYTES = 15 * 1024 * 1024;
 const MAX_RETURNED_TEXT_CHARACTERS = 120_000;
 const MAX_EXTRACTOR_OUTPUT_BYTES = 12 * 1024 * 1024;
 
@@ -45,9 +45,9 @@ export async function POST(request: Request) {
     );
   }
 
-  if (file.size > MAX_PDF_BYTES) {
+  if (file.size > MAX_UPLOAD_BYTES) {
     return NextResponse.json(
-      { error: "PDF reports must be 15 MB or smaller." },
+      { error: `PDF reports must be ${MAX_UPLOAD_MB} MB or smaller.` },
       { status: 413 },
     );
   }

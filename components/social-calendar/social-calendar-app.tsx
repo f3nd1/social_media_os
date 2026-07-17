@@ -266,6 +266,11 @@ import {
   localSocialCalendarRepository,
   normalizeWorkspaceData,
 } from "@/lib/social-calendar-storage";
+import {
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_MB,
+  formatFileSize,
+} from "@/lib/upload-limits";
 import { cn, readJsonResponse } from "@/lib/utils";
 
 type BadgeVariant = ComponentProps<typeof Badge>["variant"];
@@ -5651,6 +5656,14 @@ function ComplianceCheckerView({
   }
 
   async function uploadGuidelineDoc(file: File) {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setDocMessage({
+        tone: "error",
+        text: `This file is ${formatFileSize(file.size)}. The limit is ${MAX_UPLOAD_MB} MB. Please compress the document or choose a smaller one.`,
+      });
+      return;
+    }
+
     setUploadingDoc(true);
     setDocMessage(null);
 
@@ -5992,8 +6005,9 @@ function ComplianceCheckerView({
           <div>
             <CardTitle>Guideline Documents</CardTitle>
             <CardDescription>
-              Upload PDF, Word (.docx), or text policy documents. The AI
-              reviewer reads them alongside the built-in education rules.
+              Upload PDF, Word (.docx), or text policy documents up to{" "}
+              {MAX_UPLOAD_MB} MB. The AI reviewer reads them alongside the
+              built-in education rules.
             </CardDescription>
           </div>
           <label
@@ -8316,9 +8330,20 @@ function BrandSetupView({
       return;
     }
 
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setGuidelineMessage({
+        tone: "error",
+        text: `This file is ${formatFileSize(file.size)}. The limit is ${MAX_UPLOAD_MB} MB. Please compress the PDF or choose a smaller document.`,
+      });
+      return;
+    }
+
     if (!file.name.toLowerCase().endsWith(".pdf")) {
       onBrandChange("brandGuidelines", await file.text());
-      setGuidelineMessage(null);
+      setGuidelineMessage({
+        tone: "success",
+        text: `Loaded ${file.name} (${formatFileSize(file.size)}).`,
+      });
       return;
     }
 
@@ -8424,7 +8449,8 @@ function BrandSetupView({
           <CardHeader>
             <CardTitle>Brand Guidelines</CardTitle>
             <CardDescription>
-              Paste notes, or upload a PDF, text, or Markdown guideline file.
+              Paste notes, or upload a PDF, text, or Markdown guideline file up
+              to {MAX_UPLOAD_MB} MB.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
