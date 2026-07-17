@@ -502,6 +502,12 @@ export type Competitor = {
   observedStrengths: string[];
   contentGaps: string[];
   whitespaceOpportunities: string[];
+  // Provenance for the "Observe from link" AI web-search pass, so the AI
+  // Generation Log can show the real public sources it read (not a guess).
+  // Optional: only set once an observation has run for this competitor.
+  observationSources?: TrendSource[];
+  observedAt?: string;
+  observedModel?: string;
 };
 
 export type StrategyBrief = {

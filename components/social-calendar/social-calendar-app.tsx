@@ -9575,7 +9575,9 @@ function CompetitorIntelligenceView({
       }
 
       // Pre-fill only the fields we observed; leave anything empty untouched so
-      // the manager never loses what they typed by hand.
+      // the manager never loses what they typed by hand. Keep the cited public
+      // sources so the AI Generation Log can show where the observation came
+      // from, not just a count.
       onCompetitorsChange(
         competitors.map((row) =>
           row.id === competitor.id
@@ -9591,6 +9593,12 @@ function CompetitorIntelligenceView({
                   result.draft.observedStrengths.length > 0
                     ? result.draft.observedStrengths
                     : row.observedStrengths,
+                observationSources: (result.citations ?? []).map((citation) => ({
+                  title: citation.title,
+                  url: citation.url,
+                })),
+                observedAt: new Date().toISOString(),
+                observedModel: result.synthesisModel ?? result.searchModel ?? "unknown",
               }
             : row,
         ),
