@@ -229,6 +229,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
           carouselOutline: item.carouselOutline ?? "",
           storyboardFrames: item.storyboardFrames ?? "",
           youtubeBrief: item.youtubeBrief ?? "",
+          youtubeLongformBrief: item.youtubeLongformBrief ?? "",
           tiktokDuetStitch: item.tiktokDuetStitch ?? "",
           trendingAudioNote: item.trendingAudioNote ?? "",
           finalCaption: item.finalCaption ?? "",

@@ -12265,10 +12265,12 @@ function CalendarItemEditor({
   // Only surface the format-specific outputs when they apply to this item, or
   // when they already hold content (so changing the format never hides data).
   const format = item.format.toLowerCase();
+  const isLongform = format.includes("long-form") || format.includes("long form");
   const showCarousel = format.includes("carousel") || Boolean(item.carouselOutline?.trim());
   const showStories = format.includes("stor") || Boolean(item.storyboardFrames?.trim());
   const showYouTube =
-    item.platform === "YouTube Shorts" || Boolean(item.youtubeBrief?.trim());
+    (item.platform === "YouTube Shorts" && !isLongform) || Boolean(item.youtubeBrief?.trim());
+  const showLongform = isLongform || Boolean(item.youtubeLongformBrief?.trim());
   const showTikTok =
     item.platform === "TikTok" ||
     Boolean(item.tiktokDuetStitch?.trim()) ||
@@ -12674,6 +12676,20 @@ function CalendarItemEditor({
                   value={item.youtubeBrief ?? ""}
                   onChange={(event) =>
                     onChange(item.id, { youtubeBrief: event.target.value })
+                  }
+                />
+              </Field>
+            </div>
+          ) : null}
+          {showLongform ? (
+            <div className="sm:col-span-2">
+              <Field label="YouTube Long-form spec (title, thumbnail, description, chapters, tags, end screen)">
+                <Textarea
+                  className="min-h-28"
+                  placeholder="SEO title under 60 characters, thumbnail brief, description, chapter timestamps, tags, end-screen/cards note (filled by AI for YouTube Long-form)"
+                  value={item.youtubeLongformBrief ?? ""}
+                  onChange={(event) =>
+                    onChange(item.id, { youtubeLongformBrief: event.target.value })
                   }
                 />
               </Field>
@@ -13390,6 +13406,13 @@ function ContentProductionView({
                   eyebrow="YouTube brief"
                   primary={selectedItem.format}
                   secondary={selectedItem.youtubeBrief}
+                />
+              ) : null}
+              {selectedItem.youtubeLongformBrief ? (
+                <ProductionBlock
+                  eyebrow="YouTube Long-form spec"
+                  primary={selectedItem.format}
+                  secondary={selectedItem.youtubeLongformBrief}
                 />
               ) : null}
               {selectedItem.tiktokDuetStitch || selectedItem.trendingAudioNote ? (

@@ -68,6 +68,7 @@ export type CalendarDraftItem = {
   carouselOutline: string;
   storyboardFrames: string;
   youtubeBrief: string;
+  youtubeLongformBrief: string;
   tiktokDuetStitch: string;
   trendingAudioNote: string;
 };
@@ -95,7 +96,8 @@ export function buildCalendarUserPrompt(context: CalendarAiContext): string {
     contentPillar: "string",
     contentTopic: "string, a short title",
     hook: "string",
-    format: "string, for example Reel, Carousel, Short, Thread",
+    format:
+      "string, for example Reel, Carousel, Short, YouTube Long-form, Thread, Pin, Community post",
     caption: "string, factual and compliant",
     cta: "string",
     hashtags: ["string"],
@@ -107,7 +109,9 @@ export function buildCalendarUserPrompt(context: CalendarAiContext): string {
     storyboardFrames:
       "string, frame-by-frame plan (Frame 1: ..., one idea per frame, 7 frames maximum, include at least one interactive element such as a poll or question sticker) ONLY when the format is a Stories sequence; empty string for every other format",
     youtubeBrief:
-      "string, ONLY for YouTube Shorts items: a search-optimised title under 60 characters containing the target keyword, then a one-line thumbnail brief, then the first two description lines; empty string for every other platform",
+      "string, ONLY for YouTube Shorts items whose format is NOT Long-form: a search-optimised title under 60 characters containing the target keyword, then a one-line thumbnail brief, then the first two description lines; empty string for every other platform",
+    youtubeLongformBrief:
+      "string, ONLY when the format is YouTube Long-form: a full video spec with a search-optimised title under 60 characters, a thumbnail brief, a description, chapter timestamps, tags, and an end-screen or cards note; empty string otherwise",
     tiktokDuetStitch:
       "string, ONLY for TikTok items: a Duet or Stitch opportunity (which existing post or trend to react to, and the angle); empty string for every other platform",
     trendingAudioNote:
@@ -227,6 +231,7 @@ function draftContentFields(
     carouselOutline: draft.carouselOutline?.trim() || "",
     storyboardFrames: draft.storyboardFrames?.trim() || "",
     youtubeBrief: draft.youtubeBrief?.trim() || "",
+    youtubeLongformBrief: draft.youtubeLongformBrief?.trim() || "",
     tiktokDuetStitch: draft.tiktokDuetStitch?.trim() || "",
     trendingAudioNote: draft.trendingAudioNote?.trim() || "",
   };

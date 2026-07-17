@@ -564,6 +564,10 @@ export type CalendarItem = {
   carouselOutline?: string;
   storyboardFrames?: string;
   youtubeBrief?: string;
+  // Full spec for a YouTube Long-form video (SEO title, thumbnail, description,
+  // chapters, tags, end-screen/cards). Populated only when the format is
+  // Long-form, so Shorts items keep using youtubeBrief above.
+  youtubeLongformBrief?: string;
   // TikTok-only outputs: Duet/Stitch opportunities and the trending-audio note.
   // Populated by AI only for TikTok items, empty otherwise.
   tiktokDuetStitch?: string;

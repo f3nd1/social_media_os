@@ -54,6 +54,7 @@ export type CopyAiDraft = {
   carouselOutline: string;
   storyboardFrames: string;
   youtubeBrief: string;
+  youtubeLongformBrief: string;
   tiktokDuetStitch: string;
   trendingAudioNote: string;
 };
@@ -90,7 +91,9 @@ export function buildCopyUserPrompt(context: CopyAiContext): string {
     storyboardFrames:
       "string, frame-by-frame plan (Frame 1: ..., one idea per frame, 7 frames maximum, include at least one interactive element such as a poll or question sticker) ONLY when the item's format is a Stories sequence; empty string otherwise",
     youtubeBrief:
-      "string, ONLY when the item's platform is YouTube Shorts: a search-optimised title under 60 characters containing the target keyword, then a one-line thumbnail brief, then the first two description lines; empty string otherwise",
+      "string, ONLY when the item's platform is YouTube Shorts and the format is NOT Long-form: a search-optimised title under 60 characters containing the target keyword, then a one-line thumbnail brief, then the first two description lines; empty string otherwise",
+    youtubeLongformBrief:
+      "string, ONLY when the item's format is YouTube Long-form: a full video spec with a search-optimised title under 60 characters, a thumbnail brief, a description, chapter timestamps, tags, and an end-screen or cards note; empty string otherwise",
     tiktokDuetStitch:
       "string, ONLY when the item's platform is TikTok: a Duet or Stitch opportunity (which post or trend to react to, and the angle); empty string otherwise",
     trendingAudioNote:
@@ -145,6 +148,7 @@ export function copyDraftToPatch(draft: CopyAiDraft): Partial<CalendarItem> {
   const carouselOutline = asString(draft.carouselOutline);
   const storyboardFrames = asString(draft.storyboardFrames);
   const youtubeBrief = asString(draft.youtubeBrief);
+  const youtubeLongformBrief = asString(draft.youtubeLongformBrief);
   const tiktokDuetStitch = asString(draft.tiktokDuetStitch);
   const trendingAudioNote = asString(draft.trendingAudioNote);
 
@@ -158,6 +162,7 @@ export function copyDraftToPatch(draft: CopyAiDraft): Partial<CalendarItem> {
   if (carouselOutline) patch.carouselOutline = carouselOutline;
   if (storyboardFrames) patch.storyboardFrames = storyboardFrames;
   if (youtubeBrief) patch.youtubeBrief = youtubeBrief;
+  if (youtubeLongformBrief) patch.youtubeLongformBrief = youtubeLongformBrief;
   if (tiktokDuetStitch) patch.tiktokDuetStitch = tiktokDuetStitch;
   if (trendingAudioNote) patch.trendingAudioNote = trendingAudioNote;
 
