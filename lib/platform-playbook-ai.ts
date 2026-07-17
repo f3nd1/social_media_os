@@ -2,7 +2,11 @@
 // playbook draft (Platform Intelligence screen). Pure helpers, no network.
 
 import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
-import type { Platform, PlatformPlaybookFields } from "@/lib/social-calendar-data";
+import {
+  PLATFORM_CONTENT_RULES,
+  type Platform,
+  type PlatformPlaybookFields,
+} from "@/lib/social-calendar-data";
 
 export type PlatformPlaybookAiContext = {
   platform: Platform;
@@ -66,6 +70,10 @@ export function buildPlatformPlaybookUserPrompt(context: PlatformPlaybookAiConte
     "",
     "CONTEXT (the manager's real workspace data):",
     JSON.stringify(context, null, 2),
+    "",
+    // Platform craft rules adapted from Darthflute/social-calendar-skill (MIT License).
+    `PLATFORM RULES for ${context.platform} (the playbook must be consistent with these):`,
+    PLATFORM_CONTENT_RULES[context.platform],
     "",
     "Return a JSON object with exactly this shape:",
     JSON.stringify(shape, null, 2),

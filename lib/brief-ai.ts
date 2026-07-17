@@ -3,7 +3,11 @@
 // route (to build the prompt and shape the response). No network here.
 
 import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
-import type { Platform, StrategyBrief } from "@/lib/social-calendar-data";
+import {
+  PLATFORM_CONTENT_RULES,
+  type Platform,
+  type StrategyBrief,
+} from "@/lib/social-calendar-data";
 
 export type BriefAiContext = {
   brand: {
@@ -111,11 +115,17 @@ export function buildBriefUserPrompt(context: BriefAiContext): string {
     "REQUIRED OUTPUT: return a JSON object with exactly these keys and value types:",
     JSON.stringify(shape, null, 2),
     "",
+    // Platform craft rules adapted from Darthflute/social-calendar-skill (MIT License).
+    "PLATFORM RULES (ground each platform's strategy in how that platform actually works):",
+    context.platforms
+      .map((platform) => `- ${platform}: ${PLATFORM_CONTENT_RULES[platform]}`)
+      .join("\n"),
+    "",
     "Guidance:",
     "- marketingObjectives: measurable, objective-first goals tied to the audit goal.",
     "- campaignIdeas: specific campaigns the manager could choose to run.",
     "- contentPillars: repeatable content themes.",
-    "- platformStrategy: one focused sentence per platform key provided.",
+    "- platformStrategy: one focused sentence per platform key provided, concrete about the formats and hooks that platform's rules favour.",
     "- platformMix: how effort should be split across platforms and why.",
     "- suggestedBudget: a direction and rough split, not a guarantee.",
     "- kpis: the metrics to track against the objectives.",
