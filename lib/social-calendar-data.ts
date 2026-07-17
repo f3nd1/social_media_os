@@ -1021,6 +1021,10 @@ export type MarketingWorkspaceData = {
   trendInsights: TrendInsight[];
   listeningResults: ListeningResult[];
   approvalsLog: ApprovalLogEntry[];
+  // Ids of AI Generation Log entries the manager has flagged as inaccurate
+  // (a suspected hallucination), so patterns of unreliable output surface in
+  // one place. Optional so older saves upgrade safely.
+  flaggedAiEntries?: string[];
   // Free-text reviewer name until sign-in exists; stamped onto log entries.
   approverName: string;
   // Whether the workspace currently holds the demo content or the owner's own

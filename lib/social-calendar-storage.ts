@@ -199,6 +199,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
         }))
       : [],
     approvalsLog: Array.isArray(data.approvalsLog) ? data.approvalsLog : [],
+    flaggedAiEntries: Array.isArray(data.flaggedAiEntries) ? data.flaggedAiEntries : [],
     approverName: typeof data.approverName === "string" ? data.approverName : "",
     datasetMode: (data.datasetMode === "live" ? "live" : "sample") as "sample" | "live",
     firstRunChecklistDismissed: Boolean(data.firstRunChecklistDismissed),

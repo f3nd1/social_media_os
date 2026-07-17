@@ -1322,7 +1322,15 @@ export function SocialCalendarApp() {
               />
             ) : null}
 
-            {activeView === "aiLog" ? <AiGenerationLogView workspace={data} /> : null}
+            {activeView === "aiLog" ? (
+              <AiGenerationLogView
+                flaggedAiEntries={data.flaggedAiEntries ?? []}
+                onFlaggedChange={(flaggedAiEntries) =>
+                  updateWorkspace((current) => ({ ...current, flaggedAiEntries }))
+                }
+                workspace={data}
+              />
+            ) : null}
 
             {activeView === "changelog" ? <ChangelogView /> : null}
               </>
@@ -7618,9 +7626,22 @@ function PlatformDataIntegrationPanel({
   );
 }
 
-function AiLogEntryCard({ entry }: { entry: AiLogEntry }) {
+function AiLogEntryCard({
+  entry,
+  flagged,
+  onToggleFlag,
+}: {
+  entry: AiLogEntry;
+  flagged: boolean;
+  onToggleFlag: (id: string) => void;
+}) {
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div
+      className={cn(
+        "rounded-lg border bg-card p-4",
+        flagged && "border-destructive/50 bg-destructive/5",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -7629,15 +7650,27 @@ function AiLogEntryCard({ entry }: { entry: AiLogEntry }) {
             <Badge variant={entry.sourceCited ? "success" : "secondary"}>
               {entry.sourceCited ? "Source cited" : "Synthesised from brand data only"}
             </Badge>
+            {flagged ? <Badge variant="warning">Flagged as inaccurate</Badge> : null}
           </div>
           <p className="mt-2 text-sm leading-6">{entry.summary}</p>
         </div>
-        <div className="shrink-0 text-right text-xs text-muted-foreground">
-          <p>{formatDateTime(entry.at)}</p>
-          <p>
-            {entry.model || "model n/a"}
-            {entry.modelTier !== "unknown" ? ` (${entry.modelTier})` : ""}
-          </p>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="text-right text-xs text-muted-foreground">
+            <p>{formatDateTime(entry.at)}</p>
+            <p>
+              {entry.model || "model n/a"}
+              {entry.modelTier !== "unknown" ? ` (${entry.modelTier})` : ""}
+            </p>
+          </div>
+          <Button
+            onClick={() => onToggleFlag(entry.id)}
+            size="sm"
+            type="button"
+            variant={flagged ? "default" : "outline"}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            {flagged ? "Flagged" : "Flag as inaccurate"}
+          </Button>
         </div>
       </div>
 
@@ -7683,9 +7716,30 @@ function AiLogEntryCard({ entry }: { entry: AiLogEntry }) {
   );
 }
 
-function AiGenerationLogView({ workspace }: { workspace: MarketingWorkspaceData }) {
+function AiGenerationLogView({
+  flaggedAiEntries,
+  onFlaggedChange,
+  workspace,
+}: {
+  flaggedAiEntries: string[];
+  onFlaggedChange: (flaggedAiEntries: string[]) => void;
+  workspace: MarketingWorkspaceData;
+}) {
   const allEntries = buildAiGenerationLog(workspace);
   const modules = aiLogModules(allEntries);
+  const flaggedSet = new Set(flaggedAiEntries);
+
+  function toggleFlag(id: string) {
+    onFlaggedChange(
+      flaggedSet.has(id)
+        ? flaggedAiEntries.filter((entryId) => entryId !== id)
+        : [...flaggedAiEntries, id],
+    );
+  }
+
+  // Flagged entries pin to the top regardless of the filters, so patterns of
+  // suspected hallucination stay visible in one place.
+  const flaggedEntries = allEntries.filter((entry) => flaggedSet.has(entry.id));
   const statuses = Array.from(new Set(allEntries.map((entry) => entry.status))).sort((a, b) =>
     a.localeCompare(b),
   );
@@ -7796,6 +7850,30 @@ function AiGenerationLogView({ workspace }: { workspace: MarketingWorkspaceData 
         </CardContent>
       </Card>
 
+      {flaggedEntries.length > 0 ? (
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Flagged as inaccurate ({flaggedEntries.length})
+            </CardTitle>
+            <CardDescription>
+              Outputs you marked as a suspected hallucination, pinned here so
+              patterns of unreliable output are visible over time.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {flaggedEntries.map((entry) => (
+              <AiLogEntryCard
+                entry={entry}
+                flagged
+                key={entry.id}
+                onToggleFlag={toggleFlag}
+              />
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {entries.length === 0 ? (
         <EmptyState
           action="Adjust the filters, or generate something with AI to populate the log."
@@ -7805,7 +7883,12 @@ function AiGenerationLogView({ workspace }: { workspace: MarketingWorkspaceData 
       ) : (
         <div className="space-y-2">
           {entries.map((entry) => (
-            <AiLogEntryCard entry={entry} key={entry.id} />
+            <AiLogEntryCard
+              entry={entry}
+              flagged={flaggedSet.has(entry.id)}
+              key={entry.id}
+              onToggleFlag={toggleFlag}
+            />
           ))}
         </div>
       )}
