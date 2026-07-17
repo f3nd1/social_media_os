@@ -29,7 +29,17 @@ type ExtractorResult = {
 };
 
 export async function POST(request: Request) {
-  const formData = await request.formData();
+  let formData: FormData;
+
+  try {
+    formData = await request.formData();
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "The upload could not be read. Please try again." },
+      { status: 400 },
+    );
+  }
+
   const file = formData.get("file");
 
   if (!(file instanceof File)) {

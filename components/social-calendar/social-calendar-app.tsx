@@ -265,7 +265,7 @@ import {
   localSocialCalendarRepository,
   normalizeWorkspaceData,
 } from "@/lib/social-calendar-storage";
-import { cn } from "@/lib/utils";
+import { cn, readJsonResponse } from "@/lib/utils";
 
 type BadgeVariant = ComponentProps<typeof Badge>["variant"];
 
@@ -5647,7 +5647,7 @@ function ComplianceCheckerView({
         method: "POST",
         body: formData,
       });
-      const result = (await response.json()) as
+      const result = await readJsonResponse<
         | {
             ok: true;
             name: string;
@@ -5656,7 +5656,8 @@ function ComplianceCheckerView({
             truncated: boolean;
             text: string;
           }
-        | { ok: false; error: string };
+        | { ok: false; error: string }
+      >(response);
 
       if (!result.ok) {
         setDocMessage({ tone: "error", text: result.error });
@@ -8316,9 +8317,10 @@ function BrandSetupView({
         method: "POST",
         body: formData,
       });
-      const result = (await response.json()) as
+      const result = await readJsonResponse<
         | { ok: true; text: string; characters: number; truncated: boolean }
-        | { ok: false; error: string };
+        | { ok: false; error: string }
+      >(response);
 
       if (!result.ok) {
         setGuidelineMessage({ tone: "error", text: result.error });
