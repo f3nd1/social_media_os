@@ -5,7 +5,7 @@ export type ThemeId =
   | "kingdom";
 
 export const THEME_STORAGE_KEY = "ucc-os-theme";
-export const DEFAULT_THEME: ThemeId = "original-dark";
+export const DEFAULT_THEME: ThemeId = "kingdom";
 
 export type ThemeOption = {
   id: ThemeId;
