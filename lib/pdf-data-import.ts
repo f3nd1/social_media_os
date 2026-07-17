@@ -58,6 +58,8 @@ const platformAliases: Record<Platform, string[]> = {
   Facebook: ["facebook", "fb"],
   "X/Twitter": ["x/twitter", "twitter", "x"],
   Threads: ["threads"],
+  Pinterest: ["pinterest"],
+  Reddit: ["reddit"],
 };
 
 const metricAliases: Record<MetricKey, string[]> = {

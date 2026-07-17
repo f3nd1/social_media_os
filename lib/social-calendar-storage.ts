@@ -144,7 +144,18 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
         ? data.pdfDataSource.importLog
         : seed.pdfDataSource.importLog,
     },
-    brief: { ...seed.brief, ...brief, contentPillars: briefContentPillars },
+    brief: {
+      ...seed.brief,
+      ...brief,
+      contentPillars: briefContentPillars,
+      // Deep-merge per-platform strategy so saves made before a platform
+      // existed (for example Pinterest and Reddit) still get its key, rather
+      // than rendering an undefined value in the Platform Strategy inputs.
+      platformStrategy: {
+        ...seed.brief.platformStrategy,
+        ...(brief?.platformStrategy ?? {}),
+      },
+    },
     audits: Array.isArray(data.audits) ? data.audits : seed.audits,
     connections: Array.isArray(data.connections) ? data.connections : [],
     aiIntegration: {

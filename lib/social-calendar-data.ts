@@ -8,6 +8,8 @@ export const platforms = [
   "Facebook",
   "X/Twitter",
   "Threads",
+  "Pinterest",
+  "Reddit",
 ] as const;
 
 export type Platform = (typeof platforms)[number];
@@ -1143,6 +1145,26 @@ export const platformRules: Record<
     guardrail:
       "Sound like a person starting a useful hallway conversation.",
   },
+  Pinterest: {
+    role: "Evergreen discovery for students planning ahead",
+    persona: "helpful course planner",
+    content: "Vertical pins, infographics, step-by-step guides, checklists that link back to real pages",
+    cta: "Save this and open the full guide.",
+    metrics: "Saves, outbound clicks, impressions",
+    defaultFormat: "Vertical pin (2:3)",
+    bestPostingTime: "8:30 PM",
+    guardrail: "Write pin titles and descriptions like search results, keyword-led and factual.",
+  },
+  Reddit: {
+    role: "Honest community answers where students research",
+    persona: "helpful practitioner, not a brand",
+    content: "Value-first answers, first-hand explainers, genuine questions in the right subreddit",
+    cta: "Ask follow-up questions in the comments.",
+    metrics: "Upvotes, quality replies, saved posts",
+    defaultFormat: "Community text post",
+    bestPostingTime: "10:00 PM",
+    guardrail: "Never read as an advert; help first and mention the college only if directly relevant, in comments.",
+  },
 };
 
 // Platform craft rules adapted from Darthflute/social-calendar-skill (MIT
@@ -1166,6 +1188,10 @@ export const PLATFORM_CONTENT_RULES: Record<Platform, string> = {
     "Aim under 200 characters even though the cap is higher. Use 0 or 1 hashtag. Short punchy takes; end with a question or a provocative but factual statement. Numbered threads that teach something work; long text blocks do not.",
   Threads:
     "Conversational first-person, 2 to 4 lines maximum. Skip hashtags entirely. Casual questions and genuine takes; never press-release tone.",
+  Pinterest:
+    "Treat Pinterest as a visual search engine, not a social feed. Use vertical 2:3 images (1000x1500). Pin titles are search queries: keyword-led, 40 to 60 characters. Descriptions are keyword-rich and factual, 100 to 300 characters, and explain the value. Every pin links to a real destination page, and a clear board strategy groups pins by topic. Volume helps, so plan several pins per idea.",
+  Reddit:
+    "Reddit is a community, not a billboard. Content must never read as an advert. Write like a practitioner sharing genuine value in one specific subreddit, first-person and honest. Never lead with the college name; mention it only in comments and only when directly relevant. Original data, first-hand explainers, and honest questions work; promotional copy gets removed.",
 };
 
 // Per-platform playbook: an AI-draft-then-Manager-approve workflow (see
@@ -1391,6 +1417,8 @@ function buildRepurposePlan(platform: Platform) {
     Facebook: "Turn into Instagram carousel, LinkedIn trust post, and Threads conversation starter.",
     "X/Twitter": "Turn into Threads prompt, LinkedIn opener, and carousel first slide.",
     Threads: "Turn strongest reply into X post, TikTok prompt, and Instagram story question.",
+    Pinterest: "Turn into a searchable FAQ post, an Instagram carousel, and a LinkedIn proof post.",
+    Reddit: "Turn the honest answer into a Threads prompt, an X insight thread, and a Facebook parent explainer.",
   };
 
   return plans[platform];
@@ -2401,6 +2429,10 @@ const seedBrief: StrategyBrief = {
       "Publish sharp planning tips, deadline reminders, and myth corrections that can be scanned quickly.",
     Threads:
       "Start casual conversations about choosing courses, asking better questions, and lowering application anxiety.",
+    Pinterest:
+      "Publish keyword-led vertical guides and checklists that link back to real course and admissions pages for students planning ahead.",
+    Reddit:
+      "Answer genuine student questions in the right subreddits as a helpful practitioner, never as an advert, and only mention the college when directly relevant.",
   },
   contentMixRecommendation:
     "40% proof and demonstrations, 25% student-life relatability, 20% admissions guidance, 15% community trust. Use video for campus proof, carousel for comparison, text for parent reassurance, and short posts for deadline clarity.",
@@ -3234,6 +3266,36 @@ function buildPlatformNativeCopy(
         assignedRole: "copywriter" as Role,
         videoScript: "",
         shotNotes: "Use one candid campus image only if it adds context.",
+      };
+    case "Pinterest":
+      return {
+        format: "Vertical pin (2:3)",
+        hook: `${topic.topic}: the checklist to save before you choose`,
+        caption: `${topic.topic}: what to check before you decide.\n\n${topic.angle}\n\nProof to look for: ${topic.proof}\n\nSave this pin and open the full guide for the ${topic.ctaFocus.toLowerCase()}.`,
+        visualDirection:
+          "Vertical 2:3 image (1000x1500) with a clear keyword title band, campus photo, and a readable checklist layout.",
+        cta: `Save this and open the ${topic.ctaFocus.toLowerCase()}.`,
+        hashtags: ["#CollegePlanning", "#StudyInSingapore", "#CampusChecklist"],
+        productionNotes:
+          "Write the pin title like a search query, keyword led. Every pin links to a real course or admissions page.",
+        assignedRole: "graphic designer" as Role,
+        videoScript: "",
+        shotNotes: "Design one tall pin with a bold title band and one checklist graphic; export at 1000x1500.",
+      };
+    case "Reddit":
+      return {
+        format: "Community text post",
+        hook: `An honest look at ${topic.topic.toLowerCase()} for people actually deciding`,
+        caption: `Sharing this because a lot of people ask about ${topic.topic.toLowerCase()} and get vague answers.\n\n${topic.angle}\n\nWhat I would actually check: ${topic.proof}\n\nHappy to answer follow-up questions in the comments.`,
+        visualDirection:
+          "Usually no image. Plain, honest text formatted for the specific subreddit.",
+        cta: "Ask follow-up questions in the comments.",
+        hashtags: [],
+        productionNotes:
+          "Post as a helpful practitioner in the right subreddit. Never read as an advert; mention the college only in comments if directly relevant.",
+        assignedRole: "copywriter" as Role,
+        videoScript: "",
+        shotNotes: "No shot list; this is a text-first community post.",
       };
   }
 }
