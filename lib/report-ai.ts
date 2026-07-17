@@ -1,6 +1,7 @@
 // Prompt building for the AI weekly narrative (Module C4).
 // Pure helpers, no network.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { MarketingWorkspaceData } from "@/lib/social-calendar-data";
 
 export type ReportAiContext = {
@@ -26,7 +27,7 @@ export function buildReportSystemPrompt(): string {
     "Plain English for a non-technical owner. Four short sections with these exact headings: What happened, What worked, Risks, Next actions.",
     "Ground every statement in the numbers provided; never invent figures. If a section has nothing supported by the data, say so honestly.",
     "This is a draft for the Marketing Manager to edit and approve; do not present it as final.",
-    "Compliance is mandatory: no guaranteed employment, salary, visa, admission, ranking, or course-outcome claims.",
+    COMPLIANCE_PROMPT_RULE,
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     'Return only a JSON object of the shape { "narrative": "string with the four sections separated by blank lines" }.',
   ].join(" ");

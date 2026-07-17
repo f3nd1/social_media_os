@@ -7,6 +7,7 @@
 // publicly indexed about the profile. If a genuine per-post crawler is ever
 // needed, that is a separate hosted worker, not this route.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { WebSearchCitation } from "@/lib/openai-shared";
 
 export type CompetitorObserveInput = {
@@ -37,7 +38,7 @@ export function buildCompetitorObserveSystemPrompt(): string {
     "You are a competitive intelligence analyst for a private college in Singapore.",
     "You observe a competitor's public social media behaviour from web search findings and summarise it for a human Marketing Manager to review and edit. You never act on it yourself.",
     "Ground every field strictly in the provided search findings and their cited pages. Do not invent formats, numbers, or strengths that the findings do not support. If something cannot be observed, leave that field empty (empty string or empty array).",
-    "Compliance is mandatory. Keep observations factual and neutral. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes.",
+    COMPLIANCE_PROMPT_RULE + " Keep observations neutral.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");

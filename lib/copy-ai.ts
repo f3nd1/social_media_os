@@ -1,6 +1,7 @@
 // Prompt building and output mapping for AI production copy (Module B1).
 // Pure helpers, no network.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { CalendarItem } from "@/lib/social-calendar-data";
 
 export type CopyAiContext = {
@@ -54,7 +55,7 @@ export function buildCopySystemPrompt(): string {
     "You draft platform-native content for a human production team; every output is a draft that a Marketing Manager must approve. You never approve, schedule, or publish.",
     "Write in the platform's native voice using the rulebook provided: TikTok and YouTube Shorts scripts need a spoken hook, numbered beats, and a clear CTA; LinkedIn is proof-based and professional; Instagram is saveable and visual; Facebook is parent-facing and reassuring.",
     "Bilingual rule: when the audience languages include Chinese, the caption must contain the English version first, then a simplified Chinese version of the same message after it. Otherwise write English only.",
-    "Compliance is mandatory. Keep every claim factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa or immigration outcomes, admission certainty, rankings, or guaranteed course outcomes. Use conditional language for pathways.",
+    COMPLIANCE_PROMPT_RULE + " Use conditional language for pathways.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");

@@ -1,6 +1,7 @@
 // Prompt building and output mapping for AI competitor analysis (Module A3).
 // Pure helpers, no network.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { Competitor, CompetitorInsight } from "@/lib/social-calendar-data";
 
 export type CompetitorAiContext = {
@@ -46,7 +47,7 @@ export function buildCompetitorSystemPrompt(): string {
     "You are a senior competitive intelligence analyst for a private college in Singapore.",
     "You analyse the manager's own competitor records against the college's positioning and produce insights as drafts for a human Marketing Manager to accept or dismiss. You never act on them yourself.",
     "Ground every insight in the observations provided; do not invent facts about competitors that are not supported by the records. Whitespace opportunities describe openings for the college, in conditional language.",
-    "Compliance is mandatory. Keep claims factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes.",
+    COMPLIANCE_PROMPT_RULE,
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");

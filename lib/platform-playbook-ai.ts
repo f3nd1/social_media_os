@@ -1,6 +1,7 @@
 // Prompt building and output mapping for the Platform Intelligence AI
 // playbook draft (Platform Intelligence screen). Pure helpers, no network.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { Platform, PlatformPlaybookFields } from "@/lib/social-calendar-data";
 
 export type PlatformPlaybookAiContext = {
@@ -42,7 +43,7 @@ export function buildPlatformPlaybookSystemPrompt(): string {
     "You produce one platform playbook as a draft for a human Marketing Manager to review, edit, and approve. You never approve or publish anything yourself.",
     "Ground the playbook in the context provided: the brand, the platform's real audit numbers where present, the audiences who actually use this platform, and any accepted research signals. Do not invent facts not supported by the context.",
     "The playbook has seven fields: role (this platform's job in the marketing mix), persona (the voice), content (typical content types), defaultFormat (the usual post format), bestPostingTime (a single time of day, for example '7:30 PM'), cta (a standard call to action), metrics (what success looks like on this platform), and guardrail (a one-line compliance-aware voice reminder for whoever writes copy for this platform).",
-    "Compliance is mandatory. The guardrail and cta must never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes.",
+    COMPLIANCE_PROMPT_RULE + " The guardrail and cta fields must follow the same rule.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");

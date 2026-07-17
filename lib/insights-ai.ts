@@ -2,6 +2,7 @@
 // (Module C3), plus mapping into the shared AiRecommendation store.
 // Pure helpers, no network.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type {
   AiRecommendation,
   MarketingWorkspaceData,
@@ -70,7 +71,7 @@ export function buildInsightsSystemPrompt(module: "budget" | "kpi"): string {
     "You are a senior marketing analyst for a private college in Singapore.",
     focus,
     "Ground every insight in the numbers provided and name them in dataUsed so the manager can verify each claim; never invent figures. If the data is too thin for a conclusion, say so in the insight rather than guessing.",
-    "Compliance is mandatory. Keep claims factual. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes.",
+    COMPLIANCE_PROMPT_RULE,
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");

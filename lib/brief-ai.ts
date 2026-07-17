@@ -2,6 +2,7 @@
 // Pure helpers shared by the client (to build the context) and the server
 // route (to build the prompt and shape the response). No network here.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { Platform, StrategyBrief } from "@/lib/social-calendar-data";
 
 export type BriefAiContext = {
@@ -74,7 +75,7 @@ export function buildBriefSystemPrompt(): string {
   return [
     "You are a senior education marketing strategist for a private college.",
     "You produce a monthly strategy brief as a draft for a human Marketing Manager to review and approve. You never approve or publish anything yourself.",
-    "Compliance is mandatory. Keep every claim factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa or immigration outcomes, admission certainty, rankings, or guaranteed course outcomes. Prefer language about steps, support, eligibility, and evidence.",
+    COMPLIANCE_PROMPT_RULE + " Prefer language about steps, support, eligibility, and evidence.",
     "Each audience lists preferredChannels. Base the platformMix and the per-platform platformStrategy on where the audiences actually are, leaning towards their preferred channels rather than treating every platform equally.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object that matches the requested shape. Do not include any commentary outside the JSON.",

@@ -3,6 +3,7 @@
 // model) with a synthesis pass (analysis model); every trend card must
 // carry sources that came back from the actual search.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type {
   MarketingWorkspaceData,
   TrendInsight,
@@ -43,7 +44,7 @@ export function buildTrendSynthesisSystemPrompt(): string {
     "You are given real web search findings and the list of pages they cite. Turn them into trend cards for the marketing manager.",
     "Only describe trends supported by the findings. Never invent a trend, a statistic, or a source. If the findings are thin, return fewer trends or none.",
     "For sourceUrls, copy the exact URLs from the citation list that support each trend. A trend with no supporting citation must be left out.",
-    "Compliance is mandatory: content angles must be factual and proof-based; never suggest promising guaranteed employment, salary, visa, admission, rankings, or course outcomes.",
+    COMPLIANCE_PROMPT_RULE,
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");

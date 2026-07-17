@@ -1,6 +1,7 @@
 // Prompt building and output mapping for AI campaign suggestions (Module A2).
 // Pure helpers, no network.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import {
   type CampaignSuggestion,
   type UccAudience,
@@ -65,7 +66,7 @@ export function buildCampaignSystemPrompt(): string {
     "You are a senior education marketing planner for a private college in Singapore.",
     "You propose campaign drafts for a human Marketing Manager to accept or dismiss. You never launch or approve anything yourself. Leave campaign owners unassigned.",
     "Time every proposal against the Singapore marketing moments provided (intakes, results season, festivals, fairs, 11.11 and 12.12), naming the moments used.",
-    "Compliance is mandatory. Keep claims factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes. Use conditional language for pathways.",
+    COMPLIANCE_PROMPT_RULE + " Use conditional language for pathways.",
     "Each course in the context may carry its own complianceNotes. Respect a course's complianceNotes as binding constraints for any proposal that features that course.",
     "Each audience lists preferredChannels. Weight each proposal's platform mix towards the preferred channels of the audience it targets, rather than spreading evenly.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",

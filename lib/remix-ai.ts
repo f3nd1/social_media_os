@@ -3,6 +3,7 @@
 // platform-native variants for the other platforms in the campaign's mix;
 // every variant restarts the approval path from the beginning.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { CalendarItem, Platform } from "@/lib/social-calendar-data";
 
 export type RemixAiContext = {
@@ -53,7 +54,7 @@ export function buildRemixSystemPrompt(): string {
     "Each variant must genuinely fit its platform's rulebook (role, persona, content style, CTA style), not just copy the text across.",
     "Keep the same underlying message, proof points, and business goal as the source item. Do not invent new claims, statistics, offers, or outcomes.",
     "When includeChinese is true, also provide chineseCaption: the same message in natural simplified Chinese for prospective students and parents. Otherwise omit it.",
-    "Compliance is mandatory: never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes. Use conditional language for pathways.",
+    COMPLIANCE_PROMPT_RULE + " Use conditional language for pathways.",
     "Use British spelling in English copy. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Every variant is a draft for human review and approval; nothing you produce is final.",
     "Return only a single JSON object matching the requested shape.",

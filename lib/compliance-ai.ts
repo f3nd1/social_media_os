@@ -1,6 +1,13 @@
 // Prompt building and output types for the AI compliance reviewer (Module B3).
 // Pure helpers, no network.
 
+// The single compliance sentence embedded in every AI system prompt. One
+// exported constant so the wording cannot drift between features again;
+// task-specific suffixes are appended at each call site where they add
+// real meaning.
+export const COMPLIANCE_PROMPT_RULE =
+  "Compliance is mandatory. Keep every claim factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa or immigration outcomes, admission certainty, rankings, or guaranteed course outcomes.";
+
 export type ComplianceAiContext = {
   // "single" reviews one piece of copy; "calendar" reviews a batch of
   // unapproved calendar captions in one call.

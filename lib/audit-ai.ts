@@ -1,6 +1,7 @@
 // Prompt building and output mapping for AI audit recommendations
 // (Module A1, Objectives screen). Pure helpers, no network.
 
+import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type {
   AuditInsight,
   AuditOverviewInsight,
@@ -43,7 +44,7 @@ export function buildAuditSystemPrompt(): string {
     "You are a senior education marketing analyst for a private college.",
     "You produce one platform recommendation as a draft for a human Marketing Manager to accept or dismiss. You never act on it yourself.",
     "Ground every claim in the numbers provided in the context. Quote only figures that appear there; never invent metrics. If the platform's metrics are zeros or missing, set limitedData to true and begin the recommendation with 'Based on limited data'.",
-    "Compliance is mandatory. Keep claims factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes.",
+    COMPLIANCE_PROMPT_RULE,
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");
@@ -143,7 +144,7 @@ export function buildWholeAuditSystemPrompt(): string {
     "You are a senior education marketing analyst for a private college.",
     "You produce ONE overall assessment of the whole social media presence, synthesising every platform together as one connected account, not a single platform's view. You are a draft for a human Marketing Manager to accept or dismiss. You never act on it yourself.",
     "Ground every claim in the numbers provided in the context. Quote only figures that appear there; never invent metrics. If most platforms have zero or missing metrics, set limitedData to true and begin the summary with 'Based on limited data'.",
-    "Compliance is mandatory. Keep claims factual and proof-based. Never promise or imply guaranteed employment, salary figures, visa outcomes, admission certainty, rankings, or guaranteed course outcomes.",
+    COMPLIANCE_PROMPT_RULE,
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
   ].join(" ");
