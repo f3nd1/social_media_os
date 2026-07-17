@@ -8,6 +8,8 @@ import { apiUrl } from "@/lib/base-path";
 import { buildPdfMetricReviewRows, type PendingMetricReview } from "@/lib/pdf-data-import";
 import type { PlatformDataMetrics } from "@/lib/pdf-data-import";
 import type { OpenAiUsage } from "@/lib/openai-shared";
+import { MAX_UPLOAD_BYTES, oversizedFileMessage } from "@/lib/upload-limits";
+import { readJsonResponse } from "@/lib/utils";
 
 export type MetricoolPdfImportResult =
   | { ok: true; pending: PendingMetricReview; usage?: OpenAiUsage; model?: string }
@@ -22,6 +24,10 @@ export async function importMetricoolPdf({
   apiKey: string;
   model: string;
 }): Promise<MetricoolPdfImportResult> {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return { ok: false, message: oversizedFileMessage(file.size, "PDF") };
+  }
+
   try {
     const formData = new FormData();
     formData.append("file", file);
@@ -32,9 +38,15 @@ export async function importMetricoolPdf({
       method: "POST",
       body: formData,
     });
-    const result = (await response.json()) as
+
+    if (response.status === 413) {
+      return { ok: false, message: oversizedFileMessage(file.size, "PDF") };
+    }
+
+    const result = await readJsonResponse<
       | { ok: true; metrics: PlatformDataMetrics[]; usage?: OpenAiUsage; model?: string }
-      | { ok: false; error: string };
+      | { ok: false; error: string }
+    >(response);
 
     if (!result.ok) {
       return { ok: false, message: result.error };

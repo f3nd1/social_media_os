@@ -270,6 +270,7 @@ import {
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_MB,
   formatFileSize,
+  oversizedFileMessage,
 } from "@/lib/upload-limits";
 import { cn, readJsonResponse } from "@/lib/utils";
 
@@ -5657,10 +5658,7 @@ function ComplianceCheckerView({
 
   async function uploadGuidelineDoc(file: File) {
     if (file.size > MAX_UPLOAD_BYTES) {
-      setDocMessage({
-        tone: "error",
-        text: `This file is ${formatFileSize(file.size)}. The limit is ${MAX_UPLOAD_MB} MB. Please compress the document or choose a smaller one.`,
-      });
+      setDocMessage({ tone: "error", text: oversizedFileMessage(file.size, "document") });
       return;
     }
 
@@ -5674,6 +5672,12 @@ function ComplianceCheckerView({
         method: "POST",
         body: formData,
       });
+
+      if (response.status === 413) {
+        setDocMessage({ tone: "error", text: oversizedFileMessage(file.size, "document") });
+        return;
+      }
+
       const result = await readJsonResponse<
         | {
             ok: true;
@@ -8331,10 +8335,7 @@ function BrandSetupView({
     }
 
     if (file.size > MAX_UPLOAD_BYTES) {
-      setGuidelineMessage({
-        tone: "error",
-        text: `This file is ${formatFileSize(file.size)}. The limit is ${MAX_UPLOAD_MB} MB. Please compress the PDF or choose a smaller document.`,
-      });
+      setGuidelineMessage({ tone: "error", text: oversizedFileMessage(file.size, "PDF") });
       return;
     }
 
@@ -8356,6 +8357,12 @@ function BrandSetupView({
         method: "POST",
         body: formData,
       });
+
+      if (response.status === 413) {
+        setGuidelineMessage({ tone: "error", text: oversizedFileMessage(file.size, "PDF") });
+        return;
+      }
+
       const result = await readJsonResponse<
         | { ok: true; text: string; characters: number; truncated: boolean }
         | { ok: false; error: string }

@@ -8,7 +8,7 @@ import {
 } from "@/lib/metricool-pdf-ai";
 import { callOpenAiJson } from "@/lib/openai-shared";
 import { extractPdfText } from "@/lib/pdf-extract";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
+import { MAX_UPLOAD_BYTES, oversizedFileMessage } from "@/lib/upload-limits";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
 
   if (file.size > MAX_UPLOAD_BYTES) {
     return NextResponse.json(
-      { ok: false, error: `PDF reports must be ${MAX_UPLOAD_MB} MB or smaller.` },
+      { ok: false, error: oversizedFileMessage(file.size, "PDF") },
       { status: 413 },
     );
   }

@@ -6,7 +6,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 
 import { extractPdfText } from "@/lib/pdf-extract";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
+import { MAX_UPLOAD_BYTES, oversizedFileMessage } from "@/lib/upload-limits";
 import { sanitizeFileName } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
 
   if (file.size > MAX_UPLOAD_BYTES) {
     return NextResponse.json(
-      { ok: false, error: `Guideline documents must be ${MAX_UPLOAD_MB} MB or smaller.` },
+      { ok: false, error: oversizedFileMessage(file.size, "document") },
       { status: 413 },
     );
   }

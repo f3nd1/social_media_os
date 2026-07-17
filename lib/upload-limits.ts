@@ -25,3 +25,11 @@ export function formatFileSize(bytes: number): string {
 
   return `${(kb / 1024).toFixed(1)} MB`;
 }
+
+// Shared wording for a file that exceeds MAX_UPLOAD_MB, used by both the
+// client-side pre-upload checks and the server routes' 413 responses, so the
+// message always states the real limit and the file's actual size and never
+// drifts between call sites.
+export function oversizedFileMessage(bytes: number, noun: string = "file"): string {
+  return `This file is ${formatFileSize(bytes)}. The maximum allowed size is ${MAX_UPLOAD_MB} MB. Please compress the ${noun} or upload a smaller one.`;
+}
