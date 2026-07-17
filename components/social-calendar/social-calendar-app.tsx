@@ -1165,6 +1165,7 @@ export function SocialCalendarApp() {
                 onCompetitorsChange={(competitors) =>
                   updateWorkspace((current) => ({ ...current, competitors }))
                 }
+                onOfferUndo={offerUndo}
                 onRecordUsage={recordAiUsage}
               />
             ) : null}
@@ -9362,6 +9363,7 @@ function CompetitorIntelligenceView({
   competitors,
   onCompetitorInsightsChange,
   onCompetitorsChange,
+  onOfferUndo,
   onRecordUsage,
 }: {
   aiIntegration: AiIntegrationSettings;
@@ -9371,6 +9373,7 @@ function CompetitorIntelligenceView({
   competitors: Competitor[];
   onCompetitorInsightsChange: (competitorInsights: CompetitorInsight[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
+  onOfferUndo: (message: string, onExpire?: () => void) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
   const [analysing, setAnalysing] = useState(false);
@@ -9612,6 +9615,35 @@ function CompetitorIntelligenceView({
     ]);
   }
 
+  function deleteAllCompetitors() {
+    if (competitors.length === 0) {
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Delete all ${competitors.length} competitor${
+          competitors.length === 1 ? "" : "s"
+        }? You will have 10 seconds to undo.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    // Snapshot for Undo first, then clear the records and their derived AI
+    // insights (insights only ever show through a live competitor, so leaving
+    // them behind would be dangling data).
+    onOfferUndo(
+      `All ${competitors.length} competitor${
+        competitors.length === 1 ? "" : "s"
+      } deleted.`,
+    );
+    onCompetitorInsightsChange([]);
+    onCompetitorsChange([]);
+  }
+
   const whitespace = competitors.flatMap((competitor) =>
     competitor.whitespaceOpportunities.map((opportunity) => ({
       competitor: competitor.name,
@@ -9649,6 +9681,16 @@ function CompetitorIntelligenceView({
               >
                 <Plus className="h-4 w-4" />
                 Add competitor
+              </Button>
+              <Button
+                disabled={competitors.length === 0}
+                onClick={deleteAllCompetitors}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete all
               </Button>
             </div>
             {!liveAi ? (
