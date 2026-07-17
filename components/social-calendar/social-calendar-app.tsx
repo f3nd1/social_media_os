@@ -12446,6 +12446,15 @@ function CalendarItemEditor({
             onChange={(event) => onChange(item.id, { shotNotes: event.target.value })}
           />
         </Field>
+        <Field label="Carousel outline (slide by slide)">
+          <Textarea
+            placeholder="Slide 1: ... (filled by AI for carousel formats, or write your own)"
+            value={item.carouselOutline ?? ""}
+            onChange={(event) =>
+              onChange(item.id, { carouselOutline: event.target.value })
+            }
+          />
+        </Field>
       </CardContent>
     </Card>
   );
@@ -13051,6 +13060,13 @@ function ContentProductionView({
                   secondary={`${selectedItem.videoScript}\n\nShot notes: ${selectedItem.shotNotes}`}
                 />
               ) : null}
+              {selectedItem.carouselOutline ? (
+                <ProductionBlock
+                  eyebrow="Carousel outline"
+                  primary={selectedItem.format}
+                  secondary={selectedItem.carouselOutline}
+                />
+              ) : null}
             </div>
             <div className="space-y-3">
               <ProductionBlock
@@ -13112,7 +13128,11 @@ function ContentProductionView({
                   <ProductionBlock
                     eyebrow="Visual brief"
                     primary={item.format}
-                    secondary={`${item.visualDirection}\n\nHashtags: ${item.hashtags.join(" ")}`}
+                    secondary={`${item.visualDirection}${
+                      item.carouselOutline
+                        ? `\n\nCarousel outline:\n${item.carouselOutline}`
+                        : ""
+                    }\n\nHashtags: ${item.hashtags.join(" ")}`}
                   />
                 ) : null}
 

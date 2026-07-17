@@ -215,6 +215,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
           dueDate: item.dueDate ?? item.plannedDate ?? item.date,
           blocker: item.blocker ?? "",
           approvalStage: normalizeApprovalStage(item.approvalStage),
+          carouselOutline: item.carouselOutline ?? "",
           finalCaption: item.finalCaption ?? "",
           finalAssetLink: item.finalAssetLink ?? "",
           publishedUrl: item.publishedUrl ?? "",

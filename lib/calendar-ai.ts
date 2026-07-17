@@ -65,6 +65,7 @@ export type CalendarDraftItem = {
   owner: string;
   assets: string;
   notes: string;
+  carouselOutline: string;
 };
 
 export function buildCalendarSystemPrompt(): string {
@@ -97,6 +98,8 @@ export function buildCalendarUserPrompt(context: CalendarAiContext): string {
     owner: "string, the responsible role, using teacher not instructor",
     assets: "string, the visual direction or assets needed",
     notes: "string, production notes",
+    carouselOutline:
+      "string, slide-by-slide copy (Slide 1: ..., Slide 2: ...) ONLY when the format is a carousel; the first slide must work alone as a hook and the last slide carries the CTA; empty string for every other format",
   };
 
   const instruction = context.focus
@@ -202,6 +205,7 @@ function draftContentFields(
     visualDirection: draft.assets?.trim() || "Use a real proof moment for this pillar and platform.",
     productionNotes: draft.notes?.trim() || "",
     businessGoalConnection: draft.objective?.trim() || "",
+    carouselOutline: draft.carouselOutline?.trim() || "",
   };
 }
 
