@@ -10276,6 +10276,14 @@ function CompetitorIntelligenceView({
                           >
                             {observeMessages[competitor.id].text}
                           </p>
+                        ) : !liveAi ? (
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            Connect OpenAI in Settings to observe from a link.
+                          </p>
+                        ) : !competitor.website.trim() ? (
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            Add a profile or website link above to observe.
+                          </p>
                         ) : null}
                       </td>
                       <td className="min-w-[230px] py-3 pr-4 align-top">
