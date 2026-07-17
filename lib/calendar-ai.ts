@@ -6,6 +6,7 @@ import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import {
   addDays,
   getApprovedPlaybookFields,
+  PLATFORM_CONTENT_RULES,
   platforms,
   roles,
   type CalendarItem,
@@ -72,6 +73,10 @@ export function buildCalendarSystemPrompt(): string {
     "You draft social content calendar items for a human Marketing Manager to review and approve. You never approve, schedule, or publish anything yourself.",
     COMPLIANCE_PROMPT_RULE + " Prefer language about steps, support, eligibility, and evidence.",
     "Each course in the context may carry its own complianceNotes. When you write an item about a course, respect that course's complianceNotes as binding constraints.",
+    // Universal craft rules adapted from Darthflute/social-calendar-skill (MIT License).
+    "Hooks never open with 'We', 'Our', or the college's name; lead with the student's or parent's world first.",
+    "Never use the words 'leverage', 'synergy', 'excited to announce', 'game-changing', 'seamless', or 'robust'.",
+    "One idea, one hook, one call to action per item. Content must be platform-native, following the PLATFORM RULES provided; never the same post reshaped across platforms.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object of the requested shape. Do not include any commentary outside the JSON.",
   ].join(" ");
@@ -120,6 +125,11 @@ export function buildCalendarUserPrompt(context: CalendarAiContext): string {
     "",
     'Return JSON of the form { "items": [ item, ... ] } where each item is:',
     JSON.stringify(itemShape, null, 2),
+    "",
+    "PLATFORM RULES (each item must follow the rules for its platform):",
+    context.platforms
+      .map((platform) => `- ${platform}: ${PLATFORM_CONTENT_RULES[platform]}`)
+      .join("\n"),
     "",
     "Keep every item practical, factual, and compliant. Tie each item to a content pillar and a marketing objective.",
   ].join("\n");

@@ -1107,6 +1107,29 @@ export const platformRules: Record<
   },
 };
 
+// Platform craft rules adapted from Darthflute/social-calendar-skill (MIT
+// License). Static prompt-only reference: character limits, hook mechanics,
+// and hashtag conventions are platform facts, not brand choices, so they are
+// deliberately not user-editable and sit outside the playbook approve flow.
+// The AI prompt builders inject these verbatim so generated content is
+// platform-native rather than one post reshaped seven ways.
+export const PLATFORM_CONTENT_RULES: Record<Platform, string> = {
+  TikTok:
+    "Hook in the first 1 to 2 seconds: on-screen text within the first second and the first spoken word at second 0, never a silent intro. Keep videos 15 to 45 seconds with the payoff early. Authentic creator feel, never corporate polish; POV angles, day-in-the-life, and 'things nobody tells you about' framings work. End with a comment-bait question and note where trending audio could be added.",
+  Instagram:
+    "Carousels earn the most saves; the first slide must work alone as a hook. Only the first 2 lines of a caption show before 'more', so front-load the hook. Put 5 to 8 hashtags on their own line or in the first comment. For Reels: hook in the first 1 to 3 seconds with text on screen; most viewers watch sound-off, so text overlays are essential. A consistent visual style matters more than any particular style.",
+  "YouTube Shorts":
+    "Titles are search queries: put the target keyword in a title under 60 characters. Open with hook text and voiceover together in the first 3 seconds. Deliver educational value fast and land the payoff by the 45 second mark; loopable endings help repeat views.",
+  LinkedIn:
+    "Only the first 2 to 3 lines show before 'see more', so the hook must land there; bold, data-led openings work best. Carousels get the highest saves. Never put an external link in the post body; put it in the first comment. Use 2 to 3 hashtags at the end. Proof-based and professional: specific opinions, teacher stories, and behind-the-scenes outperform generic announcements.",
+  Facebook:
+    "Warm, conversational, parent-facing. 3 to 5 sentences is fine here, longer than other platforms. Native video outperforms shared links. End with a question that invites parents to comment. Use 1 to 2 hashtags at most.",
+  "X/Twitter":
+    "Aim under 200 characters even though the cap is higher. Use 0 or 1 hashtag. Short punchy takes; end with a question or a provocative but factual statement. Numbered threads that teach something work; long text blocks do not.",
+  Threads:
+    "Conversational first-person, 2 to 4 lines maximum. Skip hashtags entirely. Casual questions and genuine takes; never press-release tone.",
+};
+
 // Per-platform playbook: an AI-draft-then-Manager-approve workflow (see
 // PlatformIntelligenceView), matching "AI recommends, humans decide"
 // elsewhere in the app. platformRules above remains the fallback default for

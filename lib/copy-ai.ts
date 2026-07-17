@@ -2,7 +2,11 @@
 // Pure helpers, no network.
 
 import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
-import type { CalendarItem } from "@/lib/social-calendar-data";
+import {
+  PLATFORM_CONTENT_RULES,
+  platforms,
+  type CalendarItem,
+} from "@/lib/social-calendar-data";
 
 export type CopyAiContext = {
   item: {
@@ -54,6 +58,10 @@ export function buildCopySystemPrompt(): string {
     "You are a senior education marketing copywriter for a private college in Singapore.",
     "You draft platform-native content for a human production team; every output is a draft that a Marketing Manager must approve. You never approve, schedule, or publish.",
     "Write in the platform's native voice using the rulebook provided: TikTok and YouTube Shorts scripts need a spoken hook, numbered beats, and a clear CTA; LinkedIn is proof-based and professional; Instagram is saveable and visual; Facebook is parent-facing and reassuring.",
+    // Universal craft rules adapted from Darthflute/social-calendar-skill (MIT License).
+    "Hooks never open with 'We', 'Our', or the college's name; lead with the student's or parent's world first.",
+    "Never use the words 'leverage', 'synergy', 'excited to announce', 'game-changing', 'seamless', or 'robust'.",
+    "One idea, one hook, one call to action per item. Follow the PLATFORM RULES in the context exactly, including caption length and hashtag conventions.",
     "Bilingual rule: when the audience languages include Chinese, the caption must contain the English version first, then a simplified Chinese version of the same message after it. Otherwise write English only.",
     COMPLIANCE_PROMPT_RULE + " Use conditional language for pathways.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
@@ -79,6 +87,10 @@ export function buildCopyUserPrompt(context: CopyAiContext): string {
       ? "Write or rewrite the video script and shot notes for this item. Refresh the other fields only if they clearly improve."
       : "Write the full production copy set for this item.";
 
+  const platform = platforms.find(
+    (candidate) => candidate.toLowerCase() === context.item.platform.toLowerCase().trim(),
+  );
+
   return [
     instruction,
     context.guidance
@@ -87,6 +99,10 @@ export function buildCopyUserPrompt(context: CopyAiContext): string {
     "",
     "CONTEXT (the manager's real workspace data):",
     JSON.stringify(context, null, 2),
+    "",
+    platform
+      ? `PLATFORM RULES for ${platform}: ${PLATFORM_CONTENT_RULES[platform]}`
+      : "",
     "",
     "Return a JSON object with exactly this shape:",
     JSON.stringify(shape, null, 2),
