@@ -11274,7 +11274,7 @@ function CalendarBuilderView({
       caption:
         itemKind === "event"
           ? `Save the date: ${contentTopic}. Share the practical details, who it is for, and what families can verify before they attend.`
-          : "",
+          : `Open with what ${contentTopic.toLowerCase()} means for students and parents, give one concrete proof point, then a clear next step: ${socialGoals.conversionAction || "message admissions with questions"}. Starter draft, refine or generate copy before approval.`,
       visualDirection:
         itemKind === "event"
           ? "Use real venue, student, faculty, or parent-facing details. Keep date, time, place, and eligibility clear."

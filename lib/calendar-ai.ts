@@ -205,7 +205,14 @@ function draftContentFields(
     contentTopic: draft.contentTopic?.trim() || "New social post",
     format: draft.format?.trim() || rule.defaultFormat,
     hook: draft.hook?.trim() || "",
-    caption: draft.caption?.trim() || "",
+    // Defence in depth: if the model returns other fields but omits the
+    // caption, leave a clear starter rather than a blank box next to filled
+    // hook, CTA, and hashtags.
+    caption:
+      draft.caption?.trim() ||
+      (draft.contentTopic?.trim()
+        ? `Draft caption for ${draft.contentTopic.trim()}. Add the proof point and a clear next step, then generate or refine copy before approval.`
+        : ""),
     cta: draft.cta?.trim() || rule.cta,
     hashtags: asStringArray(draft.hashtags),
     visualDirection: draft.assets?.trim() || "Use a real proof moment for this pillar and platform.",
