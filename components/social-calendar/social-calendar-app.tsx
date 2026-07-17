@@ -10032,15 +10032,15 @@ function CompetitorIntelligenceView({
       ...competitors,
       {
         id: `competitor-${Date.now()}`,
-        name: "New competitor",
+        name: "",
         website: "",
-        platforms: ["Instagram", "TikTok"],
-        contentFormats: ["Carousels", "Short-form video"],
-        tone: "Helpful and student-facing",
-        postingFrequency: "3 posts/week",
-        observedStrengths: ["Clear program visibility"],
-        contentGaps: ["Needs parent-facing decision content"],
-        whitespaceOpportunities: ["Own a more factual campus proof series."],
+        platforms: [],
+        contentFormats: [],
+        tone: "",
+        postingFrequency: "",
+        observedStrengths: [],
+        contentGaps: [],
+        whitespaceOpportunities: [],
       },
     ]);
   }
@@ -10072,6 +10072,20 @@ function CompetitorIntelligenceView({
     );
     onCompetitorInsightsChange([]);
     onCompetitorsChange([]);
+  }
+
+  function deleteCompetitor(competitor: Competitor) {
+    const label = competitor.name.trim() || "this competitor";
+    const confirmed = window.confirm(
+      `Delete ${label}? You will have 10 seconds to undo.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    onCompetitorsChange(competitors.filter((row) => row.id !== competitor.id));
+    onOfferUndo(`${competitor.name.trim() || "Competitor"} deleted.`);
   }
 
   const whitespace = competitors.flatMap((competitor) =>
@@ -10287,6 +10301,16 @@ function CompetitorIntelligenceView({
                             Add a profile or website link above to observe.
                           </p>
                         ) : null}
+                        <Button
+                          className="mt-2 text-destructive hover:text-destructive"
+                          onClick={() => deleteCompetitor(competitor)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete
+                        </Button>
                       </td>
                       <td className="min-w-[230px] py-3 pr-4 align-top">
                         <CompetitorPlatformsField
