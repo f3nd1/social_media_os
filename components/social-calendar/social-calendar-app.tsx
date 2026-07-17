@@ -47,6 +47,7 @@ import {
   Palette,
   UsersRound,
   Wand2,
+  Menu,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -422,6 +423,7 @@ export function SocialCalendarApp() {
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
   const [myDayMode, setMyDayMode] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(false);
   // Remembers the tab last used inside each module, so switching between
   // modules returns to where the user left off.
   const [moduleLastTab, setModuleLastTab] = useState<
@@ -729,7 +731,7 @@ export function SocialCalendarApp() {
         <aside
           className={cn(
             "sticky top-8 hidden h-[calc(100vh-4rem)] w-60 shrink-0 flex-col border-r pr-5 lg:flex",
-            myDayMode && "lg:hidden",
+            (myDayMode || navCollapsed) && "lg:hidden",
           )}
         >
           <div className="flex items-center gap-3 px-2">
@@ -803,6 +805,18 @@ export function SocialCalendarApp() {
         </aside>
 
         <section className="min-w-0 flex-1">
+          <div className={cn("mb-4 hidden lg:flex", myDayMode && "lg:hidden")}>
+            <Button
+              aria-label={navCollapsed ? "Show workspace menu" : "Hide workspace menu"}
+              onClick={() => setNavCollapsed((current) => !current)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Menu className="h-4 w-4" />
+              {navCollapsed ? "Show menu" : "Hide menu"}
+            </Button>
+          </div>
           <div
             className={cn(
               "sticky top-0 z-30 mb-5 border-b bg-background/95 py-3 backdrop-blur lg:hidden",
