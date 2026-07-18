@@ -10447,7 +10447,7 @@ function CompetitorIntelligenceView({
                         />
                       </td>
                       <td className="min-w-[180px] py-3 pr-4 align-top">
-                        <Input
+                        <Textarea
                           value={competitor.postingFrequency}
                           onChange={(event) =>
                             updateCompetitor(
