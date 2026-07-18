@@ -50,6 +50,19 @@ export type WebSearchCitation = {
   url: string;
 };
 
+// Defensive: a citation title should already be plain text, but if one ever
+// arrives wrapped in markdown (for example "* [PSB Academy](https://...)"),
+// reduce it to the human-readable text so the UI never shows raw markdown
+// syntax. Returns "" for an empty title so the caller can fall back to the url.
+export function cleanCitationTitle(title: string): string {
+  const link = title.match(/\[([^\]]+)\]\([^)]*\)/);
+  const text = link ? link[1] : title;
+  return text
+    .replace(/^[\s>*\-•]+/, "")
+    .replace(/[*_`]/g, "")
+    .trim();
+}
+
 export type OpenAiWebSearchResult =
   | {
       ok: true;
@@ -136,7 +149,7 @@ export async function callOpenAiWebSearch({
         for (const annotation of part.annotations ?? []) {
           if (annotation.type === "url_citation" && annotation.url) {
             citations.push({
-              title: annotation.title || annotation.url,
+              title: cleanCitationTitle(annotation.title ?? "") || annotation.url,
               url: annotation.url,
             });
           }
