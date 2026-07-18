@@ -6,7 +6,9 @@ import {
   buildCompetitorObserveUserPrompt,
   buildCompetitorSocialSearchInput,
   isValidObserveUrl,
+  mergeScrapedPlatforms,
   sanitizeCompetitorObserveDraft,
+  scrapeHomepageSocialLinks,
   type CompetitorObserveDraft,
 } from "@/lib/competitor-observe-ai";
 import { callOpenAiJson, callOpenAiWebSearch } from "@/lib/openai-shared";
@@ -70,11 +72,13 @@ export async function POST(request: Request) {
 
   const input = { name: name || "", profileUrl };
 
-  // Step 1: two focused web searches in parallel. One hunts the org's own
-  // social profile pages (the five behaviour fields depend on it), the other
-  // gathers general background and sentiment. Splitting them stops the easy,
-  // well-indexed background sources from crowding out social-profile discovery.
-  const [social, background] = await Promise.all([
+  // Step 1: two focused web searches, plus a direct scrape of the competitor's
+  // own homepage, all in parallel. The searches hunt social profile pages and
+  // general background respectively; the scrape reads the homepage's own
+  // footer/header links, a more trustworthy source since it comes straight
+  // from the org rather than a model's search. The scrape never throws and
+  // never surfaces an error: any failure resolves to an empty list.
+  const [social, background, scrapedPlatforms] = await Promise.all([
     callOpenAiWebSearch({
       apiKey,
       model: searchModel,
@@ -85,11 +89,13 @@ export async function POST(request: Request) {
       model: searchModel,
       input: buildCompetitorBackgroundSearchInput(input),
     }),
+    scrapeHomepageSocialLinks(profileUrl),
   ]);
 
-  // Only fail outright if BOTH searches failed; otherwise proceed with whatever
-  // came back, so one flaky search does not sink the whole run.
-  if (!social.ok && !background.ok) {
+  // Only fail outright if the searches both failed AND the homepage scrape
+  // found nothing either; otherwise proceed with whatever came back, so one
+  // flaky search (or a homepage that blocks scraping) does not sink the run.
+  if (!social.ok && !background.ok && scrapedPlatforms.length === 0) {
     return NextResponse.json({ ok: false, error: social.error });
   }
 
@@ -124,14 +130,47 @@ export async function POST(request: Request) {
   });
   const combinedText = searchTexts.join("\n\n");
 
+  // A synthetic citation naming exactly which platforms the homepage scrape
+  // found, so the AI Generation Log's "Sources cited" list stays honest about
+  // where each platform came from. Only added when the scrape found something;
+  // placed first so it wins the dedupe-by-url above a generic search citation
+  // of the same homepage.
+  const homepageCitation =
+    scrapedPlatforms.length > 0
+      ? {
+          title: `Official homepage (found ${scrapedPlatforms.map((platform) => platform.name).join(", ")} links)`,
+          url: profileUrl,
+        }
+      : null;
+  const responseCitations = homepageCitation
+    ? [homepageCitation, ...combinedCitations.filter((citation) => citation.url !== profileUrl)]
+    : combinedCitations;
+
   // Logged so a real run can be diagnosed from the server logs (pm2 logs):
   // the raw findings and citations from each search, before any extraction.
   console.log(
     `[competitor-observe] searches for ${profileUrl}: social ok=${social.ok} bg ok=${background.ok}, ` +
-      `${combinedCitations.length} citation(s)\n` +
+      `scraped ${scrapedPlatforms.length} platform(s) from the homepage, ` +
+      `${combinedCitations.length} search citation(s)\n` +
       `citations: ${JSON.stringify(combinedCitations)}\n` +
       `raw search text: ${combinedText}`,
   );
+
+  // Nothing to ground the text fields in, but the homepage scrape found real
+  // platforms: return those directly rather than spend a synthesis call on
+  // empty search text.
+  if (combinedCitations.length === 0 && scrapedPlatforms.length > 0) {
+    return NextResponse.json({
+      ok: true,
+      draft: {
+        ...sanitizeCompetitorObserveDraft({} as CompetitorObserveDraft),
+        platforms: mergeScrapedPlatforms([], scrapedPlatforms),
+      },
+      citations: responseCitations,
+      searchUsage,
+      searchModel: searchModelUsed,
+    });
+  }
 
   if (combinedCitations.length === 0) {
     return NextResponse.json({
@@ -160,10 +199,17 @@ export async function POST(request: Request) {
     `[competitor-observe] raw synthesis draft for ${profileUrl}: ${JSON.stringify(synthesis.data)}`,
   );
 
+  const sanitized = sanitizeCompetitorObserveDraft(synthesis.data);
+
   return NextResponse.json({
     ok: true,
-    draft: sanitizeCompetitorObserveDraft(synthesis.data),
-    citations: combinedCitations,
+    draft: {
+      ...sanitized,
+      // The homepage-scraped url wins for a platform found by both, since it
+      // is sourced directly from the org rather than inferred by the model.
+      platforms: mergeScrapedPlatforms(sanitized.platforms, scrapedPlatforms),
+    },
+    citations: responseCitations,
     searchUsage,
     searchModel: searchModelUsed,
     synthesisUsage: synthesis.usage,

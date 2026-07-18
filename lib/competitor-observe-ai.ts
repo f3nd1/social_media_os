@@ -1,7 +1,10 @@
 // Prompt building and output mapping for observing a competitor from a public
-// profile/website link. Pure helpers, no network.
+// profile/website link. Mostly pure helpers, no network, with one exception:
+// scrapeHomepageSocialLinks fetches the competitor's own homepage to read its
+// footer/header social links directly, since that is a more trustworthy source
+// than a model's web search guessing at profile urls.
 //
-// ponytail: this is web-search observation, not a real social scraper. Public
+// ponytail: the web-search half of this is not a real social scraper. Public
 // platforms (Instagram, TikTok, etc.) block automated crawling and hide most
 // content behind auth, so we lean on the model's web_search over whatever is
 // publicly indexed about the profile. If a genuine per-post crawler is ever
@@ -235,4 +238,144 @@ export function sanitizeCompetitorObserveDraft(
     observedStrengths: toStringList(draft?.observedStrengths),
     background: typeof draft?.background === "string" ? draft.background.trim() : "",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Homepage scrape: a third, more trustworthy source for social profile links.
+// A footer/header link on the org's own homepage pointing straight at a known
+// platform domain is sourced directly from the org, not inferred by a model.
+// ---------------------------------------------------------------------------
+
+// Hostname suffixes for each platform. Matched against the resolved anchor's
+// hostname (a subdomain like "www.instagram.com" or "m.facebook.com" still
+// matches), never against arbitrary substrings of the full url.
+const PLATFORM_DOMAINS: Array<{ suffixes: string[]; name: Platform }> = [
+  { suffixes: ["instagram.com"], name: "Instagram" },
+  { suffixes: ["tiktok.com"], name: "TikTok" },
+  { suffixes: ["youtube.com", "youtu.be"], name: "YouTube Shorts" },
+  { suffixes: ["linkedin.com"], name: "LinkedIn" },
+  { suffixes: ["facebook.com", "fb.com"], name: "Facebook" },
+  { suffixes: ["x.com", "twitter.com"], name: "X/Twitter" },
+  { suffixes: ["threads.net"], name: "Threads" },
+  { suffixes: ["pinterest.com", "pin.it"], name: "Pinterest" },
+  { suffixes: ["reddit.com", "redd.it"], name: "Reddit" },
+];
+
+function matchPlatformDomain(hostname: string): Platform | null {
+  const host = hostname.toLowerCase().replace(/^www\./, "");
+  for (const { suffixes, name } of PLATFORM_DOMAINS) {
+    if (suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) {
+      return name;
+    }
+  }
+  return null;
+}
+
+// A share-widget link (for example a "Share on Facebook" button) points at the
+// platform's domain but is not the org's own profile, so it must never be
+// mistaken for one. Matched against the path/query of the resolved url.
+const SHARE_WIDGET_PATTERN =
+  /\/(sharer|share|share\.php|sharer\.php|intent)(\/|\.php|\?|$)/i;
+
+const HREF_ATTR = /<a\s+[^>]*?href\s*=\s*["']([^"']+)["'][^>]*>/gi;
+
+// Extract genuine social profile links from raw homepage HTML. Pure, no
+// network. Only accepts an href that literally appears in the HTML, resolved
+// against baseUrl; never constructs or guesses a url. Excludes share-widget
+// links and bare domain-root links (no path), neither of which is a real
+// profile. Multiple links to the same platform keep the first found.
+export function extractSocialLinksFromHtml(html: string, baseUrl: string): ObservedPlatform[] {
+  const seen = new Set<Platform>();
+  const result: ObservedPlatform[] = [];
+
+  for (const match of html.matchAll(HREF_ATTR)) {
+    const rawHref = match[1].trim();
+    if (!rawHref || rawHref.startsWith("#")) {
+      continue;
+    }
+
+    let resolved: URL;
+    try {
+      resolved = new URL(rawHref, baseUrl);
+    } catch {
+      continue;
+    }
+
+    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
+      continue;
+    }
+
+    const name = matchPlatformDomain(resolved.hostname);
+    if (!name || seen.has(name)) {
+      continue;
+    }
+
+    if (SHARE_WIDGET_PATTERN.test(resolved.pathname)) {
+      continue;
+    }
+
+    // A bare domain root (no path beyond "/") is not a specific profile.
+    if (resolved.pathname === "" || resolved.pathname === "/") {
+      continue;
+    }
+
+    seen.add(name);
+    result.push({ name, url: resolved.toString() });
+  }
+
+  return result;
+}
+
+// Fetch the competitor's own homepage and pull out its real social links.
+// Never throws and never surfaces an error: any failure (network error,
+// timeout, non-2xx, no readable body) simply resolves to an empty list, so the
+// caller can fall through to the search-based findings with nothing shown to
+// the user.
+export async function scrapeHomepageSocialLinks(profileUrl: string): Promise<ObservedPlatform[]> {
+  try {
+    const response = await fetch(profileUrl, {
+      signal: AbortSignal.timeout(6000),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; UCC-Marketing-OS/1.0)" },
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const html = await response.text();
+    // A defensive cap, not a streaming limit: a normal homepage is well under
+    // this, and a pathological page should not make the regex scan unbounded.
+    const truncated = html.length > 2_000_000 ? html.slice(0, 2_000_000) : html;
+
+    return extractSocialLinksFromHtml(truncated, profileUrl);
+  } catch {
+    return [];
+  }
+}
+
+// Merge homepage-scraped platforms into the search/synthesis-derived list. The
+// homepage-scraped url wins for a platform found by both (it is sourced
+// directly from the org, not inferred), a platform found only by one source is
+// kept as-is, and the result runs through dropSharedProfileUrls once more as a
+// final safety net.
+export function mergeScrapedPlatforms(
+  searchPlatforms: ObservedPlatform[],
+  scrapedPlatforms: ObservedPlatform[],
+): ObservedPlatform[] {
+  const scrapedByName = new Map(scrapedPlatforms.map((platform) => [platform.name, platform]));
+  const seen = new Set<string>();
+  const merged: ObservedPlatform[] = [];
+
+  for (const platform of searchPlatforms) {
+    seen.add(platform.name);
+    merged.push(scrapedByName.get(platform.name) ?? platform);
+  }
+  for (const platform of scrapedPlatforms) {
+    if (!seen.has(platform.name)) {
+      seen.add(platform.name);
+      merged.push(platform);
+    }
+  }
+
+  return dropSharedProfileUrls(merged);
 }
