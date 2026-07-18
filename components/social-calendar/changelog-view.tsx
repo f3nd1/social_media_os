@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PaginationControls } from "@/components/social-calendar/pagination-controls";
 import { apiUrl } from "@/lib/base-path";
 
 type ChangeType = "Modified" | "Added" | "Deleted" | "Renamed" | "Copied";
@@ -85,6 +86,13 @@ export function ChangelogView() {
   const [query, setQuery] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
+
+  // Any filter change resets to the first page, so a narrowed result set never
+  // strands the reader on a page that no longer exists.
+  useEffect(() => {
+    setPage(1);
+  }, [query, fromDate, toDate]);
 
   useEffect(() => {
     let active = true;
@@ -128,12 +136,20 @@ export function ChangelogView() {
     });
   }, [commits, query, fromDate, toDate]);
 
-  // Group the filtered commits by DD MMMM YYYY, preserving the newest-first
+  const PAGE_SIZE = 20;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedCommits = useMemo(
+    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filtered, safePage],
+  );
+
+  // Group the current page's commits by DD MMMM YYYY, preserving the newest-first
   // order that git log already returns.
   const groups = useMemo(() => {
     const order: string[] = [];
     const byDay = new Map<string, ChangelogCommit[]>();
-    for (const commit of filtered) {
+    for (const commit of pagedCommits) {
       const day = formatDay(commit.date);
       if (!byDay.has(day)) {
         byDay.set(day, []);
@@ -142,7 +158,7 @@ export function ChangelogView() {
       byDay.get(day)!.push(commit);
     }
     return order.map((day) => ({ day, items: byDay.get(day)! }));
-  }, [filtered]);
+  }, [pagedCommits]);
 
   return (
     <section className="space-y-4">
@@ -269,6 +285,14 @@ export function ChangelogView() {
             </div>
           ))
         : null}
+
+      {state === "ready" ? (
+        <PaginationControls
+          onPageChange={setPage}
+          page={safePage}
+          totalPages={totalPages}
+        />
+      ) : null}
     </section>
   );
 }

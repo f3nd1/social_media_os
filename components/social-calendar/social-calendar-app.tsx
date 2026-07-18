@@ -252,6 +252,7 @@ import {
   type DirectorModuleId,
 } from "@/components/social-calendar/ai-director-panel";
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
+import { PaginationControls } from "@/components/social-calendar/pagination-controls";
 import { TeamView } from "@/components/social-calendar/v2-foundation-insights";
 import {
   CampaignReportsView,
@@ -7975,31 +7976,11 @@ function AiGenerationLogView({
               />
             ))}
           </div>
-          {totalPages > 1 ? (
-            <div className="flex items-center justify-between gap-3 pt-2">
-              <Button
-                disabled={safePage <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Previous
-              </Button>
-              <p className="text-sm font-medium text-foreground">
-                Page {safePage} of {totalPages}
-              </p>
-              <Button
-                disabled={safePage >= totalPages}
-                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Next
-              </Button>
-            </div>
-          ) : null}
+          <PaginationControls
+            onPageChange={setPage}
+            page={safePage}
+            totalPages={totalPages}
+          />
         </>
       )}
     </section>
