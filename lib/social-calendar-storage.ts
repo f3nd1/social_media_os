@@ -3,8 +3,10 @@ import {
   createDefaultPlatformPlaybook,
   createDefaultSetupGuide,
   createSeedWorkspaceData,
+  ESTIMATABLE_COMPETITOR_FIELDS,
   platforms,
   type ApprovalStage,
+  type CompetitorFieldEstimates,
   type CompetitorPlatform,
   type ContentPillar,
   type MarketingWorkspaceData,
@@ -48,6 +50,24 @@ function normalizeCompetitorPlatforms(value: unknown): CompetitorPlatform[] {
   // Heal data saved before shared-url dropping existed: a homepage url repeated
   // across platforms is not a real profile link, so strip it on load.
   return dropSharedProfileUrls(result);
+}
+
+// Keep only the four known estimate keys with non-empty string reasons, so a
+// saved workspace never carries an estimate flag for an unknown field or a
+// blank reason. Returns undefined when nothing valid remains, matching the
+// optional field (a competitor with no estimates has no key at all).
+function normalizeFieldEstimates(value: unknown): CompetitorFieldEstimates | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const result: CompetitorFieldEstimates = {};
+  for (const field of ESTIMATABLE_COMPETITOR_FIELDS) {
+    const reason = (value as Record<string, unknown>)[field];
+    if (typeof reason === "string" && reason.trim()) {
+      result[field] = reason.trim();
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 const STORAGE_KEY = "social-calendar-intelligence-os:v1";
@@ -241,6 +261,7 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
       ? data.competitors.map((competitor) => ({
           ...competitor,
           platforms: normalizeCompetitorPlatforms(competitor?.platforms),
+          fieldEstimates: normalizeFieldEstimates(competitor?.fieldEstimates),
         }))
       : seed.competitors,
     calendar: Array.isArray(calendar)

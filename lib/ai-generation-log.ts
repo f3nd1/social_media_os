@@ -145,13 +145,30 @@ export function buildAiGenerationLog(workspace: MarketingWorkspaceData): AiLogEn
       continue;
     }
     const src = competitor.observationSources ?? [];
+    // Disclose plainly when some fields were filled with a labelled estimate
+    // rather than observed, so the audit trail never overstates what was found.
+    const estimateLabels: Record<string, string> = {
+      contentFormats: "Formats",
+      postingFrequency: "Frequency",
+      tone: "Tone",
+      observedStrengths: "Observed strengths",
+    };
+    const estimatedFields = Object.keys(competitor.fieldEstimates ?? {}).map(
+      (field) => estimateLabels[field] ?? field,
+    );
+    const estimateClause =
+      estimatedFields.length > 0
+        ? ` (${estimatedFields.join(", ")} estimated, not observed; see fields for reasoning)`
+        : "";
     entries.push({
       id: `competitor-observe:${competitor.id}`,
       at: competitor.observedAt,
       module: "Competitor observation",
       model: competitor.observedModel ?? "unknown",
       modelTier: modelTier(competitor.observedModel ?? "", ai),
-      summary: truncate(`Observed ${competitor.name || "a competitor"} from its public profile`),
+      summary: truncate(
+        `Observed ${competitor.name || "a competitor"} from its public profile${estimateClause}`,
+      ),
       status: "Applied",
       grounding: src.length > 0 ? sources(src) : inputs(["No public source cited"]),
       sourceCited: src.length > 0,

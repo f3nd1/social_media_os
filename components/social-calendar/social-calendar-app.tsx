@@ -109,7 +109,7 @@ import {
   type CompetitorAiContext,
   type CompetitorAiDraft,
 } from "@/lib/competitor-ai";
-import { isValidObserveUrl, observeLabel } from "@/lib/competitor-observe-ai";
+import { isValidObserveUrl } from "@/lib/competitor-observe-ai";
 import {
   copyDraftToPatch,
   type CopyAiContext,
@@ -202,6 +202,7 @@ import {
   type CalendarItemKind,
   type CalendarStatus,
   type Competitor,
+  type CompetitorFieldEstimates,
   type CompetitorPlatform,
   type FunnelStage,
   type MarketingWorkspaceData,
@@ -9984,6 +9985,7 @@ function CompetitorIntelligenceView({
               tone: string;
               observedStrengths: string[];
               background: string;
+              estimates?: CompetitorFieldEstimates;
             };
             citations?: Array<{ title: string; url: string }>;
             searchUsage?: OpenAiUsage;
@@ -10006,34 +10008,57 @@ function CompetitorIntelligenceView({
       // sources so the AI Generation Log can show where the observation came
       // from, not just a count.
       onCompetitorsChange(
-        competitors.map((row) =>
-          row.id === competitor.id
-            ? {
-                ...row,
-                platforms: (() => {
-                  const observed = toCompetitorPlatforms(result.draft.platforms);
-                  return observed.length > 0 ? observed : row.platforms;
-                })(),
-                contentFormats:
-                  result.draft.contentFormats.length > 0
-                    ? result.draft.contentFormats
-                    : row.contentFormats,
-                postingFrequency: result.draft.postingFrequency || row.postingFrequency,
-                tone: result.draft.tone || row.tone,
-                observedStrengths:
-                  result.draft.observedStrengths.length > 0
-                    ? result.draft.observedStrengths
-                    : row.observedStrengths,
-                backgroundSummary: result.draft.background || row.backgroundSummary,
-                observationSources: (result.citations ?? []).map((citation) => ({
-                  title: citation.title,
-                  url: citation.url,
-                })),
-                observedAt: new Date().toISOString(),
-                observedModel: result.synthesisModel ?? result.searchModel ?? "unknown",
-              }
-            : row,
-        ),
+        competitors.map((row) => {
+          if (row.id !== competitor.id) {
+            return row;
+          }
+
+          const observedPlatforms = toCompetitorPlatforms(result.draft.platforms);
+          const draftEstimates = result.draft.estimates ?? {};
+          // Take the observed/estimated value the server produced when present;
+          // fall back to what the manager already typed only if the server sent
+          // nothing (the four fields are guaranteed non-blank server-side, so
+          // that fallback should not trigger). An estimate reason is attached
+          // only to a value we actually took from the draft, never to a
+          // manager-typed fallback value.
+          const usedDraftFormats = result.draft.contentFormats.length > 0;
+          const usedDraftFrequency = Boolean(result.draft.postingFrequency);
+          const usedDraftTone = Boolean(result.draft.tone);
+          const usedDraftStrengths = result.draft.observedStrengths.length > 0;
+
+          const nextEstimates: CompetitorFieldEstimates = {};
+          if (usedDraftFormats && draftEstimates.contentFormats) {
+            nextEstimates.contentFormats = draftEstimates.contentFormats;
+          }
+          if (usedDraftFrequency && draftEstimates.postingFrequency) {
+            nextEstimates.postingFrequency = draftEstimates.postingFrequency;
+          }
+          if (usedDraftTone && draftEstimates.tone) {
+            nextEstimates.tone = draftEstimates.tone;
+          }
+          if (usedDraftStrengths && draftEstimates.observedStrengths) {
+            nextEstimates.observedStrengths = draftEstimates.observedStrengths;
+          }
+
+          return {
+            ...row,
+            platforms: observedPlatforms.length > 0 ? observedPlatforms : row.platforms,
+            contentFormats: usedDraftFormats ? result.draft.contentFormats : row.contentFormats,
+            postingFrequency: usedDraftFrequency ? result.draft.postingFrequency : row.postingFrequency,
+            tone: usedDraftTone ? result.draft.tone : row.tone,
+            observedStrengths: usedDraftStrengths
+              ? result.draft.observedStrengths
+              : row.observedStrengths,
+            fieldEstimates: Object.keys(nextEstimates).length > 0 ? nextEstimates : undefined,
+            backgroundSummary: result.draft.background || row.backgroundSummary,
+            observationSources: (result.citations ?? []).map((citation) => ({
+              title: citation.title,
+              url: citation.url,
+            })),
+            observedAt: new Date().toISOString(),
+            observedModel: result.synthesisModel ?? result.searchModel ?? "unknown",
+          };
+        }),
       );
 
       if (result.searchUsage) {
@@ -10048,36 +10073,25 @@ function CompetitorIntelligenceView({
         );
       }
 
-      // Count only the fields actually applied above (same truthiness checks),
-      // so the message can never claim a fuller result than what really
-      // changed on the row.
-      const filledFieldCount = [
-        result.draft.platforms.length > 0,
-        result.draft.contentFormats.length > 0,
-        Boolean(result.draft.postingFrequency),
-        Boolean(result.draft.tone),
-        result.draft.observedStrengths.length > 0,
-      ].filter(Boolean).length;
+      // The four detail fields are always filled now (observed or a labelled
+      // estimate), so the message reports the honest observed/estimated split
+      // rather than a "how many are blank" count. Platforms stays
+      // observed-or-none and is reported separately.
+      const estimatedCount = Object.keys(result.draft.estimates ?? {}).length;
+      const observedDetailCount = 4 - estimatedCount;
+      const platformsObserved = toCompetitorPlatforms(result.draft.platforms).length > 0;
       const sourceCount = result.citations?.length ?? 0;
       const sourceWord = `public source${sourceCount === 1 ? "" : "s"}`;
-      const pageWord = `public page${sourceCount === 1 ? "" : "s"}`;
-      const label = observeLabel({ name: competitor.name, profileUrl: competitor.website });
+      const sourceClause = sourceCount > 0 ? ` from ${sourceCount} ${sourceWord}` : "";
 
       setObserveMessages((current) => ({
         ...current,
-        [competitor.id]:
-          filledFieldCount === 0
-            ? {
-                tone: "error",
-                text: `We found ${sourceCount} ${pageWord} about ${label}, but couldn't pull out clear details on platform, format, tone, frequency, or strengths. You can fill these in yourself, or check the`,
-                showLogLink: true,
-              }
-            : {
-                tone: "success",
-                text: `Pre-filled ${filledFieldCount} of 5 field${
-                  filledFieldCount === 1 ? "" : "s"
-                } from ${sourceCount} ${sourceWord}. Review and edit before you rely on it.`,
-              },
+        [competitor.id]: {
+          tone: "success",
+          text: `Filled the 4 detail fields (${observedDetailCount} observed, ${estimatedCount} estimated)${sourceClause}. ${
+            platformsObserved ? "Platforms observed." : "No platforms confirmed."
+          } Estimates are labelled. Review before you rely on them.`,
+        },
       }));
     } catch (error) {
       setObserveMessages((current) => ({
@@ -10181,9 +10195,21 @@ function CompetitorIntelligenceView({
     value: Competitor[K],
   ) {
     onCompetitorsChange(
-      competitors.map((competitor) =>
-        competitor.id === id ? { ...competitor, [field]: value } : competitor,
-      ),
+      competitors.map((competitor) => {
+        if (competitor.id !== id) {
+          return competitor;
+        }
+        const next = { ...competitor, [field]: value };
+        // A manager edit to one of the four estimatable fields makes it ground
+        // truth, so its "Estimated" label must clear immediately, not just on
+        // the next Observe run.
+        if (next.fieldEstimates && field in next.fieldEstimates) {
+          const rest = { ...next.fieldEstimates };
+          delete rest[field as keyof CompetitorFieldEstimates];
+          next.fieldEstimates = Object.keys(rest).length > 0 ? rest : undefined;
+        }
+        return next;
+      }),
     );
   }
 
@@ -10502,57 +10528,66 @@ function CompetitorIntelligenceView({
                       <Field label="Platforms">
                         <CompetitorPlatformsField
                           competitorId={competitor.id}
+                          observed={Boolean(competitor.observedAt)}
                           onChange={(id, value) => updateCompetitor(id, "platforms", value)}
                           platforms={competitor.platforms}
                         />
                       </Field>
                       <Field label="Formats">
-                        <AutoGrowTextarea
-                          placeholder="e.g. Short-form video, carousels"
-                          value={listToText(competitor.contentFormats)}
-                          onChange={(event) =>
-                            updateCompetitor(
-                              competitor.id,
-                              "contentFormats",
-                              textToList(event.target.value),
-                            )
-                          }
-                        />
+                        <EstimatedFieldChrome reason={competitor.fieldEstimates?.contentFormats}>
+                          <AutoGrowTextarea
+                            placeholder="e.g. Short-form video, carousels"
+                            value={listToText(competitor.contentFormats)}
+                            onChange={(event) =>
+                              updateCompetitor(
+                                competitor.id,
+                                "contentFormats",
+                                textToList(event.target.value),
+                              )
+                            }
+                          />
+                        </EstimatedFieldChrome>
                       </Field>
                       <Field label="Tone">
-                        <Textarea
-                          placeholder="e.g. Warm and student-focused"
-                          value={competitor.tone}
-                          onChange={(event) =>
-                            updateCompetitor(competitor.id, "tone", event.target.value)
-                          }
-                        />
+                        <EstimatedFieldChrome reason={competitor.fieldEstimates?.tone}>
+                          <Textarea
+                            placeholder="e.g. Warm and student-focused"
+                            value={competitor.tone}
+                            onChange={(event) =>
+                              updateCompetitor(competitor.id, "tone", event.target.value)
+                            }
+                          />
+                        </EstimatedFieldChrome>
                       </Field>
                       <Field label="Frequency">
-                        <Textarea
-                          placeholder="e.g. Posts 3-4 times per week"
-                          value={competitor.postingFrequency}
-                          onChange={(event) =>
-                            updateCompetitor(
-                              competitor.id,
-                              "postingFrequency",
-                              event.target.value,
-                            )
-                          }
-                        />
+                        <EstimatedFieldChrome reason={competitor.fieldEstimates?.postingFrequency}>
+                          <Textarea
+                            placeholder="e.g. Posts 3-4 times per week"
+                            value={competitor.postingFrequency}
+                            onChange={(event) =>
+                              updateCompetitor(
+                                competitor.id,
+                                "postingFrequency",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </EstimatedFieldChrome>
                       </Field>
                       <Field label="Observed strengths">
-                        <AutoGrowTextarea
-                          placeholder="e.g. Strong campus life content"
-                          value={listToText(competitor.observedStrengths)}
-                          onChange={(event) =>
-                            updateCompetitor(
-                              competitor.id,
-                              "observedStrengths",
-                              textToList(event.target.value),
-                            )
-                          }
-                        />
+                        <EstimatedFieldChrome reason={competitor.fieldEstimates?.observedStrengths}>
+                          <AutoGrowTextarea
+                            placeholder="e.g. Strong campus life content"
+                            value={listToText(competitor.observedStrengths)}
+                            onChange={(event) =>
+                              updateCompetitor(
+                                competitor.id,
+                                "observedStrengths",
+                                textToList(event.target.value),
+                              )
+                            }
+                          />
+                        </EstimatedFieldChrome>
                       </Field>
                     </div>
 
@@ -11146,12 +11181,14 @@ const PLATFORMS_FIELD_TITLE =
 // textarea commits and swaps back.
 function CompetitorPlatformsField({
   competitorId,
+  observed,
   onChange,
   platforms,
 }: {
   competitorId: string;
   onChange: (competitorId: string, platforms: CompetitorPlatform[]) => void;
   platforms: CompetitorPlatform[];
+  observed: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(() => listToText(platforms.map((platform) => platform.name)));
@@ -11213,7 +11250,9 @@ function CompetitorPlatformsField({
       title={PLATFORMS_FIELD_TITLE}
     >
       {platforms.length === 0 ? (
-        <span className="text-muted-foreground">e.g. TikTok, Instagram</span>
+        <span className="text-muted-foreground">
+          {observed ? "No platforms confirmed" : "e.g. TikTok, Instagram"}
+        </span>
       ) : (
         platforms.map((platform) =>
           platform.url ? (
@@ -14854,6 +14893,29 @@ function Field({ children, label }: { children: ReactNode; label: string }) {
       <span className="text-sm font-medium text-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+// Wraps a competitor field's input when its value is a labelled estimate rather
+// than a real observation: a warning-tinted container, an "Estimated" badge,
+// and the one-line reason beneath, so a manager can never mistake it for an
+// observed fact. Renders the input plainly when there is no estimate reason.
+function EstimatedFieldChrome({
+  children,
+  reason,
+}: {
+  children: ReactNode;
+  reason?: string;
+}) {
+  if (!reason) {
+    return <>{children}</>;
+  }
+  return (
+    <div className="space-y-1.5 rounded-md border border-warning-border bg-warning/10 p-2">
+      <Badge variant="warning">Estimated</Badge>
+      {children}
+      <p className="text-xs italic leading-5 text-muted-foreground">{reason}</p>
+    </div>
   );
 }
 

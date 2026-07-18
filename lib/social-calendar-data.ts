@@ -498,6 +498,29 @@ export function reconcileContentPillars(
 // url is empty when none was found; we never fabricate one.
 export type CompetitorPlatform = { name: Platform; url: string };
 
+// Per-field provenance for an Observe run: a key is present only when that
+// field currently holds a labelled ESTIMATE (not a real observation), and its
+// value is the one-line reason shown in the UI. An absent key means the field
+// was observed or typed by the manager (ground truth), never an estimate.
+// Platforms are deliberately NOT here: a platform is observed-or-none, never
+// estimated, since fabricating which accounts exist is unacceptable.
+export type CompetitorFieldEstimates = {
+  contentFormats?: string;
+  postingFrequency?: string;
+  tone?: string;
+  observedStrengths?: string;
+};
+
+// The four Observe fields that may be filled with a labelled estimate when
+// nothing is observed, so a run never leaves them blank. Platforms and the
+// background summary are excluded and stay observed-or-empty.
+export const ESTIMATABLE_COMPETITOR_FIELDS = [
+  "contentFormats",
+  "postingFrequency",
+  "tone",
+  "observedStrengths",
+] as const satisfies ReadonlyArray<keyof CompetitorFieldEstimates>;
+
 export type Competitor = {
   id: string;
   name: string;
@@ -509,6 +532,10 @@ export type Competitor = {
   observedStrengths: string[];
   contentGaps: string[];
   whitespaceOpportunities: string[];
+  // Per-field estimate provenance from the last Observe run: present only for
+  // fields currently holding a labelled estimate rather than a real
+  // observation. Optional and defaulted in normalizeWorkspaceData.
+  fieldEstimates?: CompetitorFieldEstimates;
   // A short factual "About" summary from the same Observe pass: what they
   // teach/offer, approximate size/scale, and general public sentiment if
   // found. Optional: only set once an observation has run and found

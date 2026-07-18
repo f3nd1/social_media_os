@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  applyNeverBlankEstimates,
   buildCompetitorBackgroundSearchInput,
   buildCompetitorObserveSystemPrompt,
   buildCompetitorObserveUserPrompt,
@@ -158,14 +159,17 @@ export async function POST(request: Request) {
 
   // Nothing to ground the text fields in, but the homepage scrape found real
   // platforms: return those directly rather than spend a synthesis call on
-  // empty search text.
+  // empty search text. The four text fields still get labelled estimates so the
+  // run never leaves a blank field.
   if (combinedCitations.length === 0 && scrapedPlatforms.length > 0) {
+    const scrapeOnlyPlatforms = mergeScrapedPlatforms([], scrapedPlatforms);
+    const draft = applyNeverBlankEstimates(
+      sanitizeCompetitorObserveDraft({} as CompetitorObserveDraft),
+      scrapeOnlyPlatforms.map((platform) => platform.name),
+    );
     return NextResponse.json({
       ok: true,
-      draft: {
-        ...sanitizeCompetitorObserveDraft({} as CompetitorObserveDraft),
-        platforms: mergeScrapedPlatforms([], scrapedPlatforms),
-      },
+      draft: { ...draft, platforms: scrapeOnlyPlatforms },
       citations: responseCitations,
       searchUsage,
       searchModel: searchModelUsed,
@@ -200,15 +204,19 @@ export async function POST(request: Request) {
   );
 
   const sanitized = sanitizeCompetitorObserveDraft(synthesis.data);
+  // The homepage-scraped url wins for a platform found by both, since it is
+  // sourced directly from the org rather than inferred by the model.
+  const mergedPlatforms = mergeScrapedPlatforms(sanitized.platforms, scrapedPlatforms);
+  // Guarantee the four text fields are never blank, labelling any the model
+  // left empty as estimates (frequency reason can name the confirmed platforms).
+  const draft = applyNeverBlankEstimates(
+    sanitized,
+    mergedPlatforms.map((platform) => platform.name),
+  );
 
   return NextResponse.json({
     ok: true,
-    draft: {
-      ...sanitized,
-      // The homepage-scraped url wins for a platform found by both, since it
-      // is sourced directly from the org rather than inferred by the model.
-      platforms: mergeScrapedPlatforms(sanitized.platforms, scrapedPlatforms),
-    },
+    draft: { ...draft, platforms: mergedPlatforms },
     citations: responseCitations,
     searchUsage,
     searchModel: searchModelUsed,

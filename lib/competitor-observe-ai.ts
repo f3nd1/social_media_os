@@ -12,7 +12,12 @@
 
 import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { WebSearchCitation } from "@/lib/openai-shared";
-import { platforms, type Platform } from "@/lib/social-calendar-data";
+import {
+  ESTIMATABLE_COMPETITOR_FIELDS,
+  platforms,
+  type CompetitorFieldEstimates,
+  type Platform,
+} from "@/lib/social-calendar-data";
 import { dropSharedProfileUrls } from "@/lib/utils";
 
 export type CompetitorObserveInput = {
@@ -29,6 +34,9 @@ export type CompetitorObserveDraft = {
   tone: string;
   observedStrengths: string[];
   background: string;
+  // Per-field estimate reasons: a key is present only when that field's value
+  // is a labelled estimate rather than a real observation.
+  estimates: CompetitorFieldEstimates;
 };
 
 // A valid observe target must be a real http(s) URL with a proper host, so a
@@ -121,9 +129,11 @@ export function buildCompetitorObserveSystemPrompt(): string {
   return [
     "You are a competitive intelligence analyst for a private college in Singapore.",
     "You observe a competitor's public social media behaviour and general background from web search findings and summarise it for a human Marketing Manager to review and edit. You never act on it yourself.",
-    "Ground every field strictly in the provided search findings and their cited pages. Do not invent platforms, formats, numbers, strengths, or sentiment that the findings do not support. If something cannot be observed, leave that field empty (empty string or empty array).",
-    `Only include a platform in the platforms list if the sources genuinely show that account is active, using exactly these names where applicable: ${platforms.join(", ")}. Never guess a platform just because it is common for this kind of organisation.`,
-    "The background field is a short, factual summary only: what the organisation teaches or offers, its approximate size or scale if mentioned, and general public sentiment if genuinely found. If the sources give nothing solid for this, leave background as an empty string rather than guessing.",
+    "Ground observations strictly in the provided search findings and their cited pages. Never present a guess as if it were a fact about this specific competitor.",
+    `Only include a platform in the platforms list if the sources genuinely show that account is active, using exactly these names where applicable: ${platforms.join(", ")}. Never guess a platform just because it is common for this kind of organisation. Leave platforms empty when none can be confirmed.`,
+    "For the four fields contentFormats, postingFrequency, tone, and observedStrengths, you must always provide a value; never leave them blank. If the findings genuinely show it, report the real observed value and do NOT list that field in the estimates object. If the findings do not show it, provide a clearly reasoned ESTIMATE instead and add a one-line reason for it to the estimates object.",
+    "An estimate must be a general pattern, never a specific invented claim about this competitor: base it on platform-typical conventions, general norms for private education marketing in Singapore, or patterns visible from what you did observe. For observedStrengths specifically, an estimate must be worded as general sector advice (for example 'Authentic student-life content and clear proof points tend to perform well for this sector'), never as a claim that this competitor is strong at something.",
+    "The background field is a short, factual summary only, and is never estimated: if the sources give nothing solid, leave background as an empty string.",
     COMPLIANCE_PROMPT_RULE + " Keep observations neutral.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
@@ -142,12 +152,18 @@ export function buildCompetitorObserveUserPrompt(
         url: "string, the official public profile url on that platform if a cited source shows one, otherwise an empty string. Never invent a url.",
       },
     ],
-    contentFormats: ["string, a content format actually observed"],
-    postingFrequency: "string, how often/when they post, in plain words",
-    tone: "string, the observed tone of voice",
-    observedStrengths: ["string, a strength supported by the findings"],
+    contentFormats: ["string, a content format: observed if the findings show it, otherwise a general estimate"],
+    postingFrequency: "string, how often/when they post: observed if the findings show it, otherwise a general estimate. Never blank.",
+    tone: "string, the tone of voice: observed if the findings show it, otherwise a general estimate. Never blank.",
+    observedStrengths: ["string, a strength if observed, otherwise general sector advice phrased as a pattern, never a claim about this competitor"],
     background:
-      "string, 2-3 sentences on what they teach/offer, approximate size or scale if mentioned, and general public sentiment if found; empty string if nothing solid was found",
+      "string, 2-3 sentences on what they teach/offer, approximate size or scale if mentioned, and general public sentiment if found; empty string if nothing solid was found. Never estimated.",
+    estimates: {
+      contentFormats: "string, one line, present ONLY if contentFormats is an estimate, explaining the basis (for example 'platform-typical formats, not observed for this competitor')",
+      postingFrequency: "string, one line, present ONLY if postingFrequency is an estimate",
+      tone: "string, one line, present ONLY if tone is an estimate",
+      observedStrengths: "string, one line, present ONLY if observedStrengths is an estimate",
+    },
   };
 
   return [
@@ -225,19 +241,99 @@ function toObservedPlatforms(value: unknown): ObservedPlatform[] {
   return dropSharedProfileUrls(collected);
 }
 
-// Clean the model's draft into safe competitor fields.
+// Clean the model's draft into safe competitor fields. An estimate reason is
+// kept only for a field that actually has a value (a reason with no value is
+// meaningless), so `estimates` never claims a field is an estimate while that
+// field is blank.
 export function sanitizeCompetitorObserveDraft(
   draft: CompetitorObserveDraft,
 ): CompetitorObserveDraft {
+  const contentFormats = toStringList(draft?.contentFormats);
+  const postingFrequency =
+    typeof draft?.postingFrequency === "string" ? draft.postingFrequency.trim() : "";
+  const tone = typeof draft?.tone === "string" ? draft.tone.trim() : "";
+  const observedStrengths = toStringList(draft?.observedStrengths);
+
+  const filled: Record<keyof CompetitorFieldEstimates, boolean> = {
+    contentFormats: contentFormats.length > 0,
+    postingFrequency: Boolean(postingFrequency),
+    tone: Boolean(tone),
+    observedStrengths: observedStrengths.length > 0,
+  };
+  const rawEstimates = (draft?.estimates ?? {}) as Record<string, unknown>;
+  const estimates: CompetitorFieldEstimates = {};
+  for (const field of ESTIMATABLE_COMPETITOR_FIELDS) {
+    const reason = rawEstimates[field];
+    if (filled[field] && typeof reason === "string" && reason.trim()) {
+      estimates[field] = reason.trim();
+    }
+  }
+
   return {
     platforms: toObservedPlatforms(draft?.platforms),
-    contentFormats: toStringList(draft?.contentFormats),
-    postingFrequency:
-      typeof draft?.postingFrequency === "string" ? draft.postingFrequency.trim() : "",
-    tone: typeof draft?.tone === "string" ? draft.tone.trim() : "",
-    observedStrengths: toStringList(draft?.observedStrengths),
+    contentFormats,
+    postingFrequency,
+    tone,
+    observedStrengths,
     background: typeof draft?.background === "string" ? draft.background.trim() : "",
+    estimates,
   };
+}
+
+// Deterministic, clearly-labelled fallback estimates. These make "never blank"
+// a hard guarantee that does not depend on the model obeying the prompt: any of
+// the four fields left empty is filled with a generic, sector-level estimate
+// and a reason that states plainly it was not observed for this competitor.
+// observedStrengths is worded as general sector advice, never a claim about the
+// competitor, per the honesty rule.
+const GENERIC_FORMATS_ESTIMATE = ["Short-form video", "Photo carousels"];
+const GENERIC_FORMATS_REASON =
+  "Platform-typical formats for education social accounts (sector benchmark, not observed for this competitor).";
+const GENERIC_FREQUENCY_ESTIMATE = "Around 3 to 4 posts per week";
+const GENERIC_TONE_ESTIMATE = "Warm, reassuring, and informative";
+const GENERIC_TONE_REASON =
+  "Typical tone for private education marketing (sector norm, not observed for this competitor).";
+const GENERIC_STRENGTHS_ESTIMATE =
+  "Authentic student-life content and clear proof points tend to perform well for this sector";
+const GENERIC_STRENGTHS_REASON =
+  "General education-marketing pattern, not observed for this competitor.";
+
+function frequencyReason(platformNames: string[]): string {
+  if (platformNames.length > 0) {
+    return `Typical cadence for an education account active on ${platformNames.slice(0, 3).join(", ")} (sector benchmark, not observed for this competitor).`;
+  }
+  return "Typical cadence for a private education social account (sector benchmark, not observed for this competitor).";
+}
+
+// Guarantee the four estimatable fields are never blank after an Observe run.
+// Runs after the platform merge so the frequency reason can name the confirmed
+// platforms. Leaves any field the model already filled (observed or estimated)
+// untouched; only fills genuine blanks, labelling them as estimates.
+export function applyNeverBlankEstimates(
+  draft: CompetitorObserveDraft,
+  platformNames: string[],
+): CompetitorObserveDraft {
+  const estimates: CompetitorFieldEstimates = { ...draft.estimates };
+  let { contentFormats, postingFrequency, tone, observedStrengths } = draft;
+
+  if (contentFormats.length === 0) {
+    contentFormats = [...GENERIC_FORMATS_ESTIMATE];
+    estimates.contentFormats = GENERIC_FORMATS_REASON;
+  }
+  if (!postingFrequency) {
+    postingFrequency = GENERIC_FREQUENCY_ESTIMATE;
+    estimates.postingFrequency = frequencyReason(platformNames);
+  }
+  if (!tone) {
+    tone = GENERIC_TONE_ESTIMATE;
+    estimates.tone = GENERIC_TONE_REASON;
+  }
+  if (observedStrengths.length === 0) {
+    observedStrengths = [GENERIC_STRENGTHS_ESTIMATE];
+    estimates.observedStrengths = GENERIC_STRENGTHS_REASON;
+  }
+
+  return { ...draft, contentFormats, postingFrequency, tone, observedStrengths, estimates };
 }
 
 // ---------------------------------------------------------------------------
