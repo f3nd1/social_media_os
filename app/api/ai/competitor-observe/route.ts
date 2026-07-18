@@ -4,6 +4,7 @@ import {
   buildCompetitorObserveSearchInput,
   buildCompetitorObserveSystemPrompt,
   buildCompetitorObserveUserPrompt,
+  isValidObserveUrl,
   sanitizeCompetitorObserveDraft,
   type CompetitorObserveDraft,
 } from "@/lib/competitor-observe-ai";
@@ -53,7 +54,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const input = { name: name || profileUrl, profileUrl };
+  // Reject a non-URL (for example a bare keyword) before any web search runs, so
+  // the search is always anchored to a real domain rather than a loose phrase.
+  if (!isValidObserveUrl(profileUrl)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Enter a full website or profile URL that starts with http:// or https:// (for example https://www.example.edu.sg).",
+      },
+      { status: 400 },
+    );
+  }
+
+  const input = { name: name || "", profileUrl };
 
   // Step 1: real web search over what is publicly indexed about the profile.
   const search = await callOpenAiWebSearch({

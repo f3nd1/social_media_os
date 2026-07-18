@@ -22,14 +22,68 @@ export type CompetitorObserveDraft = {
   observedStrengths: string[];
 };
 
-export function buildCompetitorObserveSearchInput({
-  name,
-  profileUrl,
-}: CompetitorObserveInput): string {
+// A valid observe target must be a real http(s) URL with a proper host, so a
+// bare keyword ("furen") or a hostless string ("http://furen") is rejected
+// before it can be used as a loose web-search phrase. Returns the parsed URL,
+// or null when the value is not a usable link.
+export function parseObserveUrl(value: string): URL | null {
+  const trimmed = value.trim();
+
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    // A genuine host has at least one dot (rejects "http://furen").
+    if (!url.hostname.includes(".")) {
+      return null;
+    }
+
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+export function isValidObserveUrl(value: string): boolean {
+  return parseObserveUrl(value) !== null;
+}
+
+// The bare domain used to anchor and disambiguate the search ("www." dropped).
+export function observeHostname(value: string): string {
+  const url = parseObserveUrl(value);
+  return url ? url.hostname.replace(/^www\./i, "") : "";
+}
+
+// A label for the competitor in the prompts: the typed name if given, else the
+// domain, so an unnamed row still reads sensibly.
+function observeLabel({ name, profileUrl }: CompetitorObserveInput): string {
+  return name.trim() || observeHostname(profileUrl) || profileUrl;
+}
+
+// Anchor the web search to the exact domain the user entered, then reach that
+// same organisation's official social accounts. This is the fix for the
+// backwards behaviour: the old prompt was a loose keyword phrase, so a random
+// word could match some organisation while a real URL cited nothing. Anchoring
+// on the domain makes a real link the reliable input and blocks a similarly
+// named different organisation from being substituted.
+export function buildCompetitorObserveSearchInput(
+  input: CompetitorObserveInput,
+): string {
+  const hostname = observeHostname(input.profileUrl);
+  const named = input.name.trim() ? ` (known as "${input.name.trim()}")` : "";
+
   return [
-    `Research the public social media presence of "${name}" starting from this link: ${profileUrl}.`,
-    "Look at what is publicly visible about how they post: the content formats they use (for example short video, carousels, reels, live, long-form), how often and at what times they post, the tone of voice, and their observable strengths.",
-    "Only report what public sources actually show. Do not guess private analytics.",
+    `Identify the specific organisation whose official website is ${input.profileUrl}${named}.`,
+    `Confirm the organisation from that exact domain, ${hostname}. Then find that same organisation's official social media accounts (Instagram, TikTok, Facebook, YouTube, LinkedIn) that are linked from or clearly belong to ${hostname}.`,
+    "From those specific, verified sources only, observe: the content formats they post (for example short video, reels, carousels, live, long-form), how often and when they post, their tone of voice, and their observable strengths.",
+    `Only report what these sources actually show, and do not guess private analytics. Do not report on a different organisation that merely has a similar name. If the organisation cannot be confirmed from ${hostname}, say that nothing could be confirmed and report no findings.`,
   ].join(" ");
 }
 
@@ -57,7 +111,7 @@ export function buildCompetitorObserveUserPrompt(
   };
 
   return [
-    `Summarise the public social media behaviour of "${input.name}" (${input.profileUrl}) from these findings.`,
+    `Summarise the public social media behaviour of "${observeLabel(input)}" (${input.profileUrl}) from these findings.`,
     "",
     "SEARCH FINDINGS:",
     searchText,
