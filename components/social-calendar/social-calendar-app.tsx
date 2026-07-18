@@ -11136,6 +11136,14 @@ function PlaybookField({
 // alias survive the parse; anything else is not kept, which is disclosed via
 // the field's title and placeholder rather than silently vanishing with no
 // explanation.
+const PLATFORMS_FIELD_TITLE =
+  "Only these platform names (or common aliases) are kept: TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads, Pinterest, Reddit";
+
+// A single field that is EITHER a linked, read-only display (platform names
+// that have a real url render as clickable links) OR the plain editable
+// textarea, never both at once, so a name is never shown twice. Clicking (or
+// tabbing) into the display swaps to the textarea for editing; blurring the
+// textarea commits and swaps back.
 function CompetitorPlatformsField({
   competitorId,
   onChange,
@@ -11145,7 +11153,9 @@ function CompetitorPlatformsField({
   onChange: (competitorId: string, platforms: CompetitorPlatform[]) => void;
   platforms: CompetitorPlatform[];
 }) {
+  const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(() => listToText(platforms.map((platform) => platform.name)));
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Keyed on both names and urls, so an Observe run that adds a link to an
   // already-listed platform still resyncs.
   const platformsKey = platforms.map((platform) => `${platform.name}|${platform.url}`).join(",");
@@ -11158,6 +11168,12 @@ function CompetitorPlatformsField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [competitorId, platformsKey]);
 
+  useEffect(() => {
+    if (isEditing) {
+      textareaRef.current?.focus();
+    }
+  }, [isEditing]);
+
   // On blur, re-parse the names but keep any profile url already found for a
   // platform that survives the edit, so a manual tidy-up never loses links.
   function commit() {
@@ -11166,37 +11182,56 @@ function CompetitorPlatformsField({
       competitorId,
       parsePlatformList(text).map((name) => ({ name, url: urlByName.get(name) ?? "" })),
     );
+    setIsEditing(false);
   }
 
-  return (
-    <div className="space-y-1.5">
-      {platforms.some((platform) => platform.url) ? (
-        <ul className="space-y-0.5 text-xs">
-          {platforms.map((platform) => (
-            <li key={platform.name}>
-              {platform.url ? (
-                <a
-                  className="font-medium underline underline-offset-2"
-                  href={platform.url}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  {platform.name}
-                </a>
-              ) : (
-                <span className="text-muted-foreground">{platform.name}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+  if (isEditing) {
+    return (
       <Textarea
         onBlur={commit}
         onChange={(event) => setText(event.target.value)}
         placeholder="e.g. TikTok, Instagram"
-        title="Only these platform names (or common aliases) are kept: TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads"
+        ref={textareaRef}
+        title={PLATFORMS_FIELD_TITLE}
         value={text}
       />
+    );
+  }
+
+  return (
+    <div
+      className="flex min-h-24 w-full cursor-text flex-col justify-center gap-0.5 rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={() => setIsEditing(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setIsEditing(true);
+        }
+      }}
+      aria-label="Platforms, click to edit"
+      tabIndex={0}
+      title={PLATFORMS_FIELD_TITLE}
+    >
+      {platforms.length === 0 ? (
+        <span className="text-muted-foreground">e.g. TikTok, Instagram</span>
+      ) : (
+        platforms.map((platform) =>
+          platform.url ? (
+            <a
+              className="font-medium underline underline-offset-2"
+              href={platform.url}
+              key={platform.name}
+              onClick={(event) => event.stopPropagation()}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {platform.name}
+            </a>
+          ) : (
+            <span key={platform.name}>{platform.name}</span>
+          ),
+        )
+      )}
     </div>
   );
 }
