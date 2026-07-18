@@ -10445,6 +10445,7 @@ function CompetitorIntelligenceView({
                       </td>
                       <td className="min-w-[230px] py-3 pr-4 align-top">
                         <AutoGrowTextarea
+                          placeholder="e.g. Short-form video, carousels"
                           value={listToText(competitor.contentFormats)}
                           onChange={(event) =>
                             updateCompetitor(
@@ -10457,6 +10458,7 @@ function CompetitorIntelligenceView({
                       </td>
                       <td className="min-w-[190px] py-3 pr-4 align-top">
                         <Textarea
+                          placeholder="e.g. Warm and student-focused"
                           value={competitor.tone}
                           onChange={(event) =>
                             updateCompetitor(competitor.id, "tone", event.target.value)
@@ -10465,6 +10467,7 @@ function CompetitorIntelligenceView({
                       </td>
                       <td className="min-w-[180px] py-3 pr-4 align-top">
                         <Textarea
+                          placeholder="e.g. Posts 3-4 times per week"
                           value={competitor.postingFrequency}
                           onChange={(event) =>
                             updateCompetitor(
@@ -10477,6 +10480,7 @@ function CompetitorIntelligenceView({
                       </td>
                       <td className="min-w-[260px] py-3 pr-4 align-top">
                         <AutoGrowTextarea
+                          placeholder="e.g. Strong campus life content"
                           value={listToText(competitor.observedStrengths)}
                           onChange={(event) =>
                             updateCompetitor(
