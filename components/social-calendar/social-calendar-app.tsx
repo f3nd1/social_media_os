@@ -879,7 +879,7 @@ export function SocialCalendarApp() {
             </nav>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-6 pb-24">
             <header className="flex flex-col gap-4 border-b pb-5 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -7960,7 +7960,7 @@ function AiGenerationLogView({
               >
                 Previous
               </Button>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm font-medium text-foreground">
                 Page {safePage} of {totalPages}
               </p>
               <Button
