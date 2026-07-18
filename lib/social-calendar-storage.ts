@@ -12,7 +12,7 @@ import {
   type PlatformPlaybook,
   type SetupGuideProgress,
 } from "@/lib/social-calendar-data";
-import { roleLabel } from "@/lib/utils";
+import { dropSharedProfileUrls, roleLabel } from "@/lib/utils";
 
 // Upgrade path for workspaces saved before ucc.contentPillars existed: build
 // a structured entry per name already in the brief, rather than falling back
@@ -45,7 +45,9 @@ function normalizeCompetitorPlatforms(value: unknown): CompetitorPlatform[] {
     seen.add(name as Platform);
     result.push({ name: name as Platform, url });
   }
-  return result;
+  // Heal data saved before shared-url dropping existed: a homepage url repeated
+  // across platforms is not a real profile link, so strip it on load.
+  return dropSharedProfileUrls(result);
 }
 
 const STORAGE_KEY = "social-calendar-intelligence-os:v1";

@@ -10,6 +10,7 @@
 import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { WebSearchCitation } from "@/lib/openai-shared";
 import { platforms, type Platform } from "@/lib/social-calendar-data";
+import { dropSharedProfileUrls } from "@/lib/utils";
 
 export type CompetitorObserveInput = {
   name: string;
@@ -151,28 +152,55 @@ function toStringList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+// Pull a platform name and optional url out of one raw entry. Normally this is
+// the structured { name, url } object the model was asked for, but a model can
+// ignore the shape and emit a markdown string like "* [Instagram](https://...)"
+// or put markdown in the name; we extract the real name and url from that
+// rather than let the literal markdown reach the UI.
+const MARKDOWN_LINK = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/i;
+
+function parsePlatformEntry(entry: unknown): { name: string; url: string } {
+  if (typeof entry === "string") {
+    const md = entry.match(MARKDOWN_LINK);
+    if (md) {
+      return { name: md[1].trim(), url: md[2].trim() };
+    }
+    return { name: entry.replace(/^[\s*\-•]+/, "").trim(), url: "" };
+  }
+  if (entry && typeof entry === "object") {
+    const rawName = typeof (entry as { name?: unknown }).name === "string" ? (entry as { name: string }).name : "";
+    const rawUrl = typeof (entry as { url?: unknown }).url === "string" ? (entry as { url: string }).url.trim() : "";
+    const md = rawName.match(MARKDOWN_LINK);
+    if (md) {
+      return { name: md[1].trim(), url: rawUrl || md[2].trim() };
+    }
+    return { name: rawName.trim(), url: rawUrl };
+  }
+  return { name: "", url: "" };
+}
+
 // Only exact, known platform names survive (the model is told the exact list,
 // so no alias tolerance is needed, only a defensive filter against invented
 // values), and a url is kept only when it is a genuine http(s) link so a
-// fabricated profile link is never passed to the client.
+// fabricated profile link is never passed to the client. A url shared across
+// two or more platforms (the org homepage, not a real profile) is dropped.
 function toObservedPlatforms(value: unknown): ObservedPlatform[] {
   if (!Array.isArray(value)) {
     return [];
   }
   const seen = new Set<Platform>();
-  const result: ObservedPlatform[] = [];
+  const collected: ObservedPlatform[] = [];
 
   for (const entry of value) {
-    const name = typeof entry?.name === "string" ? entry.name.trim() : "";
+    const { name, url } = parsePlatformEntry(entry);
     if (!(platforms as readonly string[]).includes(name) || seen.has(name as Platform)) {
       continue;
     }
-    const rawUrl = typeof entry?.url === "string" ? entry.url.trim() : "";
     seen.add(name as Platform);
-    result.push({ name, url: /^https?:\/\//i.test(rawUrl) ? rawUrl : "" });
+    collected.push({ name, url: /^https?:\/\//i.test(url) ? url : "" });
   }
 
-  return result;
+  return dropSharedProfileUrls(collected);
 }
 
 // Clean the model's draft into safe competitor fields.

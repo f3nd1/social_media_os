@@ -19,6 +19,24 @@ export function sanitizeFileName(fileName: string, fallback: string): string {
   return safeName || fallback;
 }
 
+// A genuine profile link is distinct per platform. When the same url is given to
+// two or more platforms (typically the org homepage, not a real per-platform
+// profile), it is not a real profile link, so drop the url from every platform
+// that shares it, keeping the name with no link rather than fabricating
+// distinctness. Comparison ignores case and a trailing slash.
+export function dropSharedProfileUrls<T extends { url: string }>(list: T[]): T[] {
+  const key = (url: string) => url.trim().toLowerCase().replace(/\/+$/, "");
+  const counts = new Map<string, number>();
+  for (const item of list) {
+    if (item.url) {
+      counts.set(key(item.url), (counts.get(key(item.url)) ?? 0) + 1);
+    }
+  }
+  return list.map((item) =>
+    item.url && (counts.get(key(item.url)) ?? 0) > 1 ? { ...item, url: "" } : item,
+  );
+}
+
 // Reads a fetch Response as JSON, but fails with a plain readable message when
 // the server returns a non-JSON body (an HTML error page from a reverse proxy
 // or a crashed route). This replaces the cryptic "Unexpected token '<'" crash
