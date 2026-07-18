@@ -61,9 +61,10 @@ export function observeHostname(value: string): string {
   return url ? url.hostname.replace(/^www\./i, "") : "";
 }
 
-// A label for the competitor in the prompts: the typed name if given, else the
-// domain, so an unnamed row still reads sensibly.
-function observeLabel({ name, profileUrl }: CompetitorObserveInput): string {
+// A label for the competitor: the typed name if given, else the domain, so an
+// unnamed row still reads sensibly. Used in prompts and reused client-side for
+// the human-readable observe result messages.
+export function observeLabel({ name, profileUrl }: CompetitorObserveInput): string {
   return name.trim() || observeHostname(profileUrl) || profileUrl;
 }
 

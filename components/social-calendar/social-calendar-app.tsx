@@ -109,7 +109,7 @@ import {
   type CompetitorAiContext,
   type CompetitorAiDraft,
 } from "@/lib/competitor-ai";
-import { isValidObserveUrl } from "@/lib/competitor-observe-ai";
+import { isValidObserveUrl, observeLabel } from "@/lib/competitor-observe-ai";
 import {
   copyDraftToPatch,
   type CopyAiContext,
@@ -9989,6 +9989,8 @@ function CompetitorIntelligenceView({
       ].filter(Boolean).length;
       const sourceCount = result.citations?.length ?? 0;
       const sourceWord = `public source${sourceCount === 1 ? "" : "s"}`;
+      const pageWord = `public page${sourceCount === 1 ? "" : "s"}`;
+      const label = observeLabel({ name: competitor.name, profileUrl: competitor.website });
 
       setObserveMessages((current) => ({
         ...current,
@@ -9996,7 +9998,7 @@ function CompetitorIntelligenceView({
           filledFieldCount === 0
             ? {
                 tone: "error",
-                text: `Found ${sourceCount} ${sourceWord}, but could not extract clear content format, tone, frequency, or strength details from them. Fill the fields in by hand, or check the AI Generation Log for the sources found.`,
+                text: `We found ${sourceCount} ${pageWord} about ${label}, but couldn't pull out clear details on format, tone, frequency, or strengths. You can fill these in yourself, or check the AI Generation Log to see what was found.`,
               }
             : {
                 tone: "success",
