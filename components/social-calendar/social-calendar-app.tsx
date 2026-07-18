@@ -11051,7 +11051,7 @@ function CompetitorPlatformsField({
     <Textarea
       onBlur={() => onChange(competitorId, parsePlatformList(text))}
       onChange={(event) => setText(event.target.value)}
-      placeholder="TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads"
+      placeholder="e.g. TikTok, Instagram"
       title="Only these platform names (or common aliases) are kept: TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads"
       value={text}
     />
