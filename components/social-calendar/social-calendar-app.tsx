@@ -9928,7 +9928,6 @@ function CompetitorIntelligenceView({
   const [observeMessages, setObserveMessages] = useState<
     Record<string, { tone: "success" | "error"; text: string }>
   >({});
-  const [expandedBackgroundId, setExpandedBackgroundId] = useState<string | null>(null);
 
   const liveAi = isLiveAiEnabled(aiIntegration);
 
@@ -10383,176 +10382,108 @@ function CompetitorIntelligenceView({
               title="No competitors tracked"
             />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="border-b text-xs uppercase text-muted-foreground">
-                  <tr>
-                    <th className="py-3 pr-4 font-medium">Competitor</th>
-                    <th className="py-3 pr-4 font-medium">Platforms</th>
-                    <th className="py-3 pr-4 font-medium">Formats</th>
-                    <th className="py-3 pr-4 font-medium">Tone</th>
-                    <th className="py-3 pr-4 font-medium">Frequency</th>
-                    <th className="py-3 pr-4 font-medium">Observed strengths</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {competitors.map((competitor) => (
-                    <tr key={competitor.id}>
-                      <td className="min-w-[220px] py-3 pr-4 align-top">
+            <div className="space-y-5">
+              {competitors.map((competitor) => {
+                const websiteInvalid =
+                  competitor.website.trim().length > 0 &&
+                  !isValidObserveUrl(competitor.website);
+                const sourceCount = competitor.observationSources?.length ?? 0;
+
+                return (
+                  <div className="space-y-4 rounded-lg border bg-card p-5" key={competitor.id}>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Input
+                        placeholder="e.g. Amity Global Education"
+                        value={competitor.name}
+                        onChange={(event) =>
+                          updateCompetitor(competitor.id, "name", event.target.value)
+                        }
+                      />
+                      <div>
                         <Input
-                          className="mb-2"
-                          placeholder="e.g. Amity Global Education"
-                          value={competitor.name}
+                          aria-invalid={websiteInvalid}
+                          className={cn(
+                            websiteInvalid &&
+                              "border-destructive focus-visible:ring-destructive",
+                          )}
+                          placeholder="https://competitor-website.com"
+                          value={competitor.website}
                           onChange={(event) =>
-                            updateCompetitor(
-                              competitor.id,
-                              "name",
-                              event.target.value,
-                            )
+                            updateCompetitor(competitor.id, "website", event.target.value)
                           }
                         />
-                        {(() => {
-                          const websiteInvalid =
-                            competitor.website.trim().length > 0 &&
-                            !isValidObserveUrl(competitor.website);
+                        {websiteInvalid ? (
+                          <p className="mt-1 text-xs leading-5 text-destructive">
+                            Enter a full URL starting with http:// or https://.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
 
-                          return (
-                            <>
-                              <Input
-                                aria-invalid={websiteInvalid}
-                                className={cn(
-                                  websiteInvalid &&
-                                    "border-destructive focus-visible:ring-destructive",
-                                )}
-                                placeholder="https://competitor-website.com"
-                                value={competitor.website}
-                                onChange={(event) =>
-                                  updateCompetitor(
-                                    competitor.id,
-                                    "website",
-                                    event.target.value,
-                                  )
-                                }
-                              />
-                              {websiteInvalid ? (
-                                <p className="mt-1 text-xs leading-5 text-destructive">
-                                  Enter a full URL starting with http:// or https://.
-                                </p>
-                              ) : null}
-                              <Button
-                                className="mt-2"
-                                disabled={
-                                  !liveAi ||
-                                  observingId !== null ||
-                                  !isValidObserveUrl(competitor.website)
-                                }
-                                onClick={() => void observeFromLink(competitor)}
-                                size="sm"
-                                type="button"
-                                variant="outline"
-                              >
-                                {observingId === competitor.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <SearchCheck className="h-4 w-4" />
-                                )}
-                                {observingId === competitor.id
-                                  ? "Observing"
-                                  : "Observe from link"}
-                              </Button>
-                            </>
-                          );
-                        })()}
-                        {observeMessages[competitor.id] ? (
-                          <p
-                            className={cn(
-                              "mt-2 text-xs leading-5",
-                              observeMessages[competitor.id].tone === "error"
-                                ? "text-destructive"
-                                : "text-muted-foreground",
-                            )}
-                          >
-                            {observeMessages[competitor.id].text}
-                          </p>
-                        ) : !liveAi ? (
-                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                            Connect OpenAI in Settings to observe from a link.
-                          </p>
-                        ) : !competitor.website.trim() ? (
-                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                            Add a website or profile URL above to observe.
-                          </p>
-                        ) : null}
-                        {competitor.observedAt ? (
-                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                            Last observed {formatDateTime(competitor.observedAt)}
-                          </p>
-                        ) : null}
-                        {competitor.observedAt ? (
-                          <>
-                            <Button
-                              className="mt-2"
-                              onClick={() =>
-                                setExpandedBackgroundId((current) =>
-                                  current === competitor.id ? null : competitor.id,
-                                )
-                              }
-                              size="sm"
-                              type="button"
-                              variant="outline"
-                            >
-                              {expandedBackgroundId === competitor.id ? (
-                                <ChevronUp className="h-4 w-4" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4" />
-                              )}
-                              Background
-                            </Button>
-                            {expandedBackgroundId === competitor.id ? (
-                              <div className="mt-2 rounded-md border bg-muted/30 p-3 text-xs leading-5">
-                                {competitor.backgroundSummary ? (
-                                  <>
-                                    <p>{competitor.backgroundSummary}</p>
-                                    <p className="mt-2 text-muted-foreground">
-                                      From the same {competitor.observationSources?.length ?? 0}{" "}
-                                      cited source
-                                      {(competitor.observationSources?.length ?? 0) === 1
-                                        ? ""
-                                        : "s"}{" "}
-                                      as the fields above. See the AI Generation Log for details.
-                                    </p>
-                                  </>
-                                ) : (
-                                  <p className="text-muted-foreground">
-                                    No background information was found in the public sources
-                                    searched.
-                                  </p>
-                                )}
-                              </div>
-                            ) : null}
-                          </>
-                        ) : null}
-                        <Button
-                          className="mt-2 text-destructive hover:text-destructive"
-                          onClick={() => deleteCompetitor(competitor)}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </Button>
-                      </td>
-                      <td className="min-w-[230px] py-3 pr-4 align-top">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        disabled={
+                          !liveAi || observingId !== null || !isValidObserveUrl(competitor.website)
+                        }
+                        onClick={() => void observeFromLink(competitor)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        {observingId === competitor.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <SearchCheck className="h-4 w-4" />
+                        )}
+                        {observingId === competitor.id ? "Observing" : "Observe from link"}
+                      </Button>
+                      <Button
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => deleteCompetitor(competitor)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </Button>
+                    </div>
+
+                    {observeMessages[competitor.id] ? (
+                      <p
+                        className={cn(
+                          "text-xs leading-5",
+                          observeMessages[competitor.id].tone === "error"
+                            ? "text-destructive"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {observeMessages[competitor.id].text}
+                      </p>
+                    ) : !liveAi ? (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        Connect OpenAI in Settings to observe from a link.
+                      </p>
+                    ) : !competitor.website.trim() ? (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        Add a website or profile URL above to observe.
+                      </p>
+                    ) : null}
+                    {competitor.observedAt ? (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        Last observed {formatDateTime(competitor.observedAt)}
+                      </p>
+                    ) : null}
+
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      <Field label="Platforms">
                         <CompetitorPlatformsField
                           competitorId={competitor.id}
-                          onChange={(id, value) =>
-                            updateCompetitor(id, "platforms", value)
-                          }
+                          onChange={(id, value) => updateCompetitor(id, "platforms", value)}
                           platforms={competitor.platforms}
                         />
-                      </td>
-                      <td className="min-w-[230px] py-3 pr-4 align-top">
+                      </Field>
+                      <Field label="Formats">
                         <AutoGrowTextarea
                           placeholder="e.g. Short-form video, carousels"
                           value={listToText(competitor.contentFormats)}
@@ -10564,8 +10495,8 @@ function CompetitorIntelligenceView({
                             )
                           }
                         />
-                      </td>
-                      <td className="min-w-[190px] py-3 pr-4 align-top">
+                      </Field>
+                      <Field label="Tone">
                         <Textarea
                           placeholder="e.g. Warm and student-focused"
                           value={competitor.tone}
@@ -10573,8 +10504,8 @@ function CompetitorIntelligenceView({
                             updateCompetitor(competitor.id, "tone", event.target.value)
                           }
                         />
-                      </td>
-                      <td className="min-w-[180px] py-3 pr-4 align-top">
+                      </Field>
+                      <Field label="Frequency">
                         <Textarea
                           placeholder="e.g. Posts 3-4 times per week"
                           value={competitor.postingFrequency}
@@ -10586,8 +10517,8 @@ function CompetitorIntelligenceView({
                             )
                           }
                         />
-                      </td>
-                      <td className="min-w-[260px] py-3 pr-4 align-top">
+                      </Field>
+                      <Field label="Observed strengths">
                         <AutoGrowTextarea
                           placeholder="e.g. Strong campus life content"
                           value={listToText(competitor.observedStrengths)}
@@ -10599,11 +10530,35 @@ function CompetitorIntelligenceView({
                             )
                           }
                         />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </Field>
+                    </div>
+
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+                      <p className="text-sm font-semibold">Background</p>
+                      {!competitor.observedAt ? (
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          Run Observe from link to research this competitor&apos;s background,
+                          courses, size, and public sentiment.
+                        </p>
+                      ) : competitor.backgroundSummary ? (
+                        <>
+                          <p className="mt-1 text-sm leading-6">
+                            {competitor.backgroundSummary}
+                          </p>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            From the same {sourceCount} cited source{sourceCount === 1 ? "" : "s"}{" "}
+                            as the fields above. See the AI Generation Log for details.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          No background information was found in the public sources searched.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
