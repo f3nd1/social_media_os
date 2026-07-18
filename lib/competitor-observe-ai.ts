@@ -74,24 +74,43 @@ export function observeLabel({ name, profileUrl }: CompetitorObserveInput): stri
   return name.trim() || observeHostname(profileUrl) || profileUrl;
 }
 
-// Anchor the web search to the exact domain the user entered, then reach that
-// same organisation's official social accounts. This is the fix for the
-// backwards behaviour: the old prompt was a loose keyword phrase, so a random
-// word could match some organisation while a real URL cited nothing. Anchoring
-// on the domain makes a real link the reliable input and blocks a similarly
-// named different organisation from being substituted.
-export function buildCompetitorObserveSearchInput(
+// Observe runs two separate, focused web searches rather than one combined
+// prompt. In production, a single prompt that asked for both social behaviour
+// AND background/sentiment reliably returned the easy, well-indexed background
+// sources (encyclopedic, review sites) and never surfaced the org's actual
+// social feeds, leaving the five behaviour fields empty. Splitting the ask
+// gives platform discovery its own dedicated search turn so those fields have a
+// chance of real source material. Both feed one synthesis step.
+
+// Search 1: the org's OWN social profile pages, with explicit per-platform
+// phrasing so the model runs targeted profile searches rather than settling for
+// general pages about the org.
+export function buildCompetitorSocialSearchInput(
+  input: CompetitorObserveInput,
+): string {
+  const hostname = observeHostname(input.profileUrl);
+  const label = observeLabel(input);
+  const named = input.name.trim() ? ` (known as "${input.name.trim()}")` : "";
+
+  return [
+    `Identify the specific organisation whose official website is ${input.profileUrl}${named}, confirmed from the exact domain ${hostname}.`,
+    `Find that same organisation's OWN official social media profile pages. Search specifically for their accounts on each of these platforms: TikTok, Instagram, YouTube, LinkedIn, Facebook, X/Twitter, Threads. For example look for "${label} Instagram", "${label} TikTok", site:instagram.com ${label}, site:tiktok.com ${label}, site:facebook.com ${label}, site:linkedin.com ${label}, and any social links on ${hostname} itself.`,
+    "From those specific profile pages only, observe: which platforms they are genuinely and currently active on (with the profile url for each), the content formats they post (for example short video, reels, carousels, live, long-form), how often and when they post, their tone of voice, and their observable strengths.",
+    `Only report what the actual profile pages show. Do not guess posting behaviour you cannot see, and do not report on a different organisation that merely has a similar name. If no official social profiles for ${hostname} can be found, say so and report no social findings.`,
+  ].join(" ");
+}
+
+// Search 2: general background and public sentiment about the organisation.
+export function buildCompetitorBackgroundSearchInput(
   input: CompetitorObserveInput,
 ): string {
   const hostname = observeHostname(input.profileUrl);
   const named = input.name.trim() ? ` (known as "${input.name.trim()}")` : "";
 
   return [
-    `Identify the specific organisation whose official website is ${input.profileUrl}${named}.`,
-    `Confirm the organisation from that exact domain, ${hostname}. Then find that same organisation's official social media accounts (TikTok, Instagram, YouTube, LinkedIn, Facebook, X/Twitter, Threads, Pinterest, Reddit) that are linked from or clearly belong to ${hostname}.`,
-    "From those specific, verified sources, observe: which of those platforms they are genuinely and currently active on, the content formats they post (for example short video, reels, carousels, live, long-form), how often and when they post, their tone of voice, and their observable strengths.",
-    "Also research general background on the organisation itself: what it teaches or offers, its approximate size or scale if mentioned (for example student numbers, campus count, years established), and general public sentiment if anything is found, such as reviews or commonly repeated praise or complaints.",
-    `Only report what these sources actually show, and do not guess private analytics or invent sentiment that is not there. Do not report on a different organisation that merely has a similar name. If the organisation cannot be confirmed from ${hostname}, say that nothing could be confirmed and report no findings.`,
+    `Identify the specific organisation whose official website is ${input.profileUrl}${named}, confirmed from the exact domain ${hostname}.`,
+    "Research general background on the organisation itself: what it teaches or offers, its approximate size or scale if mentioned (for example student numbers, campus count, years established), and general public sentiment if anything is found, such as reviews or commonly repeated praise or complaints.",
+    `Only report what the sources actually show. Do not invent sentiment that is not there, and do not report on a different organisation that merely has a similar name. If the organisation cannot be confirmed from ${hostname}, say that nothing could be confirmed and report no findings.`,
   ].join(" ");
 }
 

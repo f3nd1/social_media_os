@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
 import {
-  buildCompetitorObserveSearchInput,
+  buildCompetitorBackgroundSearchInput,
   buildCompetitorObserveSystemPrompt,
   buildCompetitorObserveUserPrompt,
+  buildCompetitorSocialSearchInput,
   isValidObserveUrl,
   sanitizeCompetitorObserveDraft,
   type CompetitorObserveDraft,
@@ -69,27 +70,70 @@ export async function POST(request: Request) {
 
   const input = { name: name || "", profileUrl };
 
-  // Step 1: real web search over what is publicly indexed about the profile.
-  const search = await callOpenAiWebSearch({
-    apiKey,
-    model: searchModel,
-    input: buildCompetitorObserveSearchInput(input),
-  });
+  // Step 1: two focused web searches in parallel. One hunts the org's own
+  // social profile pages (the five behaviour fields depend on it), the other
+  // gathers general background and sentiment. Splitting them stops the easy,
+  // well-indexed background sources from crowding out social-profile discovery.
+  const [social, background] = await Promise.all([
+    callOpenAiWebSearch({
+      apiKey,
+      model: searchModel,
+      input: buildCompetitorSocialSearchInput(input),
+    }),
+    callOpenAiWebSearch({
+      apiKey,
+      model: searchModel,
+      input: buildCompetitorBackgroundSearchInput(input),
+    }),
+  ]);
 
-  if (!search.ok) {
-    return NextResponse.json({ ok: false, error: search.error });
+  // Only fail outright if BOTH searches failed; otherwise proceed with whatever
+  // came back, so one flaky search does not sink the whole run.
+  if (!social.ok && !background.ok) {
+    return NextResponse.json({ ok: false, error: social.error });
   }
 
+  const searchTexts: string[] = [];
+  const citations: { title: string; url: string }[] = [];
+  const searchUsage = { promptTokens: 0, completionTokens: 0 };
+  let searchModelUsed = searchModel;
+
+  if (social.ok) {
+    searchTexts.push(`SOCIAL PROFILE FINDINGS:\n${social.text}`);
+    citations.push(...social.citations);
+    searchUsage.promptTokens += social.usage.promptTokens;
+    searchUsage.completionTokens += social.usage.completionTokens;
+    searchModelUsed = social.model;
+  }
+  if (background.ok) {
+    searchTexts.push(`BACKGROUND FINDINGS:\n${background.text}`);
+    citations.push(...background.citations);
+    searchUsage.promptTokens += background.usage.promptTokens;
+    searchUsage.completionTokens += background.usage.completionTokens;
+    searchModelUsed = background.model;
+  }
+
+  // Dedupe citations by url across the two searches, keeping first-seen order.
+  const seenUrls = new Set<string>();
+  const combinedCitations = citations.filter((citation) => {
+    if (seenUrls.has(citation.url)) {
+      return false;
+    }
+    seenUrls.add(citation.url);
+    return true;
+  });
+  const combinedText = searchTexts.join("\n\n");
+
   // Logged so a real run can be diagnosed from the server logs (pm2 logs):
-  // the raw search findings and citations feeding the synthesis step, before
-  // any field extraction happens.
+  // the raw findings and citations from each search, before any extraction.
   console.log(
-    `[competitor-observe] search for ${profileUrl}: ${search.citations.length} citation(s)\n` +
-      `citations: ${JSON.stringify(search.citations)}\n` +
-      `raw search text: ${search.text}`,
+    `[competitor-observe] searches for ${profileUrl}: social ok=${social.ok} bg ok=${background.ok}, ` +
+      `${combinedCitations.length} citation(s)\n` +
+      `citations: ${JSON.stringify(combinedCitations)}\n` +
+      `raw search text: ${combinedText}`,
   );
 
-  if (search.citations.length === 0) {
+  if (combinedCitations.length === 0) {
     return NextResponse.json({
       ok: false,
       error:
@@ -98,12 +142,12 @@ export async function POST(request: Request) {
   }
 
   // Step 2: synthesise the findings into competitor fields, restricted to the
-  // real citations from step 1.
+  // real citations from the searches above.
   const synthesis = await callOpenAiJson<CompetitorObserveDraft>({
     apiKey,
     model: synthesisModel,
     system: buildCompetitorObserveSystemPrompt(),
-    user: buildCompetitorObserveUserPrompt(search.text, search.citations, input),
+    user: buildCompetitorObserveUserPrompt(combinedText, combinedCitations, input),
   });
 
   if (!synthesis.ok) {
@@ -119,9 +163,9 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     draft: sanitizeCompetitorObserveDraft(synthesis.data),
-    citations: search.citations,
-    searchUsage: search.usage,
-    searchModel: search.model,
+    citations: combinedCitations,
+    searchUsage,
+    searchModel: searchModelUsed,
     synthesisUsage: synthesis.usage,
     synthesisModel: synthesis.model,
   });
