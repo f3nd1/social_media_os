@@ -502,9 +502,16 @@ export type Competitor = {
   observedStrengths: string[];
   contentGaps: string[];
   whitespaceOpportunities: string[];
+  // A short factual "About" summary from the same Observe pass: what they
+  // teach/offer, approximate size/scale, and general public sentiment if
+  // found. Optional: only set once an observation has run and found
+  // something solid; empty otherwise.
+  backgroundSummary?: string;
   // Provenance for the "Observe from link" AI web-search pass, so the AI
   // Generation Log can show the real public sources it read (not a guess).
   // Optional: only set once an observation has run for this competitor.
+  // Shared by both the marketing fields above and backgroundSummary, since
+  // both come from the same search+synthesis pass.
   observationSources?: TrendSource[];
   observedAt?: string;
   observedModel?: string;

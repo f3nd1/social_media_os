@@ -20,6 +20,7 @@ export type CompetitorObserveDraft = {
   postingFrequency: string;
   tone: string;
   observedStrengths: string[];
+  background: string;
 };
 
 // A valid observe target must be a real http(s) URL with a proper host, so a
@@ -83,16 +84,18 @@ export function buildCompetitorObserveSearchInput(
   return [
     `Identify the specific organisation whose official website is ${input.profileUrl}${named}.`,
     `Confirm the organisation from that exact domain, ${hostname}. Then find that same organisation's official social media accounts (Instagram, TikTok, Facebook, YouTube, LinkedIn) that are linked from or clearly belong to ${hostname}.`,
-    "From those specific, verified sources only, observe: the content formats they post (for example short video, reels, carousels, live, long-form), how often and when they post, their tone of voice, and their observable strengths.",
-    `Only report what these sources actually show, and do not guess private analytics. Do not report on a different organisation that merely has a similar name. If the organisation cannot be confirmed from ${hostname}, say that nothing could be confirmed and report no findings.`,
+    "From those specific, verified sources, observe: the content formats they post (for example short video, reels, carousels, live, long-form), how often and when they post, their tone of voice, and their observable strengths.",
+    "Also research general background on the organisation itself: what it teaches or offers, its approximate size or scale if mentioned (for example student numbers, campus count, years established), and general public sentiment if anything is found, such as reviews or commonly repeated praise or complaints.",
+    `Only report what these sources actually show, and do not guess private analytics or invent sentiment that is not there. Do not report on a different organisation that merely has a similar name. If the organisation cannot be confirmed from ${hostname}, say that nothing could be confirmed and report no findings.`,
   ].join(" ");
 }
 
 export function buildCompetitorObserveSystemPrompt(): string {
   return [
     "You are a competitive intelligence analyst for a private college in Singapore.",
-    "You observe a competitor's public social media behaviour from web search findings and summarise it for a human Marketing Manager to review and edit. You never act on it yourself.",
-    "Ground every field strictly in the provided search findings and their cited pages. Do not invent formats, numbers, or strengths that the findings do not support. If something cannot be observed, leave that field empty (empty string or empty array).",
+    "You observe a competitor's public social media behaviour and general background from web search findings and summarise it for a human Marketing Manager to review and edit. You never act on it yourself.",
+    "Ground every field strictly in the provided search findings and their cited pages. Do not invent formats, numbers, strengths, or sentiment that the findings do not support. If something cannot be observed, leave that field empty (empty string or empty array).",
+    "The background field is a short, factual summary only: what the organisation teaches or offers, its approximate size or scale if mentioned, and general public sentiment if genuinely found. If the sources give nothing solid for this, leave background as an empty string rather than guessing.",
     COMPLIANCE_PROMPT_RULE + " Keep observations neutral.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     "Return only a single JSON object matching the requested shape.",
@@ -109,6 +112,8 @@ export function buildCompetitorObserveUserPrompt(
     postingFrequency: "string, how often/when they post, in plain words",
     tone: "string, the observed tone of voice",
     observedStrengths: ["string, a strength supported by the findings"],
+    background:
+      "string, 2-3 sentences on what they teach/offer, approximate size or scale if mentioned, and general public sentiment if found; empty string if nothing solid was found",
   };
 
   return [
@@ -145,5 +150,6 @@ export function sanitizeCompetitorObserveDraft(
       typeof draft?.postingFrequency === "string" ? draft.postingFrequency.trim() : "",
     tone: typeof draft?.tone === "string" ? draft.tone.trim() : "",
     observedStrengths: toStringList(draft?.observedStrengths),
+    background: typeof draft?.background === "string" ? draft.background.trim() : "",
   };
 }

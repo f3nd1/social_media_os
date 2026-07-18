@@ -9874,6 +9874,7 @@ function CompetitorIntelligenceView({
   const [observeMessages, setObserveMessages] = useState<
     Record<string, { tone: "success" | "error"; text: string }>
   >({});
+  const [expandedBackgroundId, setExpandedBackgroundId] = useState<string | null>(null);
 
   const liveAi = isLiveAiEnabled(aiIntegration);
 
@@ -9919,6 +9920,7 @@ function CompetitorIntelligenceView({
               postingFrequency: string;
               tone: string;
               observedStrengths: string[];
+              background: string;
             };
             citations?: Array<{ title: string; url: string }>;
             searchUsage?: OpenAiUsage;
@@ -9955,6 +9957,7 @@ function CompetitorIntelligenceView({
                   result.draft.observedStrengths.length > 0
                     ? result.draft.observedStrengths
                     : row.observedStrengths,
+                backgroundSummary: result.draft.background || row.backgroundSummary,
                 observationSources: (result.citations ?? []).map((citation) => ({
                   title: citation.title,
                   url: citation.url,
@@ -10424,6 +10427,50 @@ function CompetitorIntelligenceView({
                           <p className="mt-2 text-xs leading-5 text-muted-foreground">
                             Last observed {formatDateTime(competitor.observedAt)}
                           </p>
+                        ) : null}
+                        {competitor.observedAt ? (
+                          <>
+                            <Button
+                              className="mt-2"
+                              onClick={() =>
+                                setExpandedBackgroundId((current) =>
+                                  current === competitor.id ? null : competitor.id,
+                                )
+                              }
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              {expandedBackgroundId === competitor.id ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                              Background
+                            </Button>
+                            {expandedBackgroundId === competitor.id ? (
+                              <div className="mt-2 rounded-md border bg-muted/30 p-3 text-xs leading-5">
+                                {competitor.backgroundSummary ? (
+                                  <>
+                                    <p>{competitor.backgroundSummary}</p>
+                                    <p className="mt-2 text-muted-foreground">
+                                      From the same {competitor.observationSources?.length ?? 0}{" "}
+                                      cited source
+                                      {(competitor.observationSources?.length ?? 0) === 1
+                                        ? ""
+                                        : "s"}{" "}
+                                      as the fields above. See the AI Generation Log for details.
+                                    </p>
+                                  </>
+                                ) : (
+                                  <p className="text-muted-foreground">
+                                    No background information was found in the public sources
+                                    searched.
+                                  </p>
+                                )}
+                              </div>
+                            ) : null}
+                          </>
                         ) : null}
                         <Button
                           className="mt-2 text-destructive hover:text-destructive"
