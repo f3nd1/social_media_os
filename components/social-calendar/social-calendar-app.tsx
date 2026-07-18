@@ -9978,15 +9978,32 @@ function CompetitorIntelligenceView({
         );
       }
 
+      // Count only the fields actually applied above (same truthiness checks),
+      // so the message can never claim a fuller result than what really
+      // changed on the row.
+      const filledFieldCount = [
+        result.draft.contentFormats.length > 0,
+        Boolean(result.draft.postingFrequency),
+        Boolean(result.draft.tone),
+        result.draft.observedStrengths.length > 0,
+      ].filter(Boolean).length;
       const sourceCount = result.citations?.length ?? 0;
+      const sourceWord = `public source${sourceCount === 1 ? "" : "s"}`;
+
       setObserveMessages((current) => ({
         ...current,
-        [competitor.id]: {
-          tone: "success",
-          text: `Pre-filled from ${sourceCount} public source${
-            sourceCount === 1 ? "" : "s"
-          }. Review and edit before you rely on it.`,
-        },
+        [competitor.id]:
+          filledFieldCount === 0
+            ? {
+                tone: "error",
+                text: `Found ${sourceCount} ${sourceWord}, but could not extract clear content format, tone, frequency, or strength details from them. Fill the fields in by hand, or check the AI Generation Log for the sources found.`,
+              }
+            : {
+                tone: "success",
+                text: `Pre-filled ${filledFieldCount} of 4 field${
+                  filledFieldCount === 1 ? "" : "s"
+                } from ${sourceCount} ${sourceWord}. Review and edit before you rely on it.`,
+              },
       }));
     } catch (error) {
       setObserveMessages((current) => ({
