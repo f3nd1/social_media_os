@@ -9,6 +9,7 @@
 
 import { COMPLIANCE_PROMPT_RULE } from "@/lib/compliance-ai";
 import type { WebSearchCitation } from "@/lib/openai-shared";
+import { platforms, type Platform } from "@/lib/social-calendar-data";
 
 export type CompetitorObserveInput = {
   name: string;
@@ -16,6 +17,7 @@ export type CompetitorObserveInput = {
 };
 
 export type CompetitorObserveDraft = {
+  platforms: string[];
   contentFormats: string[];
   postingFrequency: string;
   tone: string;
@@ -83,8 +85,8 @@ export function buildCompetitorObserveSearchInput(
 
   return [
     `Identify the specific organisation whose official website is ${input.profileUrl}${named}.`,
-    `Confirm the organisation from that exact domain, ${hostname}. Then find that same organisation's official social media accounts (Instagram, TikTok, Facebook, YouTube, LinkedIn) that are linked from or clearly belong to ${hostname}.`,
-    "From those specific, verified sources, observe: the content formats they post (for example short video, reels, carousels, live, long-form), how often and when they post, their tone of voice, and their observable strengths.",
+    `Confirm the organisation from that exact domain, ${hostname}. Then find that same organisation's official social media accounts (TikTok, Instagram, YouTube, LinkedIn, Facebook, X/Twitter, Threads, Pinterest, Reddit) that are linked from or clearly belong to ${hostname}.`,
+    "From those specific, verified sources, observe: which of those platforms they are genuinely and currently active on, the content formats they post (for example short video, reels, carousels, live, long-form), how often and when they post, their tone of voice, and their observable strengths.",
     "Also research general background on the organisation itself: what it teaches or offers, its approximate size or scale if mentioned (for example student numbers, campus count, years established), and general public sentiment if anything is found, such as reviews or commonly repeated praise or complaints.",
     `Only report what these sources actually show, and do not guess private analytics or invent sentiment that is not there. Do not report on a different organisation that merely has a similar name. If the organisation cannot be confirmed from ${hostname}, say that nothing could be confirmed and report no findings.`,
   ].join(" ");
@@ -94,7 +96,8 @@ export function buildCompetitorObserveSystemPrompt(): string {
   return [
     "You are a competitive intelligence analyst for a private college in Singapore.",
     "You observe a competitor's public social media behaviour and general background from web search findings and summarise it for a human Marketing Manager to review and edit. You never act on it yourself.",
-    "Ground every field strictly in the provided search findings and their cited pages. Do not invent formats, numbers, strengths, or sentiment that the findings do not support. If something cannot be observed, leave that field empty (empty string or empty array).",
+    "Ground every field strictly in the provided search findings and their cited pages. Do not invent platforms, formats, numbers, strengths, or sentiment that the findings do not support. If something cannot be observed, leave that field empty (empty string or empty array).",
+    `Only include a platform in the platforms list if the sources genuinely show that account is active, using exactly these names where applicable: ${platforms.join(", ")}. Never guess a platform just because it is common for this kind of organisation.`,
     "The background field is a short, factual summary only: what the organisation teaches or offers, its approximate size or scale if mentioned, and general public sentiment if genuinely found. If the sources give nothing solid for this, leave background as an empty string rather than guessing.",
     COMPLIANCE_PROMPT_RULE + " Keep observations neutral.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
@@ -108,6 +111,7 @@ export function buildCompetitorObserveUserPrompt(
   input: CompetitorObserveInput,
 ): string {
   const shape = {
+    platforms: [`string, one of exactly: ${platforms.join(", ")}, genuinely active`],
     contentFormats: ["string, a content format actually observed"],
     postingFrequency: "string, how often/when they post, in plain words",
     tone: "string, the observed tone of voice",
@@ -140,11 +144,29 @@ function toStringList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+// Only exact, known platform names survive: the model is told the exact list
+// to choose from, so unlike free-text typed by a person, no alias tolerance
+// is needed here, only a defensive filter against invented values.
+function toPlatformList(value: unknown): Platform[] {
+  const seen = new Set<Platform>();
+  const result: Platform[] = [];
+
+  for (const entry of toStringList(value)) {
+    if ((platforms as readonly string[]).includes(entry) && !seen.has(entry as Platform)) {
+      seen.add(entry as Platform);
+      result.push(entry as Platform);
+    }
+  }
+
+  return result;
+}
+
 // Clean the model's draft into safe competitor fields.
 export function sanitizeCompetitorObserveDraft(
   draft: CompetitorObserveDraft,
 ): CompetitorObserveDraft {
   return {
+    platforms: toPlatformList(draft?.platforms),
     contentFormats: toStringList(draft?.contentFormats),
     postingFrequency:
       typeof draft?.postingFrequency === "string" ? draft.postingFrequency.trim() : "",

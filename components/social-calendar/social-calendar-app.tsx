@@ -9970,6 +9970,7 @@ function CompetitorIntelligenceView({
         | {
             ok: true;
             draft: {
+              platforms: string[];
               contentFormats: string[];
               postingFrequency: string;
               tone: string;
@@ -10001,6 +10002,10 @@ function CompetitorIntelligenceView({
           row.id === competitor.id
             ? {
                 ...row,
+                platforms:
+                  result.draft.platforms.length > 0
+                    ? result.draft.platforms.filter(isPlatform)
+                    : row.platforms,
                 contentFormats:
                   result.draft.contentFormats.length > 0
                     ? result.draft.contentFormats
@@ -10039,6 +10044,7 @@ function CompetitorIntelligenceView({
       // so the message can never claim a fuller result than what really
       // changed on the row.
       const filledFieldCount = [
+        result.draft.platforms.length > 0,
         result.draft.contentFormats.length > 0,
         Boolean(result.draft.postingFrequency),
         Boolean(result.draft.tone),
@@ -10055,11 +10061,11 @@ function CompetitorIntelligenceView({
           filledFieldCount === 0
             ? {
                 tone: "error",
-                text: `We found ${sourceCount} ${pageWord} about ${label}, but couldn't pull out clear details on format, tone, frequency, or strengths. You can fill these in yourself, or check the AI Generation Log to see what was found.`,
+                text: `We found ${sourceCount} ${pageWord} about ${label}, but couldn't pull out clear details on platform, format, tone, frequency, or strengths. You can fill these in yourself, or check the AI Generation Log to see what was found.`,
               }
             : {
                 tone: "success",
-                text: `Pre-filled ${filledFieldCount} of 4 field${
+                text: `Pre-filled ${filledFieldCount} of 5 field${
                   filledFieldCount === 1 ? "" : "s"
                 } from ${sourceCount} ${sourceWord}. Review and edit before you rely on it.`,
               },
@@ -11162,14 +11168,17 @@ function CompetitorPlatformsField({
   platforms: Platform[];
 }) {
   const [text, setText] = useState(() => listToText(platforms));
+  const platformsKey = platforms.join(",");
 
   useEffect(() => {
     setText(listToText(platforms));
-    // Only resync from the outside when the row itself changes (e.g. an AI
+    // Resync whenever the row's actual platform values change (e.g. an AI
     // draft fills it in), not on every render, so typing is never overwritten
-    // mid-keystroke by the parsed-and-reformatted value.
+    // mid-keystroke by the parsed-and-reformatted value. Keyed on the joined
+    // value rather than just competitorId, since Observe updates platforms
+    // for the SAME row (same id) and that must still show up here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [competitorId]);
+  }, [competitorId, platformsKey]);
 
   return (
     <Textarea
