@@ -7779,6 +7779,7 @@ function AiGenerationLogView({
   const [statusFilter, setStatusFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
 
   const entries = allEntries.filter((entry) => {
     if (moduleFilter !== "all" && entry.module !== moduleFilter) {
@@ -7813,6 +7814,16 @@ function AiGenerationLogView({
     return true;
   });
 
+  // Paginate the already-filtered list, so filters/search always run against
+  // the full underlying log and only the display is sliced.
+  const AI_LOG_PAGE_SIZE = 20;
+  const totalPages = Math.max(1, Math.ceil(entries.length / AI_LOG_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * AI_LOG_PAGE_SIZE;
+  const pageEntries = entries.slice(pageStart, pageStart + AI_LOG_PAGE_SIZE);
+  const rangeStart = entries.length === 0 ? 0 : pageStart + 1;
+  const rangeEnd = Math.min(pageStart + AI_LOG_PAGE_SIZE, entries.length);
+
   return (
     <section className="space-y-4">
       <Card>
@@ -7828,14 +7839,20 @@ function AiGenerationLogView({
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Field label="Search">
               <Input
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
                 placeholder="Module, summary, or source"
                 value={query}
               />
             </Field>
             <Field label="Module">
               <NativeSelect
-                onChange={(event) => setModuleFilter(event.target.value)}
+                onChange={(event) => {
+                  setModuleFilter(event.target.value);
+                  setPage(1);
+                }}
                 value={moduleFilter}
               >
                 <option value="all">All modules</option>
@@ -7848,7 +7865,10 @@ function AiGenerationLogView({
             </Field>
             <Field label="Status">
               <NativeSelect
-                onChange={(event) => setStatusFilter(event.target.value)}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value);
+                  setPage(1);
+                }}
                 value={statusFilter}
               >
                 <option value="all">All statuses</option>
@@ -7861,21 +7881,28 @@ function AiGenerationLogView({
             </Field>
             <Field label="From">
               <Input
-                onChange={(event) => setFromDate(event.target.value)}
+                onChange={(event) => {
+                  setFromDate(event.target.value);
+                  setPage(1);
+                }}
                 type="date"
                 value={fromDate}
               />
             </Field>
             <Field label="To">
               <Input
-                onChange={(event) => setToDate(event.target.value)}
+                onChange={(event) => {
+                  setToDate(event.target.value);
+                  setPage(1);
+                }}
                 type="date"
                 value={toDate}
               />
             </Field>
           </div>
           <p className="text-xs text-muted-foreground">
-            Showing {entries.length} of {allEntries.length} AI generations.
+            Showing {rangeStart}-{rangeEnd} of {entries.length} filtered AI generation
+            {entries.length === 1 ? "" : "s"} ({allEntries.length} total).
           </p>
         </CardContent>
       </Card>
@@ -7911,16 +7938,43 @@ function AiGenerationLogView({
           title="No AI generations match"
         />
       ) : (
-        <div className="space-y-2">
-          {entries.map((entry) => (
-            <AiLogEntryCard
-              entry={entry}
-              flagged={flaggedSet.has(entry.id)}
-              key={entry.id}
-              onToggleFlag={toggleFlag}
-            />
-          ))}
-        </div>
+        <>
+          <div className="space-y-2">
+            {pageEntries.map((entry) => (
+              <AiLogEntryCard
+                entry={entry}
+                flagged={flaggedSet.has(entry.id)}
+                key={entry.id}
+                onToggleFlag={toggleFlag}
+              />
+            ))}
+          </div>
+          {totalPages > 1 ? (
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <Button
+                disabled={safePage <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Previous
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Page {safePage} of {totalPages}
+              </p>
+              <Button
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Next
+              </Button>
+            </div>
+          ) : null}
+        </>
       )}
     </section>
   );
