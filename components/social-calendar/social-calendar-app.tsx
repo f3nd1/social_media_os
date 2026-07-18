@@ -9816,6 +9816,37 @@ function buildGoalAwareAuditRecommendations(
   ];
 }
 
+// A textarea that grows with its content instead of showing an inner
+// scrollbar, so pre-filled or typed lists stay fully visible. The min-height
+// from Textarea still sets the floor.
+function AutoGrowTextarea({
+  value,
+  className,
+  ...rest
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const element = ref.current;
+
+    if (!element) {
+      return;
+    }
+
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <Textarea
+      className={cn("resize-none overflow-hidden", className)}
+      ref={ref}
+      value={value}
+      {...rest}
+    />
+  );
+}
+
 function CompetitorIntelligenceView({
   aiIntegration,
   brand,
@@ -10396,7 +10427,7 @@ function CompetitorIntelligenceView({
                         />
                       </td>
                       <td className="min-w-[230px] py-3 pr-4 align-top">
-                        <Textarea
+                        <AutoGrowTextarea
                           value={listToText(competitor.contentFormats)}
                           onChange={(event) =>
                             updateCompetitor(
@@ -10428,7 +10459,7 @@ function CompetitorIntelligenceView({
                         />
                       </td>
                       <td className="min-w-[260px] py-3 pr-4 align-top">
-                        <Textarea
+                        <AutoGrowTextarea
                           value={listToText(competitor.observedStrengths)}
                           onChange={(event) =>
                             updateCompetitor(
