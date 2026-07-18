@@ -31,6 +31,7 @@ import {
   Gauge,
   GraduationCap,
   ListChecks,
+  Loader2,
   PenLine,
   Plus,
   RefreshCcw,
@@ -108,6 +109,7 @@ import {
   type CompetitorAiContext,
   type CompetitorAiDraft,
 } from "@/lib/competitor-ai";
+import { isValidObserveUrl } from "@/lib/competitor-observe-ai";
 import {
   copyDraftToPatch,
   type CopyAiContext,
@@ -9848,10 +9850,13 @@ function CompetitorIntelligenceView({
   // search over what is publicly indexed, then pre-fill the record's formats,
   // frequency, tone, and strengths for the manager to review and edit.
   async function observeFromLink(competitor: Competitor) {
-    if (!competitor.website.trim()) {
+    if (!isValidObserveUrl(competitor.website)) {
       setObserveMessages((current) => ({
         ...current,
-        [competitor.id]: { tone: "error", text: "Add a profile or website link first." },
+        [competitor.id]: {
+          tone: "error",
+          text: "Enter a full website or profile URL that starts with http:// or https://.",
+        },
       }));
       return;
     }
@@ -10283,6 +10288,7 @@ function CompetitorIntelligenceView({
                       <td className="min-w-[220px] py-3 pr-4 align-top">
                         <Input
                           className="mb-2"
+                          placeholder="e.g. Amity Global Education"
                           value={competitor.name}
                           onChange={(event) =>
                             updateCompetitor(
@@ -10292,32 +10298,58 @@ function CompetitorIntelligenceView({
                             )
                           }
                         />
-                        <Input
-                          placeholder="Profile or website link"
-                          value={competitor.website}
-                          onChange={(event) =>
-                            updateCompetitor(
-                              competitor.id,
-                              "website",
-                              event.target.value,
-                            )
-                          }
-                        />
-                        <Button
-                          className="mt-2"
-                          disabled={
-                            !liveAi ||
-                            observingId !== null ||
-                            !competitor.website.trim()
-                          }
-                          onClick={() => void observeFromLink(competitor)}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          <SearchCheck className="h-4 w-4" />
-                          {observingId === competitor.id ? "Observing" : "Observe from link"}
-                        </Button>
+                        {(() => {
+                          const websiteInvalid =
+                            competitor.website.trim().length > 0 &&
+                            !isValidObserveUrl(competitor.website);
+
+                          return (
+                            <>
+                              <Input
+                                aria-invalid={websiteInvalid}
+                                className={cn(
+                                  websiteInvalid &&
+                                    "border-destructive focus-visible:ring-destructive",
+                                )}
+                                placeholder="https://competitor-website.com"
+                                value={competitor.website}
+                                onChange={(event) =>
+                                  updateCompetitor(
+                                    competitor.id,
+                                    "website",
+                                    event.target.value,
+                                  )
+                                }
+                              />
+                              {websiteInvalid ? (
+                                <p className="mt-1 text-xs leading-5 text-destructive">
+                                  Enter a full URL starting with http:// or https://.
+                                </p>
+                              ) : null}
+                              <Button
+                                className="mt-2"
+                                disabled={
+                                  !liveAi ||
+                                  observingId !== null ||
+                                  !isValidObserveUrl(competitor.website)
+                                }
+                                onClick={() => void observeFromLink(competitor)}
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                {observingId === competitor.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <SearchCheck className="h-4 w-4" />
+                                )}
+                                {observingId === competitor.id
+                                  ? "Observing"
+                                  : "Observe from link"}
+                              </Button>
+                            </>
+                          );
+                        })()}
                         {observeMessages[competitor.id] ? (
                           <p
                             className={cn(
@@ -10335,7 +10367,12 @@ function CompetitorIntelligenceView({
                           </p>
                         ) : !competitor.website.trim() ? (
                           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                            Add a profile or website link above to observe.
+                            Add a website or profile URL above to observe.
+                          </p>
+                        ) : null}
+                        {competitor.observedAt ? (
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            Last observed {formatDateTime(competitor.observedAt)}
                           </p>
                         ) : null}
                         <Button
