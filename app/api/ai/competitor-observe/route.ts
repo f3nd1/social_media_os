@@ -80,6 +80,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: search.error });
   }
 
+  // Logged so a real run can be diagnosed from the server logs (pm2 logs):
+  // the raw search findings and citations feeding the synthesis step, before
+  // any field extraction happens.
+  console.log(
+    `[competitor-observe] search for ${profileUrl}: ${search.citations.length} citation(s)\n` +
+      `citations: ${JSON.stringify(search.citations)}\n` +
+      `raw search text: ${search.text}`,
+  );
+
   if (search.citations.length === 0) {
     return NextResponse.json({
       ok: false,
@@ -100,6 +109,12 @@ export async function POST(request: Request) {
   if (!synthesis.ok) {
     return NextResponse.json({ ok: false, error: synthesis.error });
   }
+
+  // Logged before sanitizeCompetitorObserveDraft touches it, so this is
+  // exactly what the model returned.
+  console.log(
+    `[competitor-observe] raw synthesis draft for ${profileUrl}: ${JSON.stringify(synthesis.data)}`,
+  );
 
   return NextResponse.json({
     ok: true,
