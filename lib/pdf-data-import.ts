@@ -60,6 +60,10 @@ const platformAliases: Record<Platform, string[]> = {
   Threads: ["threads"],
   Pinterest: ["pinterest"],
   Reddit: ["reddit"],
+  // "red" alone is deliberately NOT an alias here: this matcher scans raw PDF
+  // cell text on word boundaries, and a bare colour word would false-match.
+  Xiaohongshu: ["xiaohongshu", "xhs", "little red book", "小红书"],
+  WeChat: ["wechat", "weixin", "wechat official account", "微信"],
 };
 
 const metricAliases: Record<MetricKey, string[]> = {

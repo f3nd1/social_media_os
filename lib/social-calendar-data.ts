@@ -10,6 +10,8 @@ export const platforms = [
   "Threads",
   "Pinterest",
   "Reddit",
+  "Xiaohongshu",
+  "WeChat",
 ] as const;
 
 export type Platform = (typeof platforms)[number];
@@ -1191,6 +1193,28 @@ export const platformRules: Record<
     bestPostingTime: "10:00 PM",
     guardrail: "Never read as an advert; help first and mention the college only if directly relevant, in comments.",
   },
+  Xiaohongshu: {
+    role: "Peer-style discovery for Chinese-speaking students and parents",
+    persona: "trusted senior student sharing notes",
+    content: "Bilingual notes with 3:4 image cards, campus life, study tips, honest comparison checklists",
+    cta: "Save this note and ask in the comments.",
+    metrics: "Saves, comments, follows",
+    defaultFormat: "Bilingual note with 3:4 image cards",
+    bestPostingTime: "9:00 PM",
+    guardrail:
+      "Write like peer advice in Simplified Chinese first, and keep every claim factual in both languages; no admission, employment, salary, or visa promises.",
+  },
+  WeChat: {
+    role: "Long-form trust building for parents and applicants",
+    persona: "clear, careful admissions guide",
+    content: "Official account articles, step-by-step guides, teacher and campus stories, event notices",
+    cta: "Follow the official account and message us your questions.",
+    metrics: "Reads, follows, enquiry messages",
+    defaultFormat: "Official account article",
+    bestPostingTime: "8:00 PM",
+    guardrail:
+      "Parents read closely, so every claim must be verifiable in both languages; no admission, employment, salary, or visa promises.",
+  },
 };
 
 // Platform craft rules adapted from Darthflute/social-calendar-skill (MIT
@@ -1218,6 +1242,10 @@ export const PLATFORM_CONTENT_RULES: Record<Platform, string> = {
     "Treat Pinterest as a visual search engine, not a social feed. Use vertical 2:3 images (1000x1500). Pin titles are search queries: keyword-led, 40 to 60 characters. Descriptions are keyword-rich and factual, 100 to 300 characters, and explain the value. Every pin links to a real destination page, and a clear board strategy groups pins by topic. Volume helps, so plan several pins per idea.",
   Reddit:
     "Reddit is a community, not a billboard. Content must never read as an advert. Write like a practitioner sharing genuine value in one specific subreddit, first-person and honest. Never lead with the college name; mention it only in comments and only when directly relevant. Original data, first-hand explainers, and honest questions work; promotional copy gets removed.",
+  Xiaohongshu:
+    "Xiaohongshu (RED) reads as peer notes, not adverts. Write in Simplified Chinese first with an English summary where useful. Use 3 to 6 vertical 3:4 image cards with a keyword-led title card; titles under 20 Chinese characters perform best in search. Tone is personal and practical, like a senior student sharing experience. Answer comments quickly and in the commenter's language. Overt promotional copy is downranked, so lead with genuinely useful detail.",
+  WeChat:
+    "WeChat official account articles are long-form and read closely, especially by parents. Write in Simplified Chinese with clear section subheadings, real photos, and a factual, careful tone. Put the key answer early, then the detail. End with the follow QR code and how to message the admissions team. There is no public discovery feed, so every article must be worth forwarding into family group chats; forwards are the growth mechanic.",
 };
 
 // Per-platform playbook: an AI-draft-then-Manager-approve workflow (see
@@ -1445,6 +1473,8 @@ function buildRepurposePlan(platform: Platform) {
     Threads: "Turn strongest reply into X post, TikTok prompt, and Instagram story question.",
     Pinterest: "Turn into a searchable FAQ post, an Instagram carousel, and a LinkedIn proof post.",
     Reddit: "Turn the honest answer into a Threads prompt, an X insight thread, and a Facebook parent explainer.",
+    Xiaohongshu: "Turn the note into an Instagram carousel, a WeChat article section, and a TikTok checklist.",
+    WeChat: "Turn the article into a Xiaohongshu note series, a LinkedIn proof post, and a Facebook parent explainer.",
   };
 
   return plans[platform];
@@ -2459,6 +2489,10 @@ const seedBrief: StrategyBrief = {
       "Publish keyword-led vertical guides and checklists that link back to real course and admissions pages for students planning ahead.",
     Reddit:
       "Answer genuine student questions in the right subreddits as a helpful practitioner, never as an advert, and only mention the college when directly relevant.",
+    Xiaohongshu:
+      "Share bilingual peer-style notes with campus photos and honest checklists for Chinese-speaking students and parents comparing Singapore colleges.",
+    WeChat:
+      "Publish careful long-form official account articles that answer parents' real questions step by step and invite enquiries to the admissions team.",
   },
   contentMixRecommendation:
     "40% proof and demonstrations, 25% student-life relatability, 20% admissions guidance, 15% community trust. Use video for campus proof, carousel for comparison, text for parent reassurance, and short posts for deadline clarity.",
@@ -3322,6 +3356,38 @@ function buildPlatformNativeCopy(
         assignedRole: "copywriter" as Role,
         videoScript: "",
         shotNotes: "No shot list; this is a text-first community post.",
+      };
+    case "Xiaohongshu":
+      return {
+        format: "Bilingual note with 3:4 image cards",
+        hook: `${topic.topic}: what Chinese-speaking students and parents actually ask`,
+        caption: `A practical note for families comparing colleges in Singapore.\n\n${topic.angle}\n\nProof to look for: ${topic.proof}\n\nWrite the note in Simplified Chinese first with an English summary, and answer questions in the comments in the language they were asked.`,
+        visualDirection:
+          "Three to six vertical 3:4 image cards: a keyword-led title card, real campus photos, and one clear checklist card. Clean, authentic, not advert-styled.",
+        cta: `Save this note and ask questions in the comments about the ${topic.ctaFocus.toLowerCase()}.`,
+        hashtags: ["#新加坡留学", "#留学攻略", "#SingaporeStudy", "#CampusLife"],
+        productionNotes:
+          "Xiaohongshu reads as peer advice, so keep it factual and personal in tone. Reply to comments quickly. Never promise admission, employment, salary, or visa outcomes in either language.",
+        assignedRole: "copywriter" as Role,
+        videoScript: "",
+        shotNotes:
+          "Shoot bright vertical campus photos and design one title card and one checklist card at 3:4.",
+      };
+    case "WeChat":
+      return {
+        format: "Official account article",
+        hook: `${topic.topic}: a clear guide for students and parents`,
+        caption: `A longer, factual article for the official account, written in Simplified Chinese with an English summary at the end.\n\nStructure: open with the real question families ask, explain ${topic.angle.toLowerCase()} step by step, then show the proof: ${topic.proof}\n\nClose with how to speak to the admissions team, not a hard sell.`,
+        visualDirection:
+          "Article header image, clear section subheadings, real campus and classroom photos, and a follow QR code at the end.",
+        cta: `Follow the official account and message us about the ${topic.ctaFocus.toLowerCase()}.`,
+        hashtags: [],
+        productionNotes:
+          "WeChat articles are read closely by parents, so keep claims factual and verifiable. No guaranteed admission, employment, salary, or visa language in either language.",
+        assignedRole: "copywriter" as Role,
+        videoScript: "",
+        shotNotes:
+          "Prepare one header image and two or three supporting campus photos sized for the article body.",
       };
   }
 }

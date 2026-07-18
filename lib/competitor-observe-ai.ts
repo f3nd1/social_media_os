@@ -97,7 +97,7 @@ export function buildCompetitorSocialSearchInput(
 
   return [
     `Identify the specific organisation whose official website is ${input.profileUrl}${named}, confirmed from the exact domain ${hostname}.`,
-    `Find that same organisation's OWN official social media profile pages. Search specifically for their accounts on each of these platforms: TikTok, Instagram, YouTube, LinkedIn, Facebook, X/Twitter, Threads. For example look for "${label} Instagram", "${label} TikTok", site:instagram.com ${label}, site:tiktok.com ${label}, site:facebook.com ${label}, site:linkedin.com ${label}, and any social links on ${hostname} itself.`,
+    `Find that same organisation's OWN official social media profile pages. Search specifically for their accounts on each of these platforms: TikTok, Instagram, YouTube, LinkedIn, Facebook, X/Twitter, Threads, Xiaohongshu (RED, 小红书), and WeChat official account (微信公众号). For example look for "${label} Instagram", "${label} TikTok", "${label} 小红书", "${label} 微信公众号", site:instagram.com ${label}, site:tiktok.com ${label}, site:facebook.com ${label}, site:linkedin.com ${label}, site:xiaohongshu.com ${label}, and any social links on ${hostname} itself.`,
     "From those specific profile pages only, observe: which platforms they are genuinely and currently active on (with the profile url for each), the content formats they post (for example short video, reels, carousels, live, long-form), how often and when they post, their tone of voice, and their observable strengths.",
     `Only report what the actual profile pages show. Do not guess posting behaviour you cannot see, and do not report on a different organisation that merely has a similar name. If no official social profiles for ${hostname} can be found, say so and report no social findings.`,
   ].join(" ");
@@ -259,6 +259,11 @@ const PLATFORM_DOMAINS: Array<{ suffixes: string[]; name: Platform }> = [
   { suffixes: ["threads.net"], name: "Threads" },
   { suffixes: ["pinterest.com", "pin.it"], name: "Pinterest" },
   { suffixes: ["reddit.com", "redd.it"], name: "Reddit" },
+  { suffixes: ["xiaohongshu.com", "xhslink.com"], name: "Xiaohongshu" },
+  // Anchor links to WeChat official accounts point at weixin.qq.com. WeChat is
+  // very often embedded as a QR-code image instead of an anchor, which no
+  // href scrape can see; that case stays honestly empty.
+  { suffixes: ["weixin.qq.com"], name: "WeChat" },
 ];
 
 function matchPlatformDomain(hostname: string): Platform | null {

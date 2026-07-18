@@ -11137,7 +11137,7 @@ function PlaybookField({
 // the field's title and placeholder rather than silently vanishing with no
 // explanation.
 const PLATFORMS_FIELD_TITLE =
-  "Only these platform names (or common aliases) are kept: TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads, Pinterest, Reddit";
+  "Only these platform names (or common aliases) are kept: TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads, Pinterest, Reddit, Xiaohongshu, WeChat";
 
 // A single field that is EITHER a linked, read-only display (platform names
 // that have a real url render as clickable links) OR the plain editable
@@ -15982,6 +15982,16 @@ const PLATFORM_ALIASES: Record<string, Platform> = {
   x: "X/Twitter",
   twitter: "X/Twitter",
   threads: "Threads",
+  pinterest: "Pinterest",
+  reddit: "Reddit",
+  xiaohongshu: "Xiaohongshu",
+  xhs: "Xiaohongshu",
+  red: "Xiaohongshu",
+  "little red book": "Xiaohongshu",
+  "小红书": "Xiaohongshu",
+  wechat: "WeChat",
+  weixin: "WeChat",
+  "微信": "WeChat",
 };
 
 // Parse a free-text list of platforms into known Platform values, tolerating
