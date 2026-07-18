@@ -202,6 +202,7 @@ import {
   type CalendarItemKind,
   type CalendarStatus,
   type Competitor,
+  type CompetitorPlatform,
   type FunnelStage,
   type MarketingWorkspaceData,
   type PdfMetricReview,
@@ -430,6 +431,10 @@ export function SocialCalendarApp() {
     createSeedWorkspaceData(),
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
+  // One-shot search seed for the AI Generation Log, set when another screen
+  // deep-links into it (e.g. the competitor observe message). Consumed and
+  // cleared on the log's first mount so a later plain nav starts unfiltered.
+  const [aiLogSeedQuery, setAiLogSeedQuery] = useState("");
   const [myDayMode, setMyDayMode] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
   // Remembers the tab last used inside each module, so switching between
@@ -1198,6 +1203,10 @@ export function SocialCalendarApp() {
                   updateWorkspace((current) => ({ ...current, competitors }))
                 }
                 onOfferUndo={offerUndo}
+                onOpenAiLog={() => {
+                  setAiLogSeedQuery("Competitor observe");
+                  setActiveView("aiLog");
+                }}
                 onRecordUsage={recordAiUsage}
               />
             ) : null}
@@ -1347,6 +1356,8 @@ export function SocialCalendarApp() {
             {activeView === "aiLog" ? (
               <AiGenerationLogView
                 flaggedAiEntries={data.flaggedAiEntries ?? []}
+                initialQuery={aiLogSeedQuery}
+                onConsumeInitialQuery={() => setAiLogSeedQuery("")}
                 onFlaggedChange={(flaggedAiEntries) =>
                   updateWorkspace((current) => ({ ...current, flaggedAiEntries }))
                 }
@@ -7748,10 +7759,14 @@ function AiLogEntryCard({
 
 function AiGenerationLogView({
   flaggedAiEntries,
+  initialQuery = "",
+  onConsumeInitialQuery,
   onFlaggedChange,
   workspace,
 }: {
   flaggedAiEntries: string[];
+  initialQuery?: string;
+  onConsumeInitialQuery?: () => void;
   onFlaggedChange: (flaggedAiEntries: string[]) => void;
   workspace: MarketingWorkspaceData;
 }) {
@@ -7774,12 +7789,23 @@ function AiGenerationLogView({
     a.localeCompare(b),
   );
 
-  const [query, setQuery] = useState("");
+  // Seed the search from a deep-link (e.g. the competitor observe message), then
+  // clear the parent seed so a later plain nav to this screen starts unfiltered.
+  const [query, setQuery] = useState(initialQuery);
   const [moduleFilter, setModuleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    if (initialQuery) {
+      onConsumeInitialQuery?.();
+    }
+    // Run once on mount: the seed is captured into `query` above; clearing the
+    // parent here only affects future mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const entries = allEntries.filter((entry) => {
     if (moduleFilter !== "all" && entry.module !== moduleFilter) {
@@ -9910,6 +9936,7 @@ function CompetitorIntelligenceView({
   onCompetitorInsightsChange,
   onCompetitorsChange,
   onOfferUndo,
+  onOpenAiLog,
   onRecordUsage,
 }: {
   aiIntegration: AiIntegrationSettings;
@@ -9920,13 +9947,14 @@ function CompetitorIntelligenceView({
   onCompetitorInsightsChange: (competitorInsights: CompetitorInsight[]) => void;
   onCompetitorsChange: (competitors: Competitor[]) => void;
   onOfferUndo: (message: string, onExpire?: () => void) => void;
+  onOpenAiLog: () => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
   const [analysing, setAnalysing] = useState(false);
   const [analyseError, setAnalyseError] = useState("");
   const [observingId, setObservingId] = useState<string | null>(null);
   const [observeMessages, setObserveMessages] = useState<
-    Record<string, { tone: "success" | "error"; text: string }>
+    Record<string, { tone: "success" | "error"; text: string; showLogLink?: boolean }>
   >({});
 
   const liveAi = isLiveAiEnabled(aiIntegration);
@@ -9969,7 +9997,7 @@ function CompetitorIntelligenceView({
         | {
             ok: true;
             draft: {
-              platforms: string[];
+              platforms: Array<{ name: string; url: string }>;
               contentFormats: string[];
               postingFrequency: string;
               tone: string;
@@ -10001,10 +10029,10 @@ function CompetitorIntelligenceView({
           row.id === competitor.id
             ? {
                 ...row,
-                platforms:
-                  result.draft.platforms.length > 0
-                    ? result.draft.platforms.filter(isPlatform)
-                    : row.platforms,
+                platforms: (() => {
+                  const observed = toCompetitorPlatforms(result.draft.platforms);
+                  return observed.length > 0 ? observed : row.platforms;
+                })(),
                 contentFormats:
                   result.draft.contentFormats.length > 0
                     ? result.draft.contentFormats
@@ -10060,7 +10088,8 @@ function CompetitorIntelligenceView({
           filledFieldCount === 0
             ? {
                 tone: "error",
-                text: `We found ${sourceCount} ${pageWord} about ${label}, but couldn't pull out clear details on platform, format, tone, frequency, or strengths. You can fill these in yourself, or check the AI Generation Log to see what was found.`,
+                text: `We found ${sourceCount} ${pageWord} about ${label}, but couldn't pull out clear details on platform, format, tone, frequency, or strengths. You can fill these in yourself, or check the`,
+                showLogLink: true,
               }
             : {
                 tone: "success",
@@ -10110,7 +10139,7 @@ function CompetitorIntelligenceView({
               id: competitor.id,
               name: competitor.name,
               website: competitor.website,
-              platforms: competitor.platforms,
+              platforms: competitor.platforms.map((platform) => platform.name),
               contentFormats: competitor.contentFormats,
               tone: competitor.tone,
               postingFrequency: competitor.postingFrequency,
@@ -10459,6 +10488,19 @@ function CompetitorIntelligenceView({
                         )}
                       >
                         {observeMessages[competitor.id].text}
+                        {observeMessages[competitor.id].showLogLink ? (
+                          <>
+                            {" "}
+                            <button
+                              className="font-medium underline underline-offset-2"
+                              onClick={onOpenAiLog}
+                              type="button"
+                            >
+                              AI Generation Log
+                            </button>{" "}
+                            to see what was found.
+                          </>
+                        ) : null}
                       </p>
                     ) : !liveAi ? (
                       <p className="text-xs leading-5 text-muted-foreground">
@@ -11119,30 +11161,62 @@ function CompetitorPlatformsField({
   platforms,
 }: {
   competitorId: string;
-  onChange: (competitorId: string, platforms: Platform[]) => void;
-  platforms: Platform[];
+  onChange: (competitorId: string, platforms: CompetitorPlatform[]) => void;
+  platforms: CompetitorPlatform[];
 }) {
-  const [text, setText] = useState(() => listToText(platforms));
-  const platformsKey = platforms.join(",");
+  const [text, setText] = useState(() => listToText(platforms.map((platform) => platform.name)));
+  // Keyed on both names and urls, so an Observe run that adds a link to an
+  // already-listed platform still resyncs.
+  const platformsKey = platforms.map((platform) => `${platform.name}|${platform.url}`).join(",");
 
   useEffect(() => {
-    setText(listToText(platforms));
-    // Resync whenever the row's actual platform values change (e.g. an AI
-    // draft fills it in), not on every render, so typing is never overwritten
-    // mid-keystroke by the parsed-and-reformatted value. Keyed on the joined
-    // value rather than just competitorId, since Observe updates platforms
-    // for the SAME row (same id) and that must still show up here.
+    setText(listToText(platforms.map((platform) => platform.name)));
+    // Resync whenever the row's actual platform values change (e.g. an Observe
+    // run fills them in), not on every render, so typing is never overwritten
+    // mid-keystroke by the parsed-and-reformatted value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [competitorId, platformsKey]);
 
+  // On blur, re-parse the names but keep any profile url already found for a
+  // platform that survives the edit, so a manual tidy-up never loses links.
+  function commit() {
+    const urlByName = new Map(platforms.map((platform) => [platform.name, platform.url]));
+    onChange(
+      competitorId,
+      parsePlatformList(text).map((name) => ({ name, url: urlByName.get(name) ?? "" })),
+    );
+  }
+
   return (
-    <Textarea
-      onBlur={() => onChange(competitorId, parsePlatformList(text))}
-      onChange={(event) => setText(event.target.value)}
-      placeholder="e.g. TikTok, Instagram"
-      title="Only these platform names (or common aliases) are kept: TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads"
-      value={text}
-    />
+    <div className="space-y-1.5">
+      {platforms.some((platform) => platform.url) ? (
+        <ul className="space-y-0.5 text-xs">
+          {platforms.map((platform) => (
+            <li key={platform.name}>
+              {platform.url ? (
+                <a
+                  className="font-medium underline underline-offset-2"
+                  href={platform.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {platform.name}
+                </a>
+              ) : (
+                <span className="text-muted-foreground">{platform.name}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <Textarea
+        onBlur={commit}
+        onChange={(event) => setText(event.target.value)}
+        placeholder="e.g. TikTok, Instagram"
+        title="Only these platform names (or common aliases) are kept: TikTok, Instagram, YouTube Shorts, LinkedIn, Facebook, X/Twitter, Threads"
+        value={text}
+      />
+    </div>
   );
 }
 
@@ -15344,7 +15418,7 @@ function csvToCompetitor(row: Record<string, string>): Competitor {
     id: readCsv(row, ["id"], crypto.randomUUID()),
     name: readCsv(row, ["name", "competitor"], "Imported competitor"),
     website: readCsv(row, ["website", "url"], ""),
-    platforms: textToList(readCsv(row, ["platforms"])).filter(isPlatform),
+    platforms: parsePlatformList(readCsv(row, ["platforms"])).map((name) => ({ name, url: "" })),
     contentFormats: textToList(readCsv(row, ["formats", "content_formats"])),
     tone: readCsv(row, ["tone"], ""),
     postingFrequency: readCsv(row, ["frequency", "posting_frequency"], ""),
@@ -15906,6 +15980,27 @@ function parsePlatformList(text: string): Platform[] {
       seen.add(platform);
       result.push(platform);
     }
+  }
+  return result;
+}
+
+// Map observed platform objects ({name, url}) into known Platform values,
+// tolerating aliases, de-duplicating, and keeping a url only when it is a real
+// http(s) link so a fabricated link is never rendered.
+function toCompetitorPlatforms(
+  observed: Array<{ name?: string; url?: string }>,
+): CompetitorPlatform[] {
+  const seen = new Set<Platform>();
+  const result: CompetitorPlatform[] = [];
+  for (const entry of observed ?? []) {
+    const raw = (entry?.name ?? "").trim();
+    const name = isPlatform(raw) ? (raw as Platform) : PLATFORM_ALIASES[raw.toLowerCase()];
+    if (!name || seen.has(name)) {
+      continue;
+    }
+    const rawUrl = (entry?.url ?? "").trim();
+    seen.add(name);
+    result.push({ name, url: /^https?:\/\//i.test(rawUrl) ? rawUrl : "" });
   }
   return result;
 }

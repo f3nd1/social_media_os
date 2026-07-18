@@ -16,8 +16,10 @@ export type CompetitorObserveInput = {
   profileUrl: string;
 };
 
+export type ObservedPlatform = { name: string; url: string };
+
 export type CompetitorObserveDraft = {
-  platforms: string[];
+  platforms: ObservedPlatform[];
   contentFormats: string[];
   postingFrequency: string;
   tone: string;
@@ -111,7 +113,12 @@ export function buildCompetitorObserveUserPrompt(
   input: CompetitorObserveInput,
 ): string {
   const shape = {
-    platforms: [`string, one of exactly: ${platforms.join(", ")}, genuinely active`],
+    platforms: [
+      {
+        name: `string, one of exactly: ${platforms.join(", ")}, genuinely active`,
+        url: "string, the official public profile url on that platform if a cited source shows one, otherwise an empty string. Never invent a url.",
+      },
+    ],
     contentFormats: ["string, a content format actually observed"],
     postingFrequency: "string, how often/when they post, in plain words",
     tone: "string, the observed tone of voice",
@@ -144,18 +151,25 @@ function toStringList(value: unknown): string[] {
     .filter(Boolean);
 }
 
-// Only exact, known platform names survive: the model is told the exact list
-// to choose from, so unlike free-text typed by a person, no alias tolerance
-// is needed here, only a defensive filter against invented values.
-function toPlatformList(value: unknown): Platform[] {
+// Only exact, known platform names survive (the model is told the exact list,
+// so no alias tolerance is needed, only a defensive filter against invented
+// values), and a url is kept only when it is a genuine http(s) link so a
+// fabricated profile link is never passed to the client.
+function toObservedPlatforms(value: unknown): ObservedPlatform[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
   const seen = new Set<Platform>();
-  const result: Platform[] = [];
+  const result: ObservedPlatform[] = [];
 
-  for (const entry of toStringList(value)) {
-    if ((platforms as readonly string[]).includes(entry) && !seen.has(entry as Platform)) {
-      seen.add(entry as Platform);
-      result.push(entry as Platform);
+  for (const entry of value) {
+    const name = typeof entry?.name === "string" ? entry.name.trim() : "";
+    if (!(platforms as readonly string[]).includes(name) || seen.has(name as Platform)) {
+      continue;
     }
+    const rawUrl = typeof entry?.url === "string" ? entry.url.trim() : "";
+    seen.add(name as Platform);
+    result.push({ name, url: /^https?:\/\//i.test(rawUrl) ? rawUrl : "" });
   }
 
   return result;
@@ -166,7 +180,7 @@ export function sanitizeCompetitorObserveDraft(
   draft: CompetitorObserveDraft,
 ): CompetitorObserveDraft {
   return {
-    platforms: toPlatformList(draft?.platforms),
+    platforms: toObservedPlatforms(draft?.platforms),
     contentFormats: toStringList(draft?.contentFormats),
     postingFrequency:
       typeof draft?.postingFrequency === "string" ? draft.postingFrequency.trim() : "",

@@ -491,11 +491,16 @@ export function reconcileContentPillars(
   return next;
 }
 
+// A competitor platform carries the known platform name plus, when observation
+// found a genuine profile page, its public url so the manager can open it. The
+// url is empty when none was found; we never fabricate one.
+export type CompetitorPlatform = { name: Platform; url: string };
+
 export type Competitor = {
   id: string;
   name: string;
   website: string;
-  platforms: Platform[];
+  platforms: CompetitorPlatform[];
   contentFormats: string[];
   tone: string;
   postingFrequency: string;
@@ -3462,7 +3467,11 @@ const seedCompetitors: Competitor[] = [
     id: "competitor-1",
     name: "MetroTech Institute",
     website: "https://metrotech.example.edu",
-    platforms: ["TikTok", "Instagram", "Facebook"],
+    platforms: [
+      { name: "TikTok", url: "" },
+      { name: "Instagram", url: "" },
+      { name: "Facebook", url: "" },
+    ],
     contentFormats: ["Student POV reels", "Lab demos", "Open house reminders"],
     tone: "Energetic and youth-led",
     postingFrequency: "Daily short-form, 3 carousels/week",
@@ -3484,7 +3493,11 @@ const seedCompetitors: Competitor[] = [
     id: "competitor-2",
     name: "Harborview College",
     website: "https://harborview.example.edu",
-    platforms: ["Facebook", "LinkedIn", "Instagram"],
+    platforms: [
+      { name: "Facebook", url: "" },
+      { name: "LinkedIn", url: "" },
+      { name: "Instagram", url: "" },
+    ],
     contentFormats: ["Alumni features", "Event albums", "Faculty posts"],
     tone: "Established and formal",
     postingFrequency: "4 posts/week",
@@ -3506,7 +3519,11 @@ const seedCompetitors: Competitor[] = [
     id: "competitor-3",
     name: "BrightPath Academy",
     website: "https://brightpath.example.edu",
-    platforms: ["TikTok", "YouTube Shorts", "Threads"],
+    platforms: [
+      { name: "TikTok", url: "" },
+      { name: "YouTube Shorts", url: "" },
+      { name: "Threads", url: "" },
+    ],
     contentFormats: ["Myth-busting shorts", "Q&A clips", "Student interviews"],
     tone: "Playful and direct",
     postingFrequency: "5 shorts/week",
@@ -3528,7 +3545,11 @@ const seedCompetitors: Competitor[] = [
     id: "competitor-4",
     name: "Eastbridge Skills College",
     website: "https://eastbridge.example.edu",
-    platforms: ["Facebook", "Instagram", "X/Twitter"],
+    platforms: [
+      { name: "Facebook", url: "" },
+      { name: "Instagram", url: "" },
+      { name: "X/Twitter", url: "" },
+    ],
     contentFormats: ["Deadline reminders", "Scholarship posts", "Program graphics"],
     tone: "Helpful but announcement-heavy",
     postingFrequency: "1-2 posts/day",

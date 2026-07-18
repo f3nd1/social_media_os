@@ -5,8 +5,10 @@ import {
   createSeedWorkspaceData,
   platforms,
   type ApprovalStage,
+  type CompetitorPlatform,
   type ContentPillar,
   type MarketingWorkspaceData,
+  type Platform,
   type PlatformPlaybook,
   type SetupGuideProgress,
 } from "@/lib/social-calendar-data";
@@ -21,6 +23,29 @@ function deriveContentPillarsFromNames(names: string[]): ContentPillar[] {
     name,
     description: "",
   }));
+}
+
+// Upgrade path for competitors saved as plain platform-name strings, before
+// each platform carried its own profile url. Legacy string[] becomes
+// {name, url:""}[]; already-structured entries pass through. Only known
+// platform names survive, and a url is kept only when it is a real http(s) link.
+function normalizeCompetitorPlatforms(value: unknown): CompetitorPlatform[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<Platform>();
+  const result: CompetitorPlatform[] = [];
+  for (const entry of value) {
+    const name = typeof entry === "string" ? entry : entry?.name;
+    if (!platforms.includes(name as Platform) || seen.has(name as Platform)) {
+      continue;
+    }
+    const rawUrl = typeof entry === "object" && entry ? entry.url : "";
+    const url = typeof rawUrl === "string" && /^https?:\/\//i.test(rawUrl.trim()) ? rawUrl.trim() : "";
+    seen.add(name as Platform);
+    result.push({ name: name as Platform, url });
+  }
+  return result;
 }
 
 const STORAGE_KEY = "social-calendar-intelligence-os:v1";
@@ -211,7 +236,10 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
     setupGuide: normalizeSetupGuide(data.setupGuide),
     platformPlaybook: normalizePlatformPlaybook(data.platformPlaybook),
     competitors: Array.isArray(data.competitors)
-      ? data.competitors
+      ? data.competitors.map((competitor) => ({
+          ...competitor,
+          platforms: normalizeCompetitorPlatforms(competitor?.platforms),
+        }))
       : seed.competitors,
     calendar: Array.isArray(calendar)
       ? calendar.map((item) => ({
