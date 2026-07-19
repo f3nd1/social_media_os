@@ -40,6 +40,7 @@ import {
   CONNECTION_AGGREGATOR_SOURCES,
   CONNECTION_AVAILABLE_MODES,
   CONNECTION_CREDENTIAL_FIELDS,
+  CONNECTION_DIRECT_API_NOTES,
   CONNECTION_IMPLEMENTED_SOURCES,
   CONNECTION_MANUAL_ONLY_NOTE,
   CONNECTION_SOURCE_LABELS,
@@ -662,6 +663,7 @@ function ConnectionFlow({
   const availableModes = source ? CONNECTION_AVAILABLE_MODES[source] : [];
   const credentialFields = source ? CONNECTION_CREDENTIAL_FIELDS[source] : [];
   const manualOnlyNote = source ? CONNECTION_MANUAL_ONLY_NOTE[source] : undefined;
+  const directApiNote = source ? CONNECTION_DIRECT_API_NOTES[source] : undefined;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-background/60 backdrop-blur-sm">
@@ -723,6 +725,11 @@ function ConnectionFlow({
               <p className="text-xs leading-5 text-muted-foreground">
                 {manualOnlyNote ??
                   "This source only supports CSV/PDF import for now."}
+              </p>
+            ) : null}
+            {directApiNote ? (
+              <p className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+                {directApiNote}
               </p>
             ) : null}
             <div className="grid gap-2">

@@ -32,6 +32,7 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { apiUrl } from "@/lib/base-path";
 import { suggestModels } from "@/lib/ai-settings";
+import { CONNECTION_DIRECT_API_NOTES } from "@/lib/social-calendar-data";
 import type {
   AiIntegrationSettings,
   BrandProfile,
@@ -472,6 +473,9 @@ export function SetupGuide({
             title="Connect analytics (Metricool)"
             plain="Metricool brings in your real social numbers. Test it to check the connection, or choose CSV import if you would rather upload exported files. This is optional."
           >
+            <p className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+              {CONNECTION_DIRECT_API_NOTES.metricool}
+            </p>
             <div className="grid gap-3 md:grid-cols-3">
               <LabelledInput label="API token" onChange={setMcToken} type="password" value={mcToken} />
               <LabelledInput label="User ID" onChange={setMcUser} value={mcUser} />

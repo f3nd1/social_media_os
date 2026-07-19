@@ -768,6 +768,10 @@ export type AiIntegrationSettings = {
   // Optional xAI key for social listening on X. Without it, listening runs
   // on Reddit only and the UI says so honestly (Module D3).
   xaiApiKey?: string;
+  // Optional free YouTube Data API v3 key for social listening on YouTube
+  // (public video/comment search). Without it, YouTube is skipped and the UI
+  // says so honestly, same pattern as xaiApiKey for X.
+  youtubeApiKey?: string;
 };
 
 export function createDefaultAiIntegration(): AiIntegrationSettings {
@@ -971,6 +975,14 @@ export const CONNECTION_MANUAL_ONLY_NOTE: Partial<Record<ConnectionSource, strin
     "Use exported analytics for PRC student and parent content until direct access is configured.",
   wechat:
     "Use WeChat export/import for Chinese parent and agent nurturing reports.",
+};
+
+// A real structural limitation of a source's Direct API mode, shown BEFORE the
+// manager picks that mode (not just discovered after a sync), so choosing
+// Direct API is an informed choice rather than a later surprise.
+export const CONNECTION_DIRECT_API_NOTES: Partial<Record<ConnectionSource, string>> = {
+  metricool:
+    "Metricool's API reports brand-level totals only, not a per-platform split: one connected brand with Instagram, Facebook, and TikTok linked produces a single combined \"Brand total\" row, not separate Instagram/Facebook/TikTok figures. For real per-platform numbers, use CSV/PDF import instead, which reads Metricool's own exported report.",
 };
 
 export const CONNECTION_CREDENTIAL_FIELDS: Record<ConnectionSource, CredentialFieldSpec[]> = {
