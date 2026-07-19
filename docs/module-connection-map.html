@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>UCC Marketing OS — Module Connection Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B1220; --panel:#101A2E; --panel2:#0D1626; --grid:#1B2740;
+    --ink:#E7ECF7; --ink-dim:#8B96AC; --ink-faint:#5A6478;
+    --foundation:#F2B84B; --insights:#5EC8D8; --planning:#A78CF2;
+    --operations:#57C785; --reporting:#F2647B; --system:#9AA3B7;
+    --gate-strong:#34D399; --gate-warn:#FBBF24; --broken:#FF5C5C;
+    --display-only:#5A6478;
+    font-family:'Inter',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);overflow:hidden;}
+  body{display:flex;}
+
+  /* ---------- Sidebar ---------- */
+  #sidebar{
+    width:340px;min-width:340px;height:100vh;background:var(--panel);
+    border-right:1px solid var(--grid);display:flex;flex-direction:column;
+    overflow:hidden;
+  }
+  #sidebar-scroll{overflow-y:auto;padding:20px 18px 40px;flex:1;}
+  #sidebar-scroll::-webkit-scrollbar{width:8px;}
+  #sidebar-scroll::-webkit-scrollbar-thumb{background:var(--grid);border-radius:4px;}
+
+  .brand{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;}
+  .brand-mark{font-family:'Space Grotesk';font-weight:700;font-size:13px;letter-spacing:.14em;color:var(--foundation);}
+  h1{font-family:'Space Grotesk';font-size:19px;font-weight:600;margin:2px 0 2px;line-height:1.25;}
+  .sub{color:var(--ink-dim);font-size:12.5px;line-height:1.5;margin-bottom:18px;}
+
+  .panel-block{background:var(--panel2);border:1px solid var(--grid);border-radius:10px;padding:14px 14px 16px;margin-bottom:14px;}
+  .panel-title{font-family:'IBM Plex Mono';font-size:10.5px;letter-spacing:.12em;color:var(--ink-faint);text-transform:uppercase;margin-bottom:10px;}
+
+  #search{
+    width:100%;background:var(--bg);border:1px solid var(--grid);border-radius:7px;
+    color:var(--ink);padding:9px 10px;font-size:13px;font-family:'Inter';outline:none;
+  }
+  #search:focus{border-color:var(--insights);}
+
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:12.5px;color:var(--ink);}
+  .toggle-row span{max-width:250px;}
+  .switch{position:relative;width:36px;height:20px;flex:0 0 auto;}
+  .switch input{opacity:0;width:0;height:0;}
+  .slider{position:absolute;inset:0;background:var(--grid);border-radius:20px;cursor:pointer;transition:.15s;}
+  .slider:before{content:"";position:absolute;height:14px;width:14px;left:3px;top:3px;background:var(--ink-faint);border-radius:50%;transition:.15s;}
+  input:checked + .slider{background:rgba(94,200,216,.35);}
+  input:checked + .slider:before{transform:translateX(16px);background:var(--insights);}
+
+  .legend-row{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--ink-dim);margin-bottom:7px;}
+  .legend-line{width:26px;height:0;border-top:2.5px solid; flex:0 0 auto;}
+  .legend-line.dashed{border-top-style:dashed;}
+  .legend-line.dotted{border-top-style:dotted;border-top-width:2px;}
+  .legend-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
+
+  .section-chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-dim);margin:2px 6px 2px 0;}
+  .section-chip i{width:8px;height:8px;border-radius:2px;display:inline-block;}
+
+  .mod-list{max-height:230px;overflow-y:auto;}
+  .mod-item{
+    padding:7px 8px;border-radius:6px;font-size:12.5px;cursor:pointer;color:var(--ink-dim);
+    display:flex;align-items:center;gap:8px;transition:.1s;
+  }
+  .mod-item:hover{background:rgba(255,255,255,.04);color:var(--ink);}
+  .mod-item.dimmed{opacity:.25;}
+  .mod-item i{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}
+
+  .issue-item{
+    padding:9px 10px;border-radius:7px;margin-bottom:6px;cursor:pointer;
+    background:rgba(255,92,92,.06);border:1px solid rgba(255,92,92,.18);
+    font-size:12px;color:var(--ink-dim);line-height:1.45;transition:.12s;
+  }
+  .issue-item:hover{background:rgba(255,92,92,.13);color:var(--ink);}
+  .issue-item b{color:var(--ink);font-weight:600;}
+  .issue-num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:17px;height:17px;border-radius:50%;background:var(--broken);color:#1a0505;
+    font-family:'IBM Plex Mono';font-size:10px;font-weight:600;margin-right:7px;
+  }
+  #issues-list{max-height:340px;overflow-y:auto;}
+
+  .footnote{font-size:11px;color:var(--ink-faint);line-height:1.5;margin-top:6px;}
+
+  /* ---------- Canvas ---------- */
+  #canvas-wrap{position:relative;flex:1;height:100vh;overflow:hidden;cursor:grab;}
+  #canvas-wrap.grabbing{cursor:grabbing;}
+  svg#board{position:absolute;top:0;left:0;width:100%;height:100%;}
+
+  .col-label{font-family:'IBM Plex Mono';font-size:12px;letter-spacing:.16em;font-weight:600;}
+  .node-box{fill:var(--panel2);stroke-width:1.4;rx:9;}
+  .node-box.dimmed{opacity:.15;}
+  .node-title{font-family:'Space Grotesk';font-weight:600;fill:var(--ink);pointer-events:none;}
+  .node-sub{font-family:'IBM Plex Mono';fill:var(--ink-faint);pointer-events:none;}
+  .node-title.dimmed, .node-sub.dimmed{opacity:.15;}
+  .node-group{cursor:pointer;}
+  .node-group:hover .node-box{stroke-width:2.2;}
+
+  .edge{fill:none;stroke-width:1.6;opacity:.55;transition:opacity .15s, stroke-width .15s;}
+  .edge.dimmed{opacity:.045;}
+  .edge.focused{opacity:.95;stroke-width:2.6;}
+  .edge.gateStrong{stroke:var(--gate-strong);}
+  .edge.gateCosmetic{stroke:var(--gate-warn);stroke-dasharray:7 4;}
+  .edge.noGate{stroke:var(--gate-warn);stroke-dasharray:2 4;}
+  .edge.display{stroke:var(--display-only);stroke-dasharray:1 5;}
+  .edge.bidirectional{stroke:var(--planning);stroke-width:2;}
+  .edge.loglink{stroke:var(--system);stroke-dasharray:1 4;opacity:.28;stroke-width:1;}
+  .edge.loglink.focused{opacity:.85;}
+  .edge.issueglow{stroke:var(--broken)!important;stroke-width:3!important;opacity:1!important;stroke-dasharray:6 3;}
+
+  #zoom-controls{position:absolute;right:22px;bottom:22px;display:flex;flex-direction:column;gap:6px;z-index:5;}
+  #zoom-controls button{
+    width:36px;height:36px;border-radius:8px;border:1px solid var(--grid);background:var(--panel2);
+    color:var(--ink);font-size:17px;cursor:pointer;font-family:'Space Grotesk';
+  }
+  #zoom-controls button:hover{border-color:var(--insights);}
+
+  #hint{
+    position:absolute;top:20px;left:50%;transform:translateX(-50%);
+    background:rgba(16,26,46,.9);border:1px solid var(--grid);border-radius:8px;
+    padding:8px 16px;font-size:12px;color:var(--ink-dim);z-index:5;pointer-events:none;
+    font-family:'IBM Plex Mono';letter-spacing:.02em;
+  }
+
+  /* ---------- Detail drawer ---------- */
+  #drawer{
+    position:absolute;top:0;right:0;height:100vh;width:400px;
+    background:var(--panel);border-left:1px solid var(--grid);
+    transform:translateX(100%);transition:transform .22s ease;z-index:10;
+    display:flex;flex-direction:column;
+  }
+  #drawer.open{transform:translateX(0);}
+  #drawer-head{padding:20px 20px 14px;border-bottom:1px solid var(--grid);display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  #drawer-head .tag{font-family:'IBM Plex Mono';font-size:10.5px;letter-spacing:.1em;color:var(--ink-faint);text-transform:uppercase;margin-bottom:5px;}
+  #drawer-head h2{font-family:'Space Grotesk';font-size:18px;margin:0;font-weight:600;}
+  #drawer-close{background:none;border:none;color:var(--ink-dim);font-size:20px;cursor:pointer;line-height:1;padding:2px 4px;}
+  #drawer-close:hover{color:var(--ink);}
+  #drawer-body{padding:16px 20px 30px;overflow-y:auto;flex:1;font-size:13px;line-height:1.55;}
+  #drawer-body h3{font-family:'IBM Plex Mono';font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin:18px 0 8px;}
+  #drawer-body h3:first-child{margin-top:0;}
+  #drawer-body ul{margin:0;padding-left:18px;color:var(--ink-dim);}
+  #drawer-body li{margin-bottom:6px;}
+  #drawer-body li b{color:var(--ink);font-weight:600;}
+  .drawer-empty{color:var(--ink-faint);font-size:13px;padding:30px 20px;text-align:center;}
+  .style-pill{display:inline-block;font-family:'IBM Plex Mono';font-size:10px;padding:2px 7px;border-radius:20px;margin-left:6px;vertical-align:1px;}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="sidebar-scroll">
+    <div class="brand"><span class="brand-mark">UCC · MARKETING OS</span></div>
+    <h1>Module Connection Map</h1>
+    <div class="sub">Every module, what it reads, what it writes, and where the wiring is thin — traced from the real codebase, not the feature docs.</div>
+
+    <div class="panel-block">
+      <div class="panel-title">Find a module</div>
+      <input id="search" type="text" placeholder="Search modules…" autocomplete="off">
+      <div class="mod-list" id="mod-list" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="panel-block">
+      <div class="panel-title">Layers</div>
+      <div class="toggle-row">
+        <span>Show AI Generation Log links <br><span style="color:var(--ink-faint)">13+ quiet inbound links, hidden by default</span></span>
+        <label class="switch"><input type="checkbox" id="toggle-log"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span>Highlight all 26 known issues</span>
+        <label class="switch"><input type="checkbox" id="toggle-issues"><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <div class="panel-title">Sections</div>
+      <span class="section-chip"><i style="background:var(--foundation)"></i>Foundation</span>
+      <span class="section-chip"><i style="background:var(--insights)"></i>Insights</span>
+      <span class="section-chip"><i style="background:var(--planning)"></i>Planning</span>
+      <span class="section-chip"><i style="background:var(--operations)"></i>Operations</span>
+      <span class="section-chip"><i style="background:var(--reporting)"></i>Reporting</span>
+      <span class="section-chip"><i style="background:var(--system)"></i>System</span>
+    </div>
+
+    <div class="panel-block">
+      <div class="panel-title">Line key</div>
+      <div class="legend-row"><span class="legend-line" style="border-color:var(--insights)"></span>Normal data flow</div>
+      <div class="legend-row"><span class="legend-line" style="border-color:var(--gate-strong)"></span>Approval gate — enforced in code</div>
+      <div class="legend-row"><span class="legend-line dashed" style="border-color:var(--gate-warn)"></span>Gate — UI-cosmetic only</div>
+      <div class="legend-row"><span class="legend-line dotted" style="border-color:var(--gate-warn)"></span>No gate at all (flagged gap)</div>
+      <div class="legend-row"><span class="legend-line dotted" style="border-color:var(--display-only)"></span>Display only — never reaches an AI prompt</div>
+      <div class="legend-row"><span class="legend-line" style="border-color:var(--planning)"></span>Bidirectional</div>
+      <div class="legend-row"><span class="legend-line dotted" style="border-color:var(--system)"></span>AI Generation Log link (toggle to show)</div>
+      <div class="legend-row"><span class="legend-line dashed" style="border-color:var(--broken)"></span>Flagged issue overlay</div>
+    </div>
+
+    <div class="panel-block">
+      <div class="panel-title">Known issues (26)</div>
+      <div id="issues-list"></div>
+      <div class="footnote">Click any issue to highlight exactly what it touches on the diagram.</div>
+    </div>
+
+    <div class="footnote" style="margin-top:18px;border-top:1px solid var(--grid);padding-top:12px;">
+      <strong style="display:block;margin-bottom:6px;">v1.0 — generated 19 July 2026</strong>
+      Manually-generated snapshot (not auto-updated with code changes)
+    </div>
+  </div>
+</div>
+
+<div id="canvas-wrap">
+  <div id="hint">SCROLL TO ZOOM · DRAG TO PAN · CLICK A MODULE FOR DETAILS</div>
+  <svg id="board" viewBox="0 0 1820 1200">
+    <defs>
+      <pattern id="grid" width="34" height="34" patternUnits="userSpaceOnUse">
+        <path d="M 34 0 L 0 0 0 34" fill="none" stroke="#16223B" stroke-width="1"/>
+      </pattern>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/>
+      </marker>
+    </defs>
+    <rect x="-2000" y="-2000" width="6000" height="6000" fill="url(#grid)"/>
+    <g id="viewport">
+      <g id="edges-layer"></g>
+      <g id="nodes-layer"></g>
+      <g id="labels-layer"></g>
+    </g>
+  </svg>
+  <div id="zoom-controls">
+    <button id="zoom-in">+</button>
+    <button id="zoom-out">−</button>
+    <button id="zoom-reset" style="font-size:12px;">⤢</button>
+  </div>
+</div>
+
+<div id="drawer">
+  <div id="drawer-head">
+    <div>
+      <div class="tag" id="drawer-tag">Module</div>
+      <h2 id="drawer-title">—</h2>
+    </div>
+    <button id="drawer-close">✕</button>
+  </div>
+  <div id="drawer-body"></div>
+</div>
+
+<script>
+/* ============================= DATA ============================= */
+
+const COLS = {
+  foundation: {label:'FOUNDATION', color:'var(--foundation)', hex:'#F2B84B', x:90},
+  insights:   {label:'INSIGHTS',   color:'var(--insights)',   hex:'#5EC8D8', x:400},
+  planning:   {label:'PLANNING',   color:'var(--planning)',   hex:'#A78CF2', x:720},
+  operations: {label:'OPERATIONS', color:'var(--operations)', hex:'#57C785', x:1040},
+  reporting:  {label:'REPORTING',  color:'var(--reporting)',  hex:'#F2647B', x:1340},
+  system:     {label:'SYSTEM',     color:'var(--system)',     hex:'#9AA3B7', x:1660},
+};
+const ROW_H = 118, TOP = 190, NODE_W = 250, NODE_H = 68;
+
+function pos(col, row){ return {x: COLS[col].x, y: TOP + row*ROW_H}; }
+
+const NODES = {
+  dashboard:{label:'Dashboard', col:'foundation', special:true, x:640, y:40,
+    desc:'The always-on-top home screen. Computes an overall marketing health score from Social Audit, KPI Tracker and Content Calendar data.',
+    inputs:['Objectives/Social Audit — audits array','KPI Tracker — kpiRecords','Content Calendar — items','Budget & Resources — totalBudget'],
+    outputs:['Nothing downstream — this is a read-only landing view'],
+    gates:['None'], ai:['None — pure computed display (computeMarketingHealth)']},
+
+  brand:{label:'Brand Hub', col:'foundation', row:0,
+    desc:'Brand name, tone of voice, offers, goals and an uploaded guidelines PDF.',
+    inputs:['None — pure editor over its own data'],
+    outputs:['Strategy Brief — full profile incl. brandGuidelines','Platform Intelligence — name/industry/tone/offers subset','Competitor Intelligence — brandName/tone/offers/goals','Content Remix & Production Board — brandName/tone only'],
+    gates:['None — no "brand approved" concept exists in the code'],
+    ai:['No AI call of its own — feeds other modules\' prompts only'],
+    gap:'brand.brandGuidelines is never sent to the Compliance checker — only the separate Compliance-screen uploads are (Finding 11).'},
+
+  courses:{label:'Products & Audiences', col:'foundation', row:1,
+    desc:'Courses and audience segments — the core data source almost everything else reads from.',
+    inputs:['None — pure editor'],
+    outputs:['Social Audit, Campaigns, Strategy Brief, Content Calendar, Platform Intelligence, Trend Radar, Content Remix, Compliance & Approvals'],
+    gates:['No approval gate — course status is active/archived, a lifecycle filter only'],
+    ai:['No AI call of its own — feeds 6 other modules\' prompts']},
+
+  compliance:{label:'Compliance & Approvals', col:'foundation', row:2,
+    desc:'Uploaded guideline docs + a rule-based regex checker (guaranteed-outcome claims, salary, visa, rankings, testimonials).',
+    inputs:['Content Calendar items','Uploaded guideline documents','Courses — per-course complianceNotes'],
+    outputs:['Content Calendar & Production Board — real enforced gate on publish','Content Remix — every variant re-checked on arrival','COMPLIANCE_PROMPT_RULE constant embedded in 13 separate AI prompts app-wide'],
+    gates:['Genuinely enforced — sanitizeCalendarPatch is the single choke point both edit paths route through; blocks "posted"/"scheduled" without approval'],
+    ai:['/api/ai/compliance'],
+    gap:'Uploaded documents only inform this screen\'s own AI — never reach Brief/Campaign/Calendar/Budget prompts, which only get the hardcoded rule text (Finding 10).'},
+
+  settings:{label:'Settings / Integrations', col:'foundation', row:3,
+    desc:'AI key + model selection, Metricool connection, workspace backup/restore.',
+    inputs:['Connection status, AI usage, full workspace data (backup/restore)'],
+    outputs:['Metricool sync (approved) → Social Audit + KPI Tracker','aiIntegration gates EVERY AI-calling module in the app'],
+    gates:['Metricool sync-review-approve chain is a genuine human gate before any data is applied'],
+    ai:['Metricool PDF import is the only direct AI call here'],
+    gap:'Stale UI copy in 3 places still claims Metricool only returns brand totals — the per-network sync now genuinely works (Finding 2).'},
+
+  onboarding:{label:'Onboarding', col:'foundation', row:4,
+    desc:'Full-screen setup wizard. Checks real live state to mark its own steps done, not local guide state.',
+    inputs:['Reads live state from Brand, Courses, Social Audit, Strategy Brief'],
+    outputs:['Writes directly into Brand, Courses/Audiences, Social Audit, Strategy Brief, Settings via pass-through callbacks'],
+    gates:['The "brief" step is the real gate: requires brief.approved === true'],
+    ai:['None directly — the embedded Brief step calls Strategy Brief\'s own generator'],
+    gap:'Two dead fields (welcomeDismissed, guidedSetupActive) are stored but read by zero components — leftover from a superseded design (Finding 19).'},
+
+  marketingIntel:{label:'Marketing Intelligence', col:'insights', row:0,
+    desc:'SMART goal editor — shares the same screen as Social Audit but is conceptually separate.',
+    inputs:['None — pure editor, manager-only edit'],
+    outputs:['Social Audit (SMART goal), Strategy Brief (auditGoal), Content Calendar (defaults), Production Board (fallback), Market Intelligence (goal progress)'],
+    gates:['Edit is role-gated to Marketing Manager, not approval-gated'],
+    ai:['None directly']},
+
+  audit:{label:'Objectives / Social Audit', col:'insights', row:1,
+    desc:'Per-platform performance data + AI-written recommendations, draft/accepted/dismissed.',
+    inputs:['Marketing Intelligence (SMART goal)','Products & Audiences','Settings — Metricool sync (approved)'],
+    outputs:['Campaigns (accepted only), Strategy Brief (raw analytics, separate channel from accepted insights), Platform Intelligence, KPI/Budget AI, Weekly Report, Dashboard, Platform Reports, Learnings, Executive Dashboard'],
+    gates:['status: draft/accepted/dismissed — only accepted rows reach Campaign AI and the Weekly Report'],
+    ai:['/api/ai/audit — per-platform + whole-audit synthesis'],
+    gap:'Metricool per-network sync has a real bug: a brand-wide followers row silently overwrites the same platform\'s real impressions/reach/engagement, and can create a duplicate audit row (Finding 1).'},
+
+  competitor:{label:'Competitor Intelligence', col:'insights', row:2,
+    desc:'Web-search-based competitor observation. Domain-anchored, homepage-scraped social links.',
+    inputs:['Brand Hub (positioning)','Strategy Brief (briefSummary, once approved)'],
+    outputs:['Campaigns, Strategy Brief, Platform Intelligence, Approvals Log, AI Generation Log (all accepted-only)'],
+    gates:['status: draft/accepted/dismissed'],
+    ai:['/api/ai/competitor-observe — two-search-call design (social profile + background)']},
+
+  marketIntel:{label:'Market Intelligence', col:'insights', row:3,
+    desc:'Container screen hosting the Connection Manager, manual marketing events, and the Trend Radar/Social Listening tabs.',
+    inputs:['Marketing Intelligence (goal progress)'],
+    outputs:['Social Audit + KPI Tracker (approved Metricool sync)','Content Calendar (manual events mirrored in as real calendar items)'],
+    gates:['Metricool sync-review-approve chain (see Settings)'],
+    ai:['None directly — hosts Trend Radar / Social Listening which do call AI']},
+
+  kpi:{label:'KPI Tracker', col:'insights', row:4,
+    desc:'Lives inside Market Intelligence. Rows created ONLY by Metricool/PDF/CSV import — no manual entry UI exists.',
+    inputs:['Campaigns, Budget plans, Social Audit (as platformAnalytics), Content Calendar performance'],
+    outputs:['Campaign Reports, Weekly Report, Executive Dashboard, Reports, Dashboard health score, Learnings'],
+    gates:['AI recommendations: draft/accepted/dismissed. Raw kpiRecords carry no gate — they\'re synced data.'],
+    ai:['Shares lib/insights-ai.ts with Budget & Resources'],
+    gap:'No manual-entry table exists anywhere — every row comes from an import (Finding 25).'},
+
+  trend:{label:'Trend Radar', col:'insights', row:5,
+    desc:'Real web search for current SG education/recruitment trends, every card cites real sources.',
+    inputs:['Products & Audiences (courses/audiences)','Social Audit (platform list only, not metrics)'],
+    outputs:['Strategy Brief, Campaigns, Content Calendar, Platform Intelligence, Approvals Log, Learnings — all accepted-only'],
+    gates:['status: draft/accepted/dismissed. Server-side: any trend with zero matched citations is dropped automatically.'],
+    ai:['/api/ai/trend — search + synthesis, two-step']},
+
+  listening:{label:'Social Listening', col:'insights', row:6,
+    desc:'Real Reddit/X/YouTube/web search on a manager-typed topic — the one module with NO workspace-data grounding.',
+    inputs:['Manager-typed topic only — does not read courses/audiences/brand'],
+    outputs:['Strategy Brief, Campaigns, Platform Intelligence — accepted only. NOT sent to Content Calendar.'],
+    gates:['status starts "new" (not "draft" like every sibling collection)'],
+    ai:['/api/ai/listening'],
+    gap:'Accept/dismiss decisions here never reach the Approvals Log — no diffing block exists for this collection (Finding 3).'},
+
+  platformIntel:{label:'Platform Intelligence', col:'insights', row:7,
+    desc:'Per-platform playbook (voice, format, CTA) — draft-then-manager-approve. Confusingly similar name to "Market Intelligence".',
+    inputs:['Brand Hub, Social Audit (raw), Products & Audiences, accepted Trend Radar, accepted Competitor Intel, accepted Social Listening'],
+    outputs:['Production Board (full rulebook), Content Remix (target-platform rulebook), Content Calendar (defaults), Strategy Brief (display only)'],
+    gates:['Only entry.approved (never draft) reaches any consumer'],
+    ai:['/api/ai/platform-playbook'],
+    gap:'Approve/discard decisions here are never logged to the Approvals Log — same gap as Social Listening (Finding 4). Its output to Strategy Brief is display-only, never sent to the Brief\'s own AI prompt.'},
+
+  brief:{label:'Strategy Brief', col:'planning', row:0,
+    desc:'The monthly narrative + content pillars + platform mix. The whole app\'s central planning artifact.',
+    inputs:['Brand Hub, Products & Audiences, Marketing Intelligence, Social Audit (raw), accepted Competitor Intel, accepted Social Listening, accepted Trend Radar'],
+    outputs:['Campaigns, Content Calendar, Content Pillars (bidirectional), Competitor Intelligence, Executive Dashboard, exports, Approvals Log'],
+    gates:['approved: boolean, resets to false on any manual edit'],
+    ai:['/api/ai/brief'],
+    gap:'The approval gate is UI-cosmetic only — Campaign and Calendar generation functions never re-check brief.approved in code, only the trigger button\'s disabled state does (Finding 7).'},
+
+  campaigns:{label:'Campaigns', col:'planning', row:1,
+    desc:'AI-suggested campaigns from the approved brief + accepted insights + the Singapore marketing calendar.',
+    inputs:['Strategy Brief, accepted Social Audit/Competitor/Listening/Trend insights, Products & Audiences, existing campaign names, SG calendar moments'],
+    outputs:['Content Calendar (approved only — genuinely enforced), Budget & Resources (all, unfiltered), Campaign Reports, Executive Dashboard, Content Pillars, KPI Tracker, Content Remix (platformMix)'],
+    gates:['approvalStatus: draft/approved. This gate IS enforced in code: Calendar generation filters by isCampaignApproved and hard-errors with zero approved campaigns.'],
+    ai:['/api/ai/campaigns'],
+    gap:'The direct campaign-approval action itself is never logged to the Approvals Log — only an indirect "suggestion disappeared" heuristic is (Finding 6).'},
+
+  pillars:{label:'Content Pillars', col:'planning', row:2,
+    desc:'The canonical pillar list — bidirectionally reconciled with the Brief\'s flat pillar-name list.',
+    inputs:['Strategy Brief (name reconciliation)','Content Calendar (usage-share stats, pillar-in-use detection)'],
+    outputs:['Strategy Brief (bidirectional)'],
+    gates:['None'],
+    ai:['No AI call of its own — confirmed zero fetch/callOpenAiJson in the file'],
+    gap:'Calendar reads pillars from the Brief\'s flat name list — a pillar\'s richer description field never reaches Calendar generation (Finding 13).'},
+
+  budget:{label:'Budget & Resources', col:'planning', row:3,
+    desc:'Budget plans per campaign + AI recommendations.',
+    inputs:['Campaigns (ALL, not filtered by approval)','KPI records, Social Audit, Content Calendar performance'],
+    outputs:['Weekly Report (budgetPlanned), Dashboard (totalBudget), Executive Dashboard (nudge), Approvals Log'],
+    gates:['None at all — its campaign picker and AI context include draft campaigns identically to approved ones'],
+    ai:['Shares lib/insights-ai.ts with KPI Tracker'],
+    gap:'No approval gate exists here, unlike Calendar generation and the Dashboard Objective Cascade which both filter by isCampaignApproved (Finding 8). Its totals also don\'t reconcile with Campaign Reports, which computes its own numbers directly from campaign.budget instead (Finding 9).'},
+
+  calendar:{label:'Content Calendar', col:'operations', row:0,
+    desc:'The AI-generated + manually-added monthly content calendar. Shares its raw data array with Production Board.',
+    inputs:['Strategy Brief, approved Campaigns, Products & Audiences, accepted Trend Radar, Marketing Intelligence defaults, Platform Intelligence defaults'],
+    outputs:['Production Board (same array), Content Pillars, Weekly Report, Approvals Log, Learnings, Executive Dashboard, Platform Reports, exports'],
+    gates:['12-stage approvalStages pipeline. sanitizeCalendarPatch is a REAL data-level guard — no caller can bypass it.'],
+    ai:['/api/ai/calendar — includes brief, approved campaigns, courses, audiences, accepted trends, platform craft rules']},
+
+  production:{label:'Production Board', col:'operations', row:1,
+    desc:'Role-filtered production queue. Hosts the Copy/Video-script AI and — physically — Content Remix.',
+    inputs:['Content Calendar (shared array)','Strategy Brief (approval gate)','Platform Intelligence (rulebook)','Brand Hub (fallback tone)'],
+    outputs:['Content Calendar (same array — writes back)'],
+    gates:['Role-based filtering IS a genuine data-level filter, not cosmetic — confirmed by code'],
+    ai:['/api/ai/copy — gated on brief.approved, with an offline template fallback'],
+    gap:'Receives an onUccChange prop with no confirmed direct call site inside the function — worth verifying it isn\'t dead wiring (Finding 17).'},
+
+  remix:{label:'Content Remix', col:'operations', row:2,
+    desc:'Generates platform-native variants of an approved item. Lives entirely inside Production Board, NOT the Calendar screen — a common false assumption.',
+    inputs:['The source calendar item, linked Campaign platformMix, linked Audience, Platform Intelligence rulebook, Brand Hub'],
+    outputs:['Content Calendar / Production Board — appends new draft items, always restarting at approvalStage "idea"'],
+    gates:['"Remix unlocks once manager approved" is genuinely enforced — both the button AND the handler independently re-check canPublishCalendarItem'],
+    ai:['/api/ai/remix'],
+    gap:'Every remix variant restarts approval from scratch — approval is never inherited from the source item, by design (confirmed intentional, not a bug).'},
+
+  weeklyReport:{label:'Weekly Report', col:'reporting', row:0,
+    desc:'AI-written weekly narrative — part of the Performance Review screen (sidebar actually reads "Performance Review", not "Reports").',
+    inputs:['Content Calendar (posted/delayed counts)','KPI Tracker, Budget plans, Campaigns (spend), accepted Social Audit + AI recommendations'],
+    outputs:['Approvals Log (status diffed in) — nothing else reads this module\'s output'],
+    gates:['Any post-approval edit reverts status to draft and clears approvedAt — real re-approval requirement'],
+    ai:['/api/ai/report'],
+    gap:'Does NOT read performanceResults at all — the narrative is built only from KPI records and budget/campaign spend, never per-post performance metrics.'},
+
+  approvalsLog:{label:'Approvals Log', col:'reporting', row:1,
+    desc:'The append-only audit trail — the single ledger of every real approve/reject decision in the app.',
+    inputs:['Strategy Brief approval, Weekly Report approval, Social Audit/Competitor/Trend accept-dismiss, campaign-suggestion heuristic, Content Calendar stage transitions, Budget/KPI recommendations'],
+    outputs:['Nothing else reads it — only its own panel and PDF/CSV export'],
+    gates:['This IS the gate ledger — derivation is centralized in exactly one place (deriveApprovalLogEntries)'],
+    ai:['None'],
+    gap:'THREE things never reach this ledger: Social Listening accept/dismiss (Finding 3), Platform Intelligence approve/discard (Finding 4), and compliance overrides at intermediate stages (Finding 5) — contradicting the app\'s own "every decision is logged" claim.'},
+
+  campaignReports:{label:'Campaign Reports', col:'reporting', row:2,
+    desc:'Per-campaign leads/applications/enrolments against target. Pure read-only report.',
+    inputs:['Campaigns, KPI records (joined by campaignId)'],
+    outputs:['None — no writes, no network calls'],
+    gates:['None'], ai:['None']},
+
+  platformReports:{label:'Platform Reports', col:'reporting', row:3,
+    desc:'Per-platform performance readout. Read-only.',
+    inputs:['Content Calendar performance results, Social Audit (followers/engagement baseline)'],
+    outputs:['None — no writes'],
+    gates:['None'], ai:['None'],
+    gap:'Does NOT read KPI records at all, unlike Campaign Reports and Executive Dashboard.'},
+
+  executive:{label:'Executive Dashboard', col:'reporting', row:4,
+    desc:'The exec-level rollup — strong/weak KPIs, approval-pending counts, top platform/pillar. Distinct from the plain "Dashboard" home screen.',
+    inputs:['Content Calendar performance, KPI Tracker, Campaigns, Strategy Brief.approved, Budget (nudge only), Social Audit'],
+    outputs:['None — read-only'],
+    gates:['None'], ai:['None']},
+
+  learnings:{label:'Learnings', col:'reporting', row:5,
+    desc:'Repeat/improve/stop groupings from real performance data, alongside every accepted insight across the app.',
+    inputs:['Content Calendar performance, accepted Social Audit + Competitor + Trend + AI recommendations'],
+    outputs:['None — a pure consumer, feeds nothing else'],
+    gates:['None'], ai:['None']},
+
+  aiLog:{label:'AI Generation Log', col:'system', row:0,
+    desc:'Aggregates every AI call across the whole app into one searchable, honestly-sourced audit view.',
+    inputs:['Trend Radar, Social Listening, Competitor Intelligence, Social Audit, KPI/Budget recommendations, Weekly Report, Platform Intelligence/Production copy history, Campaigns, Strategy Brief, Content Calendar, Content Remix, Compliance, Settings (Metricool PDF)'],
+    outputs:['Nothing — read only inside this same screen, no dashboard badge, no export reflects it'],
+    gates:['Display-only — documents where the real decision lives (Approvals Log) per entry'],
+    ai:['None — pure aggregator'],
+    gap:'Campaign suggestions and Strategy Brief only ever show a generic "Draft" entry via a fallback — unlike Competitor/Audit insights which show real live per-item status (Finding 21).'},
+
+  changelog:{label:'Changelog', col:'system', row:1,
+    desc:'Read-only git history viewer, generated at build time.',
+    inputs:['None — zero props, confirmed by the component signature itself'],
+    outputs:['None — no workspace state read or write of any kind'],
+    gates:['None'], ai:['None'],
+    gap:'A confirmed, genuine orphan — matches its own file-header comment exactly (Finding 26).'},
+};
+
+/* Compute concrete x/y for every non-special node */
+Object.keys(NODES).forEach(id=>{
+  const n = NODES[id];
+  if(n.special) return;
+  const p = pos(n.col, n.row);
+  n.x = p.x; n.y = p.y;
+});
+
+/* style: flow | gateStrong | gateCosmetic | noGate | display | bidirectional | loglink
+   finding: optional issue number this edge illustrates directly */
+const EDGES = [
+  ['brand','brief','brand profile, tone, offers, guidelines','flow'],
+  ['brand','platformIntel','name / industry / tone / offers','flow'],
+  ['brand','competitor','positioning','flow'],
+  ['brand','remix','brandName, toneOfVoice','flow'],
+  ['brand','production','brandName, toneOfVoice (fallback)','flow'],
+  ['courses','audit','courses, audiences','flow'],
+  ['courses','campaigns','courses, audiences','flow'],
+  ['courses','brief','courses, audiences','flow'],
+  ['courses','calendar','courses','flow'],
+  ['courses','platformIntel','audiences (filtered)','flow'],
+  ['courses','trend','courses, audiences','flow'],
+  ['courses','compliance','per-course complianceNotes','flow'],
+  ['courses','remix','linked audience','flow'],
+  ['settings','audit','Metricool sync (approved)','gateStrong'],
+  ['settings','kpi','Metricool / PDF / CSV import','gateStrong'],
+  ['onboarding','brand','writes via pass-through','flow'],
+  ['onboarding','courses','writes via pass-through','flow'],
+  ['onboarding','audit','writes via pass-through','flow'],
+  ['onboarding','brief','writes via pass-through','flow'],
+  ['onboarding','settings','writes via pass-through','flow'],
+  ['marketingIntel','audit','SMART goal','flow'],
+  ['marketingIntel','brief','auditGoal','flow'],
+  ['marketingIntel','calendar','offline generator + defaults','flow'],
+  ['marketingIntel','production','conversionAction fallback','flow'],
+  ['marketingIntel','marketIntel','Goal Progress vs performance','flow'],
+  ['audit','campaigns','accepted insights','flow'],
+  ['audit','brief','raw platform analytics — NOT accepted insights','flow',25],
+  ['audit','platformIntel','raw analytics','flow'],
+  ['audit','kpi','platformAnalytics','flow'],
+  ['audit','budget','platformAnalytics','flow'],
+  ['audit','weeklyReport','accepted insights + draft counts','flow'],
+  ['audit','dashboard','audits (health score input)','flow'],
+  ['audit','platformReports','followers / engagement baseline','flow'],
+  ['audit','executive','audit data','flow'],
+  ['audit','learnings','accepted insights','flow'],
+  ['audit','approvalsLog','accept / dismiss transitions','flow'],
+  ['brief','competitor','briefSummary','flow'],
+  ['competitor','campaigns','accepted insights','flow'],
+  ['competitor','brief','accepted insights','flow'],
+  ['competitor','platformIntel','accepted insights','flow'],
+  ['competitor','learnings','accepted insights','flow'],
+  ['competitor','approvalsLog','accept / dismiss transitions','flow'],
+  ['marketIntel','audit','Connection Manager sync (approved)','gateStrong'],
+  ['marketIntel','kpi','Connection Manager sync (approved)','gateStrong'],
+  ['marketIntel','calendar','manual event mirrored as calendar item','flow'],
+  ['kpi','campaignReports','','flow'],
+  ['kpi','executive','','flow'],
+  ['kpi','weeklyReport','','flow'],
+  ['kpi','budget','shared insights-ai panel','flow'],
+  ['kpi','dashboard','health score input','flow'],
+  ['kpi','learnings','aiRecommendations','flow'],
+  ['kpi','approvalsLog','accept / dismiss transitions','flow'],
+  ['trend','brief','accepted trends','flow'],
+  ['trend','campaigns','accepted trends','flow'],
+  ['trend','calendar','accepted trends','flow'],
+  ['trend','platformIntel','accepted trends','flow'],
+  ['trend','learnings','accepted trends','flow'],
+  ['trend','approvalsLog','accept / dismiss transitions','flow'],
+  ['listening','brief','accepted insights','flow'],
+  ['listening','campaigns','accepted insights','flow'],
+  ['listening','platformIntel','accepted insights','flow'],
+  ['platformIntel','production','approved rulebook','flow'],
+  ['platformIntel','remix','target-platform rulebook','flow'],
+  ['platformIntel','calendar','playbook defaults','flow'],
+  ['platformIntel','brief','display only — NOT sent to Brief AI','display'],
+  ['brief','campaigns','approved brief fields — gate is UI-cosmetic only','gateCosmetic',7],
+  ['brief','calendar','approved brief fields — gate is UI-cosmetic only','gateCosmetic',7],
+  ['brief','pillars','content pillars','bidirectional'],
+  ['brief','executive','approved flag only','flow'],
+  ['brief','approvalsLog','approval transition','flow'],
+  ['campaigns','calendar','approved campaigns only — gate ENFORCED','gateStrong'],
+  ['campaigns','budget','ALL campaigns, unfiltered — no gate','noGate',8],
+  ['campaigns','campaignReports','','flow'],
+  ['campaigns','executive','','flow'],
+  ['campaigns','pillars','','flow'],
+  ['campaigns','kpi','kpiRecords keyed by campaignId','flow'],
+  ['campaigns','remix','platformMix for remix targets','flow'],
+  ['campaigns','approvalsLog','suggestion-accepted heuristic — NOT the real approval action','flow',6],
+  ['pillars','calendar','names only — description never reaches Calendar','flow',13],
+  ['budget','weeklyReport','budgetPlanned','flow'],
+  ['budget','dashboard','totalBudget','flow'],
+  ['budget','executive','nudge only','flow'],
+  ['budget','approvalsLog','budget / KPI recommendations','flow'],
+  ['compliance','calendar','rule engine — gate ENFORCED','gateStrong'],
+  ['compliance','production','rule engine — gate ENFORCED','gateStrong'],
+  ['compliance','remix','re-checked on arrival','gateStrong'],
+  ['calendar','production','share the same data array','bidirectional'],
+  ['remix','calendar','new draft items appended back in','flow'],
+  ['calendar','pillars','pillar-in-use detection','flow'],
+  ['calendar','learnings','performanceResults','flow'],
+  ['calendar','executive','performanceResults','flow'],
+  ['calendar','platformReports','performanceResults','flow'],
+  ['calendar','weeklyReport','posted / delayed counts','flow'],
+  ['calendar','approvalsLog','approvalStage transitions','flow'],
+  ['calendar','dashboard','health score input','flow'],
+  ['weeklyReport','approvalsLog','approval status diffed in','flow'],
+  /* AI Generation Log — hidden by default */
+  ['trend','aiLog','','loglink'],['listening','aiLog','','loglink'],['competitor','aiLog','','loglink'],
+  ['audit','aiLog','','loglink'],['kpi','aiLog','','loglink'],['budget','aiLog','','loglink'],
+  ['weeklyReport','aiLog','','loglink'],['platformIntel','aiLog','','loglink'],['production','aiLog','','loglink'],
+  ['campaigns','aiLog','','loglink'],['brief','aiLog','','loglink'],['calendar','aiLog','','loglink'],
+  ['remix','aiLog','','loglink'],['compliance','aiLog','','loglink'],['settings','aiLog','','loglink'],
+];
+
+const ISSUES = [
+  {n:1, title:'Metricool followers-row bug', body:'A brand-wide followers row is pushed AFTER the real per-network row for the "anchor" platform. The apply logic keeps only the last entry per platform, so real impressions/reach/engagement get silently zeroed out — and can create a duplicate audit row.', nodes:['audit','settings'], edges:[['settings','audit'],['marketIntel','audit']]},
+  {n:2, title:'Stale "brand-total only" copy', body:'Three places still tell managers Metricool only returns combined totals — contradicted by the now-working per-network sync. Actively steers people away from a feature that works.', nodes:['audit','settings']},
+  {n:3, title:'Social Listening never logged', body:'Accept/dismiss decisions on Social Listening insights never reach the Approvals Log — no diffing block exists for this collection, unlike every sibling.', nodes:['listening','approvalsLog']},
+  {n:4, title:'Platform Playbook never logged', body:'Same gap as Social Listening — approve/discard decisions on the Platform Intelligence playbook are invisible in the audit trail.', nodes:['platformIntel','approvalsLog']},
+  {n:5, title:'Compliance overrides at intermediate stages', body:'A manager overriding a flag while moving an item to "compliance approved" (not a diffed stage) leaves no Approvals Log entry — only the on-item note.', nodes:['compliance','approvalsLog']},
+  {n:6, title:'Campaign approval action not logged directly', body:'The actual approve action is invisible; the log only fires when a suggestion disappears and a matching name exists — conflating "suggestion accepted" with "approved".', nodes:['campaigns','approvalsLog'], edges:[['campaigns','approvalsLog']]},
+  {n:7, title:'Brief approval gate is cosmetic', body:'Campaign and Calendar generation never re-check brief.approved in their own function bodies — only the trigger button\'s disabled state does.', nodes:['brief','campaigns','calendar'], edges:[['brief','campaigns'],['brief','calendar']]},
+  {n:8, title:'Budget has no approval gate at all', body:'Its campaign picker and AI context include every campaign regardless of approval status — unlike Calendar generation and the Dashboard, which both filter to approved only.', nodes:['budget','campaigns'], edges:[['campaigns','budget']]},
+  {n:9, title:'Budget totals don\'t reconcile with Campaign Reports', body:'Campaign Reports computes its own "spent of X" figure directly from campaign fields, never from Budget\'s own stored plan totals.', nodes:['budget','campaignReports']},
+  {n:10, title:'Uploaded compliance docs only inform Compliance itself', body:'Brief, Campaign, Calendar and Budget AI prompts only ever get the hardcoded compliance rule text — never the manager\'s actual uploaded guideline documents.', nodes:['compliance','brief','campaigns','calendar','budget']},
+  {n:11, title:'Brand Hub guidelines are a separate pool from Compliance', body:'A manager who uploads brand guidelines on Brand Hub gets zero compliance-checking benefit from that specific upload — only Strategy Brief reads it.', nodes:['brand','compliance']},
+  {n:12, title:'complianceReminders is manager-typed only', body:'AI-generated briefs never populate this field — there\'s no corresponding field in the AI draft shape.', nodes:['brief']},
+  {n:13, title:'Pillar descriptions never reach Calendar', body:'Calendar reads pillar names only, from the Brief\'s flat list — a pillar\'s richer description is effectively display-only elsewhere.', nodes:['pillars','calendar'], edges:[['pillars','calendar']]},
+  {n:14, title:'Content Remix is mislocated (by assumption)', body:'All remix code lives inside Production Board, not the Content Calendar screen — an easy thing to place wrong on a diagram built from UI copy alone.', nodes:['remix','production','calendar']},
+  {n:15, title:'Naming collision: two "Platform" screens', body:'"Market Intelligence" (ViewId "platform") and "Platform Intelligence" (ViewId "platformIntel") are two entirely separate screens with near-identical names.', nodes:['marketIntel','platformIntel']},
+  {n:16, title:'"Reports" is actually labelled "Performance Review"', body:'Cosmetic, but worth aligning if the diagram or docs use nav labels.', nodes:['weeklyReport','approvalsLog']},
+  {n:17, title:'Unconfirmed onUccChange wiring', body:'Production Board receives this prop with no direct call site found inside the function body — worth confirming it isn\'t dead wiring.', nodes:['production']},
+  {n:18, title:'Two disconnected "approverName" fields', body:'The workspace-wide approverName and the Metricool review\'s own local approverName are never seeded from each other and the latter resets on every remount.', nodes:['settings']},
+  {n:19, title:'Dead onboarding fields', body:'welcomeDismissed and guidedSetupActive are stored and defaulted but read by zero components — leftovers from a superseded design.', nodes:['onboarding']},
+  {n:20, title:'"Flag as inaccurate" is a dead end', body:'flaggedAiEntries is written and read only inside the AI Generation Log itself — no dashboard warning, no export reflects it.', nodes:['aiLog']},
+  {n:21, title:'Campaign suggestions & Brief show only generic log entries', body:'Unlike Competitor/Audit insights, these fall through to a fixed "Draft" fallback entry rather than real per-item status.', nodes:['aiLog','campaigns','brief']},
+  {n:22, title:'Social Listening starts at an odd status', body:'Its initial status is "new", not "draft" like every sibling insight collection — functionally harmless, but inconsistent.', nodes:['listening']},
+  {n:23, title:'Calendar AI omits two accepted-signal types', body:'CalendarAiContext includes only acceptedTrends — not acceptedListeningInsights or acceptedCompetitorInsights, which both Brief and Campaigns include. Not a false promise, just an asymmetry.', nodes:['calendar','listening','competitor']},
+  {n:24, title:'audit.impressions isn\'t structured for the AI', body:'It only reaches the model indirectly via free-text notes, despite being a headline column in the Social Audit table.', nodes:['audit']},
+  {n:25, title:'No manual KPI entry exists', body:'kpiRecords rows are created only by Metricool/PDF/CSV import — there is no hand-editable KPI table anywhere.', nodes:['kpi']},
+  {n:26, title:'Changelog — confirmed genuine orphan', body:'Zero props, zero workspace reads or writes. A pure static-file viewer, exactly matching its own file-header comment.', nodes:['changelog']},
+];
+
+/* ============================= RENDER ============================= */
+
+const edgesLayer = document.getElementById('edges-layer');
+const nodesLayer = document.getElementById('nodes-layer');
+const labelsLayer = document.getElementById('labels-layer');
+const svgNS = 'http://www.w3.org/2000/svg';
+
+function el(tag, attrs){
+  const e = document.createElementNS(svgNS, tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+/* column headers */
+Object.keys(COLS).forEach(key=>{
+  const c = COLS[key];
+  const t = el('text',{x:c.x+NODE_W/2, y:150, class:'col-label', fill:c.hex, 'text-anchor':'middle'});
+  t.textContent = c.label;
+  labelsLayer.appendChild(t);
+  const line = el('line',{x1:c.x, y1:165, x2:c.x+NODE_W, y2:165, stroke:c.hex, 'stroke-width':2, opacity:.5});
+  labelsLayer.appendChild(line);
+});
+
+function nodeCenter(id){
+  const n = NODES[id];
+  return {x:n.x+NODE_W/2, y:n.y+NODE_H/2};
+}
+function nodeEdgePoint(id, towardX, towardY){
+  const n = NODES[id];
+  const cx=n.x+NODE_W/2, cy=n.y+NODE_H/2;
+  const dx = towardX-cx, dy = towardY-cy;
+  if(Math.abs(dx) > Math.abs(dy)){
+    return {x: cx + Math.sign(dx)*NODE_W/2, y: cy + dy*(NODE_W/2/Math.abs(dx||1))};
+  } else {
+    return {x: cx + dx*(NODE_H/2/Math.abs(dy||1)), y: cy + Math.sign(dy)*NODE_H/2};
+  }
+}
+
+const edgeEls = [];
+EDGES.forEach(([from,to,label,style,finding])=>{
+  const a = NODES[from], b = NODES[to];
+  if(!a||!b) return;
+  const c1 = nodeCenter(from), c2 = nodeCenter(to);
+  const p1 = nodeEdgePoint(from, c2.x, c2.y);
+  const p2 = nodeEdgePoint(to, c1.x, c1.y);
+  const midx = (p1.x+p2.x)/2, midy=(p1.y+p2.y)/2;
+  const bend = (p1.y===p2.y) ? 0 : (p2.x-p1.x)*0.18;
+  const d = `M ${p1.x},${p1.y} Q ${midx+bend},${midy} ${p2.x},${p2.y}`;
+  const path = el('path',{d, class:'edge '+style, 'marker-end':'url(#arrow)'});
+  path.dataset.from = from; path.dataset.to = to; path.dataset.label = label||'';
+  if(finding) path.dataset.finding = finding;
+  if(style==='loglink') path.style.display='none';
+  edgesLayer.appendChild(path);
+  edgeEls.push(path);
+});
+
+const nodeEls = {};
+Object.keys(NODES).forEach(id=>{
+  const n = NODES[id];
+  const color = COLS[n.col].hex;
+  const g = el('g',{class:'node-group', 'data-id':id});
+  const w = n.special ? 280 : NODE_W;
+  const box = el('rect',{x:n.x,y:n.y,width:w,height:NODE_H,class:'node-box',stroke:color});
+  g.appendChild(box);
+  const title = el('text',{x:n.x+16,y:n.y+27,class:'node-title', 'font-size':14.5});
+  title.textContent = n.label;
+  g.appendChild(title);
+  const sub = el('text',{x:n.x+16,y:n.y+48,class:'node-sub','font-size':10});
+  sub.textContent = n.gap ? '⚠ has a flagged issue' : (id==='changelog' ? 'orphan — no connections' : COLS[n.col].label);
+  g.appendChild(sub);
+  if(n.gap){
+    const dot = el('circle',{cx:n.x+w-16, cy:n.y+16, r:5, fill:'var(--broken)'});
+    g.appendChild(dot);
+  }
+  g.addEventListener('click', ()=>openDrawer(id));
+  nodesLayer.appendChild(g);
+  nodeEls[id] = {g, box, title, sub};
+});
+
+/* ============================= INTERACTION ============================= */
+
+const wrap = document.getElementById('canvas-wrap');
+const viewport = document.getElementById('viewport');
+let scale = 0.66, tx = 40, ty = 10, dragging=false, dragStart={x:0,y:0}, startT={x:0,y:0};
+
+function applyTransform(){
+  viewport.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+}
+applyTransform();
+
+wrap.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX-rect.left, my = e.clientY-rect.top;
+  const prevScale = scale;
+  scale *= (e.deltaY<0 ? 1.08 : 0.92);
+  scale = Math.max(0.28, Math.min(2.2, scale));
+  tx = mx - (mx-tx)*(scale/prevScale);
+  ty = my - (my-ty)*(scale/prevScale);
+  applyTransform();
+}, {passive:false});
+
+wrap.addEventListener('mousedown', e=>{
+  dragging = true; wrap.classList.add('grabbing');
+  dragStart = {x:e.clientX, y:e.clientY}; startT = {x:tx, y:ty};
+});
+window.addEventListener('mousemove', e=>{
+  if(!dragging) return;
+  tx = startT.x + (e.clientX-dragStart.x);
+  ty = startT.y + (e.clientY-dragStart.y);
+  applyTransform();
+});
+window.addEventListener('mouseup', ()=>{dragging=false; wrap.classList.remove('grabbing');});
+
+document.getElementById('zoom-in').onclick = ()=>{scale=Math.min(2.2,scale*1.2); applyTransform();};
+document.getElementById('zoom-out').onclick = ()=>{scale=Math.max(0.28,scale*0.8); applyTransform();};
+document.getElementById('zoom-reset').onclick = ()=>{scale=0.66; tx=40; ty=10; applyTransform();};
+
+/* module list */
+const modList = document.getElementById('mod-list');
+Object.keys(NODES).forEach(id=>{
+  const n = NODES[id];
+  const item = document.createElement('div');
+  item.className='mod-item'; item.dataset.id=id;
+  item.innerHTML = `<i style="background:${n.special?'#fff':COLS[n.col].hex}"></i>${n.label}`;
+  item.onclick = ()=>openDrawer(id);
+  modList.appendChild(item);
+});
+
+document.getElementById('search').addEventListener('input', e=>{
+  const q = e.target.value.toLowerCase().trim();
+  document.querySelectorAll('.mod-item').forEach(it=>{
+    const match = !q || it.textContent.toLowerCase().includes(q);
+    it.classList.toggle('dimmed', !match);
+  });
+  Object.keys(nodeEls).forEach(id=>{
+    const match = !q || NODES[id].label.toLowerCase().includes(q);
+    const {box,title,sub} = nodeEls[id];
+    [box,title,sub].forEach(el=>el.classList.toggle('dimmed', !match));
+  });
+});
+
+/* issues list */
+const issuesList = document.getElementById('issues-list');
+ISSUES.forEach(iss=>{
+  const item = document.createElement('div');
+  item.className='issue-item';
+  item.innerHTML = `<span class="issue-num">${iss.n}</span><b>${iss.title}</b><br>${iss.body}`;
+  item.onclick = ()=>focusIssue(iss);
+  issuesList.appendChild(item);
+});
+
+function clearFocus(){
+  edgeEls.forEach(p=>p.classList.remove('focused','dimmed','issueglow'));
+  Object.values(nodeEls).forEach(({box,title,sub})=>{box.classList.remove('dimmed');title.classList.remove('dimmed');sub.classList.remove('dimmed');});
+}
+
+function focusNode(id){
+  clearFocus();
+  const connected = new Set([id]);
+  edgeEls.forEach(p=>{
+    const isConn = p.dataset.from===id || p.dataset.to===id;
+    if(isConn){ p.classList.add('focused'); connected.add(p.dataset.from); connected.add(p.dataset.to);
+      if(p.style.display==='none' && document.getElementById('toggle-log').checked===false) p.style.display='none';
+    } else { p.classList.add('dimmed'); }
+  });
+  Object.keys(nodeEls).forEach(nid=>{
+    if(!connected.has(nid)){
+      nodeEls[nid].box.classList.add('dimmed');
+      nodeEls[nid].title.classList.add('dimmed');
+      nodeEls[nid].sub.classList.add('dimmed');
+    }
+  });
+}
+
+function focusIssue(iss){
+  clearFocus();
+  edgeEls.forEach(p=>p.classList.add('dimmed'));
+  (iss.edges||[]).forEach(([f,t])=>{
+    edgeEls.forEach(p=>{ if(p.dataset.from===f && p.dataset.to===t) p.classList.add('issueglow'); });
+  });
+  Object.keys(nodeEls).forEach(nid=>{
+    if(!iss.nodes.includes(nid)){
+      nodeEls[nid].box.classList.add('dimmed');
+      nodeEls[nid].title.classList.add('dimmed');
+      nodeEls[nid].sub.classList.add('dimmed');
+    }
+  });
+  document.getElementById('drawer-tag').textContent = 'Known issue #'+iss.n;
+  document.getElementById('drawer-title').textContent = iss.title;
+  document.getElementById('drawer-body').innerHTML = `<p style="color:var(--ink-dim)">${iss.body}</p><h3>Involved modules</h3><ul>${iss.nodes.map(n=>`<li><b>${NODES[n].label}</b></li>`).join('')}</ul>`;
+  document.getElementById('drawer').classList.add('open');
+}
+
+function styleLabel(style){
+  const map = {flow:['Data flow','var(--insights)'],gateStrong:['Gate — enforced','var(--gate-strong)'],gateCosmetic:['Gate — cosmetic only','var(--gate-warn)'],noGate:['No gate','var(--gate-warn)'],display:['Display only','var(--display-only)'],bidirectional:['Bidirectional','var(--planning)'],loglink:['Log link','var(--system)']};
+  return map[style]||['',''];
+}
+
+function openDrawer(id){
+  focusNode(id);
+  const n = NODES[id];
+  document.getElementById('drawer-tag').textContent = n.special ? 'Home screen' : COLS[n.col].label;
+  document.getElementById('drawer-title').textContent = n.label;
+  let html = `<p style="color:var(--ink-dim)">${n.desc}</p>`;
+  html += '<h3>Inputs</h3><ul>'+(n.inputs||['—']).map(x=>`<li>${x}</li>`).join('')+'</ul>';
+  html += '<h3>Outputs</h3><ul>'+(n.outputs||['—']).map(x=>`<li>${x}</li>`).join('')+'</ul>';
+  html += '<h3>Gates</h3><ul>'+(n.gates||['—']).map(x=>`<li>${x}</li>`).join('')+'</ul>';
+  html += '<h3>AI</h3><ul>'+(n.ai||['—']).map(x=>`<li>${x}</li>`).join('')+'</ul>';
+  if(n.gap){ html += `<h3 style="color:var(--broken)">Flagged issue</h3><p style="color:var(--ink-dim)">${n.gap}</p>`; }
+  document.getElementById('drawer-body').innerHTML = html;
+  document.getElementById('drawer').classList.add('open');
+}
+
+document.getElementById('drawer-close').onclick = ()=>{
+  document.getElementById('drawer').classList.remove('open');
+  clearFocus();
+};
+
+wrap.addEventListener('click', e=>{
+  if(e.target === wrap || e.target.id==='board'){
+    document.getElementById('drawer').classList.remove('open');
+    clearFocus();
+  }
+});
+
+document.getElementById('toggle-log').addEventListener('change', e=>{
+  edgeEls.forEach(p=>{
+    if(p.classList.contains('loglink')) p.style.display = e.target.checked ? '' : 'none';
+  });
+});
+
+document.getElementById('toggle-issues').addEventListener('change', e=>{
+  if(e.target.checked){
+    clearFocus();
+    edgeEls.forEach(p=>p.classList.add('dimmed'));
+    const glowNodes = new Set();
+    ISSUES.forEach(iss=>{
+      iss.nodes.forEach(n=>glowNodes.add(n));
+      (iss.edges||[]).forEach(([f,t])=>{
+        edgeEls.forEach(p=>{ if(p.dataset.from===f && p.dataset.to===t) p.classList.add('issueglow'); });
+      });
+    });
+    Object.keys(nodeEls).forEach(nid=>{
+      if(!glowNodes.has(nid)){
+        nodeEls[nid].box.classList.add('dimmed');
+        nodeEls[nid].title.classList.add('dimmed');
+        nodeEls[nid].sub.classList.add('dimmed');
+      }
+    });
+  } else {
+    clearFocus();
+  }
+});
+</script>
+</body>
+</html>
