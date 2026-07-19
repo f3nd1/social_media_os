@@ -8965,8 +8965,6 @@ function SocialAuditView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightPlatform]);
   const [generatingPlatform, setGeneratingPlatform] = useState<Platform | "">("");
-  const [recalcProgress, setRecalcProgress] = useState<Record<string, string>>({});
-  const [recalcRunning, setRecalcRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [generatingOverview, setGeneratingOverview] = useState(false);
   const [overviewError, setOverviewError] = useState("");
@@ -9056,31 +9054,6 @@ function SocialAuditView({
     } finally {
       setGeneratingPlatform("");
     }
-  }
-
-  async function recalculateAll() {
-    setRecalcRunning(true);
-    setErrorMessage("");
-    setRecalcProgress({});
-
-    for (const audit of audits) {
-      setRecalcProgress((current) => ({ ...current, [audit.platform]: "generating" }));
-
-      try {
-        const error = await generateForPlatform(audit);
-        setRecalcProgress((current) => ({
-          ...current,
-          [audit.platform]: error ? `failed: ${error}` : "done",
-        }));
-      } catch (error) {
-        setRecalcProgress((current) => ({
-          ...current,
-          [audit.platform]: `failed: ${error instanceof Error ? error.message : String(error)}`,
-        }));
-      }
-    }
-
-    setRecalcRunning(false);
   }
 
   function buildWholeAuditContext(): WholeAuditAiContext {
@@ -9245,52 +9218,8 @@ function SocialAuditView({
             title="Social Audit"
             description="Score the current platform presence across completeness, consistency, content mix, hooks, CTAs, visuals, and engagement."
           />
-          <div className="flex flex-col items-stretch gap-2 sm:items-end">
-            <Button
-              disabled={!liveAi || recalcRunning}
-              onClick={() => void recalculateAll()}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <Sparkles className="h-4 w-4" />
-              {recalcRunning ? "Recalculating" : "Recalculate all with AI"}
-            </Button>
-            {!liveAi ? (
-              <p className="text-xs leading-5 text-muted-foreground">
-                Connect OpenAI in Settings to recalculate scores with AI. You
-                can also type the scores in by hand below.
-              </p>
-            ) : null}
-          </div>
         </CardHeader>
         <CardContent>
-          {Object.keys(recalcProgress).length > 0 ? (
-            <div className="mb-3 space-y-1 rounded-lg border bg-muted/20 p-3">
-              {audits.map((audit) => {
-                const state = recalcProgress[audit.platform];
-
-                if (!state) {
-                  return null;
-                }
-
-                return (
-                  <p className="text-xs leading-5" key={audit.platform}>
-                    <span className="font-medium">{audit.platform}:</span>{" "}
-                    <span
-                      className={cn(
-                        state.startsWith("failed") && "text-warning-foreground",
-                        state === "done" && "text-success-foreground",
-                      )}
-                    >
-                      {state}
-                    </span>
-                  </p>
-                );
-              })}
-            </div>
-          ) : null}
-
           {errorMessage ? (
             <div className="mb-3 rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
               {errorMessage}
@@ -9506,8 +9435,7 @@ function SocialAuditView({
                                 <Button
                                   disabled={
                                     !liveAi ||
-                                    generatingPlatform === audit.platform ||
-                                    recalcRunning
+                                    generatingPlatform === audit.platform
                                   }
                                   onClick={() => void generateOne(audit)}
                                   size="sm"
