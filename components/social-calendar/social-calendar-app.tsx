@@ -12940,36 +12940,44 @@ function CalendarItemEditor({
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Badge variant={isApproved ? "success" : "secondary"}>
+            <StatusDotBadge tone={isApproved ? "success" : "warning"}>
               {isApproved ? "Approved" : "Draft, not approved"}
-            </Badge>
+            </StatusDotBadge>
             <Button onClick={onClose} size="icon" type="button" variant="outline">
               <X className="h-4 w-4" />
             </Button>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button onClick={() => onApprove(item.id)} size="sm" type="button">
-            <CheckCircle2 className="h-4 w-4" />
-            Approve
-          </Button>
-          <Button onClick={() => onReject(item.id)} size="sm" type="button" variant="outline">
-            Reject
-          </Button>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => onApprove(item.id)} size="sm" type="button">
+              <CheckCircle2 className="h-4 w-4" />
+              Approve
+            </Button>
+            <Button onClick={() => onReject(item.id)} size="sm" type="button" variant="outline">
+              Reject
+            </Button>
+            <Button
+              disabled={!liveAi || regenerating}
+              onClick={() => onRegenerate(item.id)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <Sparkles className="h-4 w-4" />
+              {regenerating ? "Regenerating" : "Regenerate"}
+            </Button>
+            <Button onClick={() => onDuplicate(item.id)} size="sm" type="button" variant="ghost">
+              Duplicate
+            </Button>
+          </div>
           <Button
-            disabled={!liveAi || regenerating}
-            onClick={() => onRegenerate(item.id)}
+            className="border-transparent text-destructive hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:border-l sm:border-input sm:pl-4"
+            onClick={() => onDelete(item.id)}
             size="sm"
             type="button"
-            variant="outline"
+            variant="ghost"
           >
-            <Sparkles className="h-4 w-4" />
-            {regenerating ? "Regenerating" : "Regenerate"}
-          </Button>
-          <Button onClick={() => onDuplicate(item.id)} size="sm" type="button" variant="outline">
-            Duplicate
-          </Button>
-          <Button onClick={() => onDelete(item.id)} size="sm" type="button" variant="outline">
             <Trash2 className="h-4 w-4" />
             Delete
           </Button>
@@ -14893,6 +14901,43 @@ function Field({ children, label }: { children: ReactNode; label: string }) {
       <span className="text-sm font-medium text-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+// A small colored-dot + label pill for a status value, matching the same
+// visual technique the calendar cards already use for the compliance dot
+// (ComplianceBadge): a rounded pill in a tone color with a solid dot before
+// the label, so status reads at a glance rather than blending into the page.
+function StatusDotBadge({
+  children,
+  tone,
+}: {
+  children: ReactNode;
+  tone: "success" | "warning" | "info" | "secondary";
+}) {
+  const toneClass = {
+    success: "border-success-border bg-success text-success-foreground",
+    warning: "border-warning-border bg-warning text-warning-foreground",
+    info: "border-info-border bg-info text-info-foreground",
+    secondary: "border-transparent bg-secondary text-secondary-foreground",
+  }[tone];
+  const dotClass = {
+    success: "bg-success-foreground",
+    warning: "bg-warning-foreground",
+    info: "bg-info-foreground",
+    secondary: "bg-secondary-foreground",
+  }[tone];
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium",
+        toneClass,
+      )}
+    >
+      <span className={cn("h-1.5 w-1.5 rounded-full", dotClass)} />
+      {children}
+    </span>
   );
 }
 
