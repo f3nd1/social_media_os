@@ -115,14 +115,47 @@ export function normalizeResearchFile(raw: RawResearchFile): {
 
 export function buildListeningSystemPrompt(): string {
   return [
-    "You analyse real social media posts for the marketing team of a private college in Singapore.",
-    "You are given numbered posts fetched live from Reddit and X. Work ONLY from these posts; you have no other knowledge of the discussion.",
+    "You analyse real social media posts and public web findings for the marketing team of a private college in Singapore.",
+    "You are given numbered posts fetched live from Reddit, X, YouTube comments, and a public web search. Work ONLY from these posts; you have no other knowledge of the discussion.",
     "Never invent posts, quotes, statistics, or sentiment. If the posts are too few or off-topic to answer properly, say exactly that in the insight.",
+    "Posts labelled \"Public web\" are the titles of real cited pages, not full quotes the way Reddit, X, or YouTube comments are. Prefer Reddit/X/YouTube posts for direct sentiment quotes when both are available, and use Public web posts mainly to support a claim about breadth or prevalence, not as a stand-in for a real person's words.",
     "In quoteIndexes, list the numbers of the specific posts your insight rests on (3 to 8 where possible). These are shown to the manager as evidence.",
     "These posts are research evidence for internal planning only, never marketing copy.",
     "Use British spelling. Do not use em dashes. Refer to teaching staff as teachers, never instructors.",
     'Return only a JSON object of the shape { "insight": "string", "quoteIndexes": [numbers] }.',
   ].join(" ");
+}
+
+// Search 3 (Plan A): general public web/news/forum coverage of the topic, via
+// OpenAI's own web_search tool (already used elsewhere in the app: Trend
+// Radar, Competitor Observe). Broadens coverage beyond Reddit/X/YouTube with no
+// new dependency or paid key, at the honest cost of shallower evidence: a
+// citation's title, not a full comment the way Reddit/YouTube give real
+// conversation text.
+export function buildWebListeningSearchInput(topic: string): string {
+  return [
+    `Search the public web for real discussion, news coverage, and forum commentary about: "${topic}".`,
+    "Focus on genuine public opinion and discussion: education forums, news articles, blog commentary, and any public social posts that are indexed and visible without logging in.",
+    "Only report what real, citable pages actually show. Do not invent discussion, statistics, or sentiment that the sources do not support. If nothing relevant is found, say so plainly.",
+  ].join(" ");
+}
+
+// Each citation becomes one evidence "post". The text is the page's own real
+// title, not an invented quote: a web_search citation is a real, cited page,
+// but not the same depth of evidence as a Reddit/YouTube comment, so it is
+// labelled "Public web" to keep that distinction visible to the manager and
+// the synthesis step.
+export function webCitationsToListeningPosts(
+  citations: Array<{ title: string; url: string }>,
+): ListeningPost[] {
+  return citations
+    .filter((citation) => citation.url)
+    .map((citation) => ({
+      text: citation.title || citation.url,
+      source: "Public web",
+      url: citation.url,
+      date: "",
+    }));
 }
 
 export function buildListeningUserPrompt(

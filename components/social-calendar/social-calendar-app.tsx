@@ -4057,7 +4057,9 @@ function TrendRadarPanel({
         body: JSON.stringify({
           apiKey: data.aiIntegration.apiKey,
           xaiApiKey: data.aiIntegration.xaiApiKey ?? "",
+          youtubeApiKey: data.aiIntegration.youtubeApiKey ?? "",
           model: resolveModelForTask(data.aiIntegration, "analysis"),
+          searchModel: resolveModelForTask(data.aiIntegration, "utility"),
           topic: listeningTopic.trim(),
           analysisType: listeningType,
         }),
@@ -7019,6 +7021,19 @@ function AiIntegrationPanel({
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             Without this key, social listening searches Reddit only and says
             so. Stored the same way as the OpenAI key.
+          </p>
+        </Field>
+
+        <Field label="YouTube Data API key (optional, for social listening on YouTube)">
+          <Input
+            onChange={(event) => update({ youtubeApiKey: event.target.value })}
+            placeholder="AIza..."
+            type="password"
+            value={aiIntegration.youtubeApiKey ?? ""}
+          />
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Free from Google Cloud Console (no billing required for search).
+            Without this key, YouTube is skipped and the UI says so.
           </p>
         </Field>
 
