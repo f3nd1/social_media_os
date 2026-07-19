@@ -5,6 +5,24 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// "17 Feb 2026" style for dates the user reads on screen. Never use this for
+// dates sent to an API or bound to a date input; those keep their native
+// YYYY-MM-DD form. Falls back to the raw value rather than crashing or
+// silently dropping data if it cannot be parsed.
+export function formatDisplayDate(value: string): string {
+  const date = new Date(value);
+
+  if (!value || Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
 // Title-cases a lowercase role string ("marketing manager" -> "Marketing Manager").
 export function roleLabel(role: string): string {
   return role
