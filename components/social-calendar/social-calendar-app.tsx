@@ -4068,11 +4068,13 @@ function acceptedTrendLines(trendInsights: TrendInsight[]): string[] {
 function TrendRadarPanel({
   data,
   onListeningResultsChange,
+  onNavigate,
   onRecordUsage,
   onTrendInsightsChange,
 }: {
   data: MarketingWorkspaceData;
   onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
+  onNavigate: (view: ViewId) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
 }) {
@@ -4368,9 +4370,42 @@ function TrendRadarPanel({
 
             {accepted.length > 0 ? (
               <>
-                <p className="pt-1 text-xs font-medium uppercase text-muted-foreground">
-                  Accepted trends (used by campaign and calendar AI)
-                </p>
+                <div className="pt-1">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">
+                    Accepted trends
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Accepted trends are automatically included when you
+                    generate the Strategy Brief, Campaign suggestions, or
+                    Content Calendar.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => onNavigate("brief")}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Strategy Brief
+                    </Button>
+                    <Button
+                      onClick={() => onNavigate("campaigns")}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Campaigns
+                    </Button>
+                    <Button
+                      onClick={() => onNavigate("calendar")}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Content Calendar
+                    </Button>
+                  </div>
+                </div>
                 {accepted.map((trend) => trendCard(trend))}
               </>
             ) : null}
@@ -4823,6 +4858,7 @@ function PlatformStrategyView({
       <TrendRadarPanel
         data={data}
         onListeningResultsChange={onListeningResultsChange}
+        onNavigate={onNavigate}
         onRecordUsage={onRecordUsage}
         onTrendInsightsChange={onTrendInsightsChange}
       />
