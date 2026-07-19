@@ -412,6 +412,40 @@ const modules: Array<{
 // and anywhere that still iterates every screen.
 const navItems: NavItem[] = modules.flatMap((module) => module.tabs);
 
+// Remembers the last screen viewed so a browser refresh stays put instead of
+// resetting to Dashboard. Local browser preference only (like the theme),
+// never synced to Supabase/workspace_state.
+const ACTIVE_VIEW_STORAGE_KEY = "ucc-os-active-view";
+
+function isViewId(value: unknown): value is ViewId {
+  return typeof value === "string" && navItems.some((item) => item.id === value);
+}
+
+function getStoredActiveView(): ViewId {
+  if (typeof window === "undefined") {
+    return "dashboard";
+  }
+
+  try {
+    const stored = window.localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
+    return isViewId(stored) ? stored : "dashboard";
+  } catch {
+    return "dashboard";
+  }
+}
+
+function storeActiveView(view: ViewId) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
+  } catch {
+    // Ignore storage failures (for example private browsing quota limits).
+  }
+}
+
 const scoreFields: Array<{ key: keyof AuditScores; label: string }> = [
   { key: "profileCompleteness", label: "Profile completeness" },
   { key: "postingConsistency", label: "Posting consistency" },
@@ -460,6 +494,18 @@ export function SocialCalendarApp() {
     appliedPlatforms: AppliedPlatformSummary[];
     label: string;
   } | null>(null);
+
+  // Restore the last screen viewed so a refresh stays put instead of resetting
+  // to Dashboard. Runs once after mount (mirrors the theme restore pattern) so
+  // server-rendered markup always matches the "dashboard" default and there is
+  // no hydration mismatch.
+  useEffect(() => {
+    setActiveView(getStoredActiveView());
+  }, []);
+
+  useEffect(() => {
+    storeActiveView(activeView);
+  }, [activeView]);
 
   useEffect(() => {
     const holder = modules.find((module) =>
