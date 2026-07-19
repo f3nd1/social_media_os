@@ -19,7 +19,7 @@
 // returned to the UI as the exact status, the raw body, and the URL called
 // (with the token masked) so the owner can compare it against the docs.
 
-import { type Platform } from "@/lib/social-calendar-data";
+import type { Platform } from "@/lib/social-calendar-data";
 import type { PlatformDataMetrics } from "@/lib/pdf-data-import";
 
 export const METRICOOL_BASE_URL = "https://app.metricool.com/api";
@@ -51,16 +51,22 @@ export const METRICOOL_NETWORK_TO_PLATFORM: Record<string, Platform> = {
 
 export const METRICOOL_SYNC_NETWORKS = Object.keys(METRICOOL_NETWORK_TO_PLATFORM);
 
-// Timeline metric ids, matching the metric names the verified CLI documents
-// for `analytics timeline` (followers, impressions, engagement, reach,
-// clicks). Some networks may not report every metric.
-const METRICOOL_METRIC_IDS = {
-  followers: "followers",
-  impressions: "impressions",
-  reach: "reach",
-  engagement: "engagement",
-  clicks: "clicks",
-} as const;
+// The network slug the per-network posts endpoint expects in its path
+// (/v2/analytics/posts/{slug}). This is NOT the same string as the brand
+// record's field name: the brand record uses "linkedincompany", but the posts
+// endpoint wants "linkedin". All seven slugs below were confirmed with real
+// authenticated calls against the live account. Networks with no slug here
+// (pinterest, gmb) have no matching app Platform anyway and are skipped.
+export const METRICOOL_NETWORK_TO_POSTS_SLUG: Record<string, string> = {
+  facebook: "facebook",
+  instagram: "instagram",
+  twitter: "twitter",
+  linkedin: "linkedin",
+  linkedincompany: "linkedin",
+  tiktok: "tiktok",
+  youtube: "youtube",
+  threads: "threads",
+};
 
 // Appends the auth query parameters exactly as the working CLI does:
 // userToken (the API token), userId, and blogId.
@@ -585,54 +591,271 @@ async function fetchTimelineMetric(
   }
 }
 
-async function fetchPostCount(
+// ---------------------------------------------------------------------------
+// Per-network posts (real per-platform figures).
+//
+// GET /v2/analytics/posts/{slug} returns a list of real posts, each with that
+// network's own engagement fields. Confirmed against the live account: every
+// network uses a DIFFERENT schema (Instagram's `impressionsTotal` is Facebook's
+// `impressions` is TikTok's `viewCount`), so each needs its own field mapper
+// below. Two rules hold across all of them:
+//   1. The per-post `engagement` field is a RATE (a percentage, e.g. 16.67),
+//      never a count. It is never summed; the engagement count is rebuilt from
+//      the real interaction fields per network.
+//   2. Fields are absent (LinkedIn) or null (Twitter) when zero, so every read
+//      goes through num(), which turns null/undefined/non-numbers into 0.
+//
+// This endpoint wants full date-times (2026-06-19T00:00:00), unlike the v1
+// /stats endpoints which want compact YYYYMMDD; see toMetricoolDateTime.
+// ---------------------------------------------------------------------------
+
+// The additive part of a metrics row (everything except followers/leads/posts).
+type PostContribution = {
+  impressions: number;
+  reach: number;
+  engagement: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  watchTime: number;
+  clicks: number;
+  followsGained: number;
+};
+
+const EMPTY_CONTRIBUTION: PostContribution = {
+  impressions: 0,
+  reach: 0,
+  engagement: 0,
+  comments: 0,
+  shares: 0,
+  saves: 0,
+  watchTime: 0,
+  clicks: 0,
+  followsGained: 0,
+};
+
+// null (Twitter), undefined (LinkedIn absent field), floats (YouTube), and
+// numeric strings all collapse to a finite number or 0. Never NaN.
+function num(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// One mapper per network, reading that network's real field names (confirmed
+// live). `engagement` here is the interaction COUNT, rebuilt from real counts,
+// never the per-post engagement-rate field. A network with no interaction-count
+// fields (LinkedIn only exposes an engagement rate) honestly contributes 0 to
+// engagement rather than a fabricated number.
+export const NETWORK_POST_MAPPERS: Record<
+  string,
+  (post: Record<string, unknown>) => PostContribution
+> = {
+  instagram: (p) => ({
+    ...EMPTY_CONTRIBUTION,
+    impressions: num(p.impressionsTotal),
+    reach: num(p.reach),
+    engagement: num(p.interactions),
+    comments: num(p.comments),
+    shares: num(p.shares),
+    saves: num(p.saved),
+    followsGained: num(p.follows),
+  }),
+  facebook: (p) => ({
+    ...EMPTY_CONTRIBUTION,
+    impressions: num(p.impressions),
+    reach: num(p.impressionsUnique),
+    engagement: num(p.reactions) + num(p.comments) + num(p.shares),
+    comments: num(p.comments),
+    shares: num(p.shares),
+    watchTime: num(p.videoTimeWatched),
+    clicks: num(p.clicks),
+  }),
+  tiktok: (p) => ({
+    ...EMPTY_CONTRIBUTION,
+    impressions: num(p.viewCount),
+    reach: num(p.reach),
+    engagement: num(p.likeCount) + num(p.commentCount) + num(p.shareCount),
+    comments: num(p.commentCount),
+    shares: num(p.shareCount),
+    watchTime: num(p.totalTimeWatched),
+  }),
+  // LinkedIn's posts endpoint returns impressions/clicks/time but no
+  // interaction-count fields (only an engagement rate), so engagement stays 0
+  // honestly. Fields are absent when zero: num() handles the undefined reads.
+  linkedin: (p) => ({
+    ...EMPTY_CONTRIBUTION,
+    impressions: num(p.impressions),
+    watchTime: num(p.timeWatched),
+    clicks: num(p.clicks),
+  }),
+  threads: (p) => ({
+    ...EMPTY_CONTRIBUTION,
+    impressions: num(p.views),
+    engagement:
+      num(p.likes) + num(p.replies) + num(p.reposts) + num(p.quotes) + num(p.shares),
+    comments: num(p.replies),
+    shares: num(p.reposts) + num(p.shares),
+  }),
+  // Twitter fields are literal null when zero; num(null) === 0.
+  twitter: (p) => ({
+    ...EMPTY_CONTRIBUTION,
+    impressions: num(p.totalImpressions),
+    engagement:
+      num(p.totalLikes) + num(p.totalRetweets) + num(p.totalReplies) + num(p.totalQuotes),
+    comments: num(p.totalReplies),
+    shares: num(p.totalRetweets),
+  }),
+  // YouTube returns floats (views 152.0, likes 1.0); summed here, rounded once
+  // at the end of aggregateNetworkPosts.
+  youtube: (p) => ({
+    ...EMPTY_CONTRIBUTION,
+    impressions: num(p.views),
+    engagement: num(p.likes) + num(p.comments) + num(p.shares),
+    comments: num(p.comments),
+    shares: num(p.shares),
+    watchTime: num(p.watchMinutes),
+  }),
+};
+
+// Sum every post's contribution for one network into a single integer row.
+// ponytail: reach is summed per post, which overcounts unique reach when the
+// same person saw several posts; there is no per-network unique-reach figure in
+// this endpoint, so this is the honest ceiling. The sync report says so.
+export function aggregateNetworkPosts(
+  slug: string,
+  posts: Array<Record<string, unknown>>,
+): PostContribution {
+  const mapper = NETWORK_POST_MAPPERS[slug];
+
+  if (!mapper) {
+    return { ...EMPTY_CONTRIBUTION };
+  }
+
+  const totals = posts.reduce<PostContribution>((sum, post) => {
+    const one = mapper(post);
+    return {
+      impressions: sum.impressions + one.impressions,
+      reach: sum.reach + one.reach,
+      engagement: sum.engagement + one.engagement,
+      comments: sum.comments + one.comments,
+      shares: sum.shares + one.shares,
+      saves: sum.saves + one.saves,
+      watchTime: sum.watchTime + one.watchTime,
+      clicks: sum.clicks + one.clicks,
+      followsGained: sum.followsGained + one.followsGained,
+    };
+  }, { ...EMPTY_CONTRIBUTION });
+
+  return {
+    impressions: Math.round(totals.impressions),
+    reach: Math.round(totals.reach),
+    engagement: Math.round(totals.engagement),
+    comments: Math.round(totals.comments),
+    shares: Math.round(totals.shares),
+    saves: Math.round(totals.saves),
+    watchTime: Math.round(totals.watchTime),
+    clicks: Math.round(totals.clicks),
+    followsGained: Math.round(totals.followsGained),
+  };
+}
+
+// The per-network posts endpoint wants full ISO date-times (start of day for
+// `from`, end of day for `to`), confirmed live: a plain YYYY-MM-DD returns a
+// 400 ValidationError. This is deliberately DIFFERENT from toMetricoolDate,
+// which the v1 /stats endpoints still require as compact YYYYMMDD.
+function toMetricoolDateTime(isoDate: string, endOfDay: boolean): string {
+  return `${isoDate.slice(0, 10)}T${endOfDay ? "23:59:59" : "00:00:00"}`;
+}
+
+type NetworkPostsOutcome =
+  | { ok: true; posts: Array<Record<string, unknown>>; maskedUrl: string }
+  | {
+      ok: false;
+      status: number;
+      notFound: boolean;
+      unrecognised: boolean;
+      html: boolean;
+      error: string;
+      raw: string;
+      maskedUrl: string;
+    };
+
+async function fetchNetworkPosts(
   credentials: MetricoolCredentials,
-  start: string,
-  end: string,
-): Promise<number> {
+  slug: string,
+  from: string,
+  to: string,
+): Promise<NetworkPostsOutcome> {
+  const url = `${METRICOOL_BASE_URL}/v2/analytics/posts/${encodeURIComponent(
+    slug,
+  )}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  const authedUrl = withAuth(url, credentials);
+  const masked = maskUrl(authedUrl);
+
   try {
-    assertPlainMetricoolDate(start, "posts start");
-    assertPlainMetricoolDate(end, "posts end");
-    const url = withAuth(
-      `${METRICOOL_BASE_URL}/posts?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
-      credentials,
-    );
-    const response = await fetch(url);
+    const response = await fetch(authedUrl);
+    const raw = await readBody(response);
+    const html = looksLikeHtml(raw);
 
     if (!response.ok) {
-      return 0;
+      return {
+        ok: false,
+        status: response.status,
+        notFound: response.status === 404,
+        unrecognised: false,
+        html,
+        error: describeUpstream(
+          response.status,
+          response.statusText,
+          html ? "(HTML web page)" : raw,
+          endpointPath(authedUrl),
+        ),
+        raw: raw.slice(0, 200),
+        maskedUrl: masked,
+      };
     }
 
-    const raw = await readBody(response);
     let payload: unknown = null;
+
     try {
       payload = JSON.parse(raw);
     } catch {
-      return 0;
+      payload = null;
     }
 
-    const list = extractTimelinePoints(payload);
-    return list ? list.length : 0;
-  } catch {
-    return 0;
-  }
-}
+    const points = extractTimelinePoints(payload);
 
-// One plain-words phrase for a metric outcome, used in the sync report.
-function describeTimelineOutcome(outcome: TimelineOutcome): string {
-  if (outcome.ok) {
-    return `${outcome.points} data point${outcome.points === 1 ? "" : "s"}`;
-  }
+    if (!points) {
+      return {
+        ok: false,
+        status: 200,
+        notFound: false,
+        unrecognised: true,
+        html,
+        error: "Metricool answered HTTP 200 but the body held no recognisable list of posts.",
+        raw: raw.slice(0, 200),
+        maskedUrl: masked,
+      };
+    }
 
-  if (outcome.html) {
-    return "HTML web page (wrong endpoint)";
-  }
+    const posts = points.filter(
+      (point): point is Record<string, unknown> =>
+        Boolean(point) && typeof point === "object" && !Array.isArray(point),
+    );
 
-  if (outcome.unrecognised) {
-    return "HTTP 200 but unreadable body";
+    return { ok: true, posts, maskedUrl: masked };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      notFound: false,
+      unrecognised: false,
+      html: false,
+      error: error instanceof Error ? error.message : String(error),
+      raw: "",
+      maskedUrl: masked,
+    };
   }
-
-  return outcome.status === 0 ? "network error" : `HTTP ${outcome.status}`;
 }
 
 export async function syncMetricoolMetrics(
@@ -687,99 +910,167 @@ export async function syncMetricoolMetrics(
     );
   }
 
-  // Metricool's timeline API is keyed by brand (blogId), not per network, so
-  // each metric is fetched once for the brand.
-  const metricNames = Object.values(METRICOOL_METRIC_IDS);
-  const outcomes = await Promise.all(
-    metricNames.map((metric) => fetchTimelineMetric(credentials, metric, start, end)),
-  );
-  const [followers, impressions, reach, engagement, clicks] = outcomes;
+  // The per-network posts endpoint needs full date-times (start of day / end of
+  // day), unlike the followers timeline which still needs compact YYYYMMDD.
+  const fromDateTime = toMetricoolDateTime(from, false);
+  const toDateTime = toMetricoolDateTime(to, true);
 
-  metricNames.forEach((metric, index) => {
-    const outcome = outcomes[index];
-    const rawNote = !outcome.ok && outcome.raw.trim() ? ` Raw reply: ${outcome.raw}` : "";
-    report.push(
-      `${metric}: ${describeTimelineOutcome(outcome)}. URL called: ${outcome.maskedUrl}.${rawNote}`,
+  // Only networks that BOTH map to an app Platform AND have a confirmed posts
+  // slug are fetched. Unsupported connected networks (pinterest, gmb) are noted
+  // and skipped, never fetched with a guessed slug.
+  const targets = connectedNetworks
+    .map((network) => ({
+      network,
+      platform: METRICOOL_NETWORK_TO_PLATFORM[network] as Platform | undefined,
+      slug: METRICOOL_NETWORK_TO_POSTS_SLUG[network] as string | undefined,
+    }))
+    .filter(
+      (candidate): candidate is { network: string; platform: Platform; slug: string } =>
+        Boolean(candidate.platform) && Boolean(candidate.slug),
     );
-  });
 
-  const failures = outcomes.filter(
-    (outcome): outcome is Extract<TimelineOutcome, { ok: false }> => !outcome.ok,
+  // Networks Metricool tracks but this app has no per-network sync for (for
+  // example pinterest, gmb). These are the genuinely "not synced" ones the UI
+  // lists; a network that IS supported but whose fetch fails is reported in
+  // detail below instead, not lumped in here.
+  const skippedNetworks = connectedNetworks.filter(
+    (network) =>
+      !METRICOOL_NETWORK_TO_PLATFORM[network] || !METRICOOL_NETWORK_TO_POSTS_SLUG[network],
   );
-  const anyHtml = failures.some((failure) => failure.html);
-  const allFailed = failures.length === outcomes.length;
 
-  // Every call served the website HTML: the endpoint/host is wrong for this
-  // account. Report it plainly with the masked URL to compare against docs.
-  if (allFailed && anyHtml) {
-    return {
-      ok: false,
-      error: `Every metric request returned Metricool's website HTML rather than API data, so the timeline endpoint did not reach the API for this account. Example URL called (token masked): ${outcomes[0].maskedUrl}. Compare this against Metricool's API docs; use the CSV import meanwhile.`,
-    };
-  }
-
-  if (allFailed) {
-    const planGated = failures.every((failure) => [401, 402, 403].includes(failure.status));
-
-    if (planGated) {
-      return {
-        ok: false,
-        error:
-          "Metricool returned 401/402/403 for every metric, which means API access is not enabled on your plan (it needs at least the Advanced plan). Use the CSV import instead.",
-        status: 403,
-      };
-    }
-
-    const allNotFound = failures.every((failure) => failure.notFound);
-
-    if (!allNotFound) {
-      const first = failures.find((f) => f.unrecognised) ?? failures[0];
-      return { ok: false, error: first.error, status: first.status };
-    }
-    // All clean 404s: no data for this brand in this range. Fall through to a
-    // successful-but-empty result so the report is shown; no numbers invented.
+  if (skippedNetworks.length > 0) {
+    report.push(
+      `Connected networks with no per-network sync (not fetched): ${skippedNetworks.join(", ")}.`,
+    );
   }
 
   const metrics: PlatformDataMetrics[] = [];
-  const skippedNetworks: string[] = [];
-  const gotData = outcomes.some((outcome) => outcome.ok && outcome.points > 0);
 
-  if (gotData) {
-    // The timeline is brand-level (all networks combined), so this is a single
-    // "Brand total" row. It still needs a platform key to attach to an audit on
-    // apply: the first connected network that maps to a platform, or a default.
-    // The row is labelled "Brand total (all networks)" so it is never mistaken
-    // for one network's figures. Reviewed and approved before it is applied.
-    const primaryNetwork = connectedNetworks.find(
-      (network) => METRICOOL_NETWORK_TO_PLATFORM[network],
-    );
-    const platform: Platform = primaryNetwork
-      ? METRICOOL_NETWORK_TO_PLATFORM[primaryNetwork]
-      : "Facebook";
-    const posts = await fetchPostCount(credentials, start, end);
+  // Fetch every supported network's posts in parallel.
+  const postOutcomes = await Promise.all(
+    targets.map((target) =>
+      fetchNetworkPosts(credentials, target.slug, fromDateTime, toDateTime),
+    ),
+  );
 
-    report.push(
-      `Producing one row for review, labelled "Brand total (all networks)" and stored against the ${platform} audit${
-        primaryNetwork ? "" : " (no network mapped, using a default)"
-      }. Metricool's timeline API returns brand totals, not a per-network split; for per-network figures use the CSV export.`,
-    );
+  const postFailures: Array<Extract<NetworkPostsOutcome, { ok: false }>> = [];
+
+  targets.forEach((target, index) => {
+    const outcome = postOutcomes[index];
+
+    if (!outcome.ok) {
+      postFailures.push(outcome);
+      const rawNote = outcome.raw.trim() ? ` Raw reply: ${outcome.raw}` : "";
+      report.push(`${target.platform}: could not fetch posts (${outcome.error}).${rawNote}`);
+      return;
+    }
+
+    if (outcome.posts.length === 0) {
+      // Reachable, just no posts in this window. Not an error, and no row is
+      // invented; the manager sees an honest "0 posts" note instead.
+      report.push(
+        `${target.platform}: reachable, 0 posts in this date range. URL: ${outcome.maskedUrl}.`,
+      );
+      return;
+    }
+
+    const totals = aggregateNetworkPosts(target.slug, outcome.posts);
 
     metrics.push({
-      platform,
-      label: "Brand total (all networks)",
-      followers: followers.ok ? Math.round(followers.latest) : 0,
-      impressions: impressions.ok ? Math.round(impressions.total) : 0,
-      reach: reach.ok ? Math.round(reach.total) : 0,
-      engagement: engagement.ok ? Math.round(engagement.total) : 0,
+      platform: target.platform,
+      label: `${target.platform} (${outcome.posts.length} posts, last ${days} days)`,
+      followers: 0,
+      ...totals,
+      leads: 0,
+      posts: outcome.posts.length,
+    });
+
+    report.push(
+      `${target.platform}: ${outcome.posts.length} posts, ${totals.impressions} impressions, ${totals.reach} reach, ${totals.engagement} interactions. URL: ${outcome.maskedUrl}.`,
+    );
+  });
+
+  // Followers are only available brand-wide (no per-network split exists in this
+  // API), so they are fetched once from the v1 timeline endpoint (compact
+  // YYYYMMDD dates) and shown as a single clearly-labelled combined row. The
+  // per-network rows above carry followers: 0 because a per-network follower
+  // count is genuinely unavailable, NOT because the network has none.
+  const followersOutcome = await fetchTimelineMetric(credentials, "followers", start, end);
+
+  if (followersOutcome.ok && followersOutcome.latest > 0) {
+    const anchor: Platform = targets[0]?.platform ?? "Facebook";
+    metrics.push({
+      platform: anchor,
+      label: "Followers (all networks combined)",
+      followers: Math.round(followersOutcome.latest),
+      impressions: 0,
+      reach: 0,
+      engagement: 0,
       comments: 0,
       shares: 0,
       saves: 0,
       watchTime: 0,
-      clicks: clicks.ok ? Math.round(clicks.total) : 0,
+      clicks: 0,
       followsGained: 0,
       leads: 0,
-      posts,
+      posts: 0,
     });
+    report.push(
+      `Followers: ${Math.round(
+        followersOutcome.latest,
+      )} brand-wide (all networks combined; Metricool exposes no per-network follower count). Shown as one labelled row; per-network rows show 0 followers by design.`,
+    );
+  } else {
+    report.push(
+      `Followers: no brand-level figure returned${
+        followersOutcome.ok ? " (endpoint reachable, value 0)" : ` (${followersOutcome.error})`
+      }.`,
+    );
+  }
+
+  report.push(
+    "Note: per-network reach is summed across posts, which can exceed unique reach when the same person saw several posts. Metricool's posts endpoint has no per-network unique-reach figure.",
+  );
+
+  // No rows at all: distinguish a real failure from a genuinely empty account so
+  // the UI never shows a mystery blank, and never invents numbers.
+  if (metrics.length === 0) {
+    if (targets.length === 0) {
+      return {
+        ok: false,
+        error:
+          "Metricool connected, but the brand record shows no networks this app can sync per-network (checked Instagram, Facebook, TikTok, LinkedIn, X/Twitter, Threads, YouTube). Use the PDF import for the rest.",
+      };
+    }
+
+    if (postFailures.length === targets.length) {
+      const anyHtml = postFailures.some((failure) => failure.html);
+
+      if (anyHtml) {
+        return {
+          ok: false,
+          error: `Every per-network posts request returned Metricool's website HTML rather than API data, so the endpoint did not reach the API for this account. Example URL (token masked): ${postFailures[0].maskedUrl}. Use the PDF import meanwhile.`,
+        };
+      }
+
+      const planGated = postFailures.every((failure) =>
+        [401, 402, 403].includes(failure.status),
+      );
+
+      if (planGated) {
+        return {
+          ok: false,
+          error:
+            "Metricool returned 401/402/403 for every network, which means API access is not enabled on your plan (it needs at least the Advanced plan). Use the PDF import instead.",
+          status: 403,
+        };
+      }
+
+      const first = postFailures.find((failure) => failure.unrecognised) ?? postFailures[0];
+      return { ok: false, error: first.error, status: first.status };
+    }
+    // Otherwise: some networks were reachable but simply had no posts in range
+    // (and no followers). Return ok-but-empty so the honest report is shown.
   }
 
   return { ok: true, value: { metrics, skippedNetworks, report } };
