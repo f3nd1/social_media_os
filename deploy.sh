@@ -31,6 +31,44 @@ git pull origin "$BRANCH"
 echo "==> Installing dependencies"
 npm install
 
+# ---- Optional: extra social listening sources (last30days) ----
+# Installed beside the app rather than inside it: it is a separate Python
+# project with its own release cadence, and keeping it out of the repo keeps
+# this one free of a large vendored tree. Every failure below is non-fatal on
+# purpose. If the tool is missing or broken, social listening silently falls
+# back to the sources it already had, so a bad clone must never block a deploy
+# of the app itself. Set SKIP_LAST30DAYS=1 to leave it alone entirely.
+LAST30DAYS_DIR="$(dirname "$APP_DIR")/last30days-skill"
+
+if [ -n "${SKIP_LAST30DAYS:-}" ]; then
+  echo "==> Skipping last30days (SKIP_LAST30DAYS set)"
+elif ! command -v git >/dev/null 2>&1; then
+  echo "==> git not found, skipping last30days"
+elif [ -d "$LAST30DAYS_DIR/.git" ]; then
+  echo "==> Updating last30days"
+  git -C "$LAST30DAYS_DIR" pull --ff-only \
+    || echo "==> last30days update failed, keeping the existing copy"
+else
+  echo "==> Installing last30days into $LAST30DAYS_DIR"
+  git clone --depth 1 https://github.com/mvanhorn/last30days-skill.git "$LAST30DAYS_DIR" \
+    || echo "==> last30days clone failed, listening will use its existing sources"
+fi
+
+# The tool needs Python 3.12 or newer. Report what is actually present rather
+# than assuming, because a too-old interpreter fails at run time inside the
+# route where it is invisible, not here where it is easy to see.
+if [ -d "$LAST30DAYS_DIR" ]; then
+  L30_PY="$(command -v python3.12 || command -v python3 || true)"
+
+  if [ -z "$L30_PY" ]; then
+    echo "==> WARNING: no python3 found. last30days sources will be skipped."
+  else
+    echo "==> last30days interpreter: $L30_PY ($("$L30_PY" --version 2>&1))"
+    "$L30_PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null \
+      || echo "==> WARNING: that interpreter is older than 3.12. Install python3.12, or set LAST30DAYS_PYTHON in .env.production to one that is. Until then last30days sources are skipped."
+  fi
+fi
+
 echo "==> Building"
 npm run build
 
@@ -40,3 +78,5 @@ pm2 restart "$PM2_NAME" --update-env
 echo "==> Done. Check https://apps.unitedceres.edu.sg/social_media_os"
 echo "==> Uploads are capped at 25 MB. If a real PDF is rejected with 413,"
 echo "    raise nginx client_max_body_size to 26m (see docs/nginx-upload-size.md)."
+echo "==> Extra social listening sources: see docs/last30days-setup.md for the"
+echo "    Python 3.12 requirement and which key unlocks which platform."

@@ -27,7 +27,9 @@ Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS 3.4, npm, Supabase (
 - AI feature pattern: data model type in `lib/social-calendar-data.ts`, then a pure lib file with prompt builders and output mappers (no network), then an `/api/ai/*` route calling `callOpenAiJson` from `lib/openai-shared.ts`, then UI wiring gated on `isLiveAiEnabled`/`resolveModelForTask` with loading states, honest error text, and `onRecordUsage` feeding the AI usage meter. The analysis model handles heavy reasoning, the utility model light tasks.
 - Offline fallbacks must be labelled "Offline draft, AI not connected". Never present a placeholder as a real result.
 - Approval gates: calendar items pass through `approvalStages` including "manager approved"; `sanitizeCalendarPatch` and `canPublishCalendarItem` enforce the gate and compliance interception. The approvals log (`lib/approvals-log.ts`) derives entries centrally by diffing workspace updates inside `updateWorkspace`.
-- Server subprocess routes (`/api/pdf-data/extract` python, `/api/compliance/extract` python, `/api/social-listening` node + sc-research) work in a Node server environment; serverless deployment needs a hosted worker for them.
+- Server subprocess routes (`/api/pdf-data/extract` python, `/api/compliance/extract` python, `/api/social-listening` node + sc-research, plus optional python 3.12 + last30days) work in a Node server environment; serverless deployment needs a hosted worker for them.
+- Optional subprocess dependencies must degrade silently, never error. `/api/social-listening` skips the whole last30days source group when it is not installed, because deploys are manual and the code goes live before the droplet is provisioned. See `docs/last30days-setup.md`.
+- `npm run check:listening` is the one runnable check in the repo. It guards the parser for last30days' JSON export, which belongs to an external project, so an upstream schema change fails loudly rather than quietly yielding no evidence.
 - Trend Radar uses the OpenAI Responses API web search (`callOpenAiWebSearch`); trends without genuine citations are dropped server-side.
 
 ## Conventions
