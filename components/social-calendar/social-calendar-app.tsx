@@ -302,6 +302,7 @@ export type ViewId =
   | "courses"
   | "campaigns"
   | "platform"
+  | "listening"
   | "competitors"
   | "brief"
   | "calendar"
@@ -363,6 +364,7 @@ const modules: Array<{
       { id: "objectives", label: "Marketing Intelligence", icon: Target },
       { id: "competitors", label: "Competitor Intelligence", icon: UsersRound },
       { id: "platform", label: "Market Intelligence", icon: Gauge },
+      { id: "listening", label: "Social Listening", icon: SearchCheck },
       { id: "platformIntel", label: "Platform Intelligence", icon: Gauge },
     ],
   },
@@ -1229,12 +1231,6 @@ export function SocialCalendarApp() {
                   updateWorkspace((current) => ({ ...current, connections }))
                 }
                 onDismissApplyConfirmation={() => setApplyConfirmation(null)}
-                onListeningResultsChange={(listeningResults) =>
-                  updateWorkspace((current) => ({ ...current, listeningResults }))
-                }
-                onListeningSourcesChange={(listeningSources) =>
-                  updateWorkspace((current) => ({ ...current, listeningSources }))
-                }
                 onNavigate={setActiveView}
                 onRecordUsage={recordAiUsage}
                 onTrendInsightsChange={(trendInsights) =>
@@ -1244,6 +1240,20 @@ export function SocialCalendarApp() {
                   updateWorkspace((current) => ({ ...current, ucc }))
                 }
                 onViewAppliedData={viewAppliedData}
+              />
+            ) : null}
+
+            {activeView === "listening" ? (
+              <SocialListeningPanel
+                data={data}
+                onListeningResultsChange={(listeningResults) =>
+                  updateWorkspace((current) => ({ ...current, listeningResults }))
+                }
+                onListeningSourcesChange={(listeningSources) =>
+                  updateWorkspace((current) => ({ ...current, listeningSources }))
+                }
+                onNavigate={setActiveView}
+                onRecordUsage={recordAiUsage}
               />
             ) : null}
 
@@ -4075,24 +4085,25 @@ function acceptedTrendLines(trendInsights: TrendInsight[]): string[] {
     .map((trend) => `${trend.title}. Suggested angle: ${trend.contentAngle}`);
 }
 
-function TrendRadarPanel({
+// Social Listening (Module D3). Split out of TrendRadarPanel and given its own
+// top-level screen: it had grown past being a tab on somebody else's panel, and
+// burying a source picker, a running search and an evidence list behind Market
+// Intelligence made it hard to find. Nothing about the data moved. Every
+// consumer of listeningResults reads it off the workspace document, so this is
+// a display-only relocation.
+function SocialListeningPanel({
   data,
   onListeningResultsChange,
   onListeningSourcesChange,
   onNavigate,
   onRecordUsage,
-  onTrendInsightsChange,
 }: {
   data: MarketingWorkspaceData;
   onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
   onListeningSourcesChange: (listeningSources: string[]) => void;
   onNavigate: (view: ViewId) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
-  onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"trends" | "listening">("trends");
-  const [scanning, setScanning] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
   const [listeningTopic, setListeningTopic] = useState("");
   const [listeningType, setListeningType] = useState<ListeningAnalysisType>("quick");
   const [listening, setListening] = useState(false);
@@ -4125,9 +4136,6 @@ function TrendRadarPanel({
 
   const liveAi = isLiveAiEnabled(data.aiIntegration);
 
-  // Which source chips can be ticked at all, and which currently are. An
-  // unsaved selection means every available source, so a workspace from before
-  // this feature keeps searching everything rather than silently narrowing.
   const availableSources = availableListeningSources(data.aiIntegration);
   const selectedSources = resolveListeningSources(
     data.listeningSources,
@@ -4242,271 +4250,23 @@ function TrendRadarPanel({
   function cancelListening() {
     listeningAbortRef.current?.abort();
   }
-  const drafts = data.trendInsights.filter((trend) => trend.status === "draft");
-  const accepted = data.trendInsights.filter((trend) => trend.status === "accepted");
-  const dismissed = data.trendInsights.filter((trend) => trend.status === "dismissed");
-
-  function setTrendStatus(id: string, status: TrendInsight["status"]) {
-    onTrendInsightsChange(
-      data.trendInsights.map((trend) =>
-        trend.id === id ? { ...trend, status } : trend,
-      ),
-    );
-  }
-
-  async function scanTrends() {
-    setScanning(true);
-    setErrorMessage("");
-
-    try {
-      const response = await fetch(apiUrl("/api/ai/trends"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey: data.aiIntegration.apiKey,
-          searchModel: resolveModelForTask(data.aiIntegration, "utility"),
-          synthesisModel: resolveModelForTask(data.aiIntegration, "analysis"),
-          context: buildTrendContext(data),
-        }),
-      });
-      const result = (await response.json()) as
-        | {
-            ok: true;
-            trends: TrendInsight[];
-            searchUsage?: OpenAiUsage;
-            searchModel?: string;
-            synthesisUsage?: OpenAiUsage;
-            synthesisModel?: string;
-          }
-        | { ok: false; error: string };
-
-      if (!result.ok) {
-        setErrorMessage(result.error);
-        return;
-      }
-
-      // Fresh drafts replace old drafts and dismissed cards; accepted cards
-      // are the manager's decisions and stay.
-      onTrendInsightsChange([
-        ...data.trendInsights.filter((trend) => trend.status === "accepted"),
-        ...result.trends,
-      ]);
-
-      if (result.searchUsage) {
-        onRecordUsage(
-          "Trend Radar search",
-          result.searchModel ?? "unknown",
-          result.searchUsage,
-        );
-      }
-
-      if (result.synthesisUsage) {
-        onRecordUsage(
-          "Trend Radar synthesis",
-          result.synthesisModel ?? "unknown",
-          result.synthesisUsage,
-        );
-      }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setScanning(false);
-    }
-  }
-
-  function trendCard(trend: TrendInsight) {
-    return (
-      <div className="space-y-2 rounded-lg border p-3" key={trend.id}>
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <p className="text-sm font-semibold">{trend.title}</p>
-          {trend.status === "accepted" ? (
-            <span className="rounded-md border border-success-border bg-success px-2 py-0.5 text-xs font-medium text-success-foreground">
-              Accepted
-            </span>
-          ) : (
-            <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-medium text-warning-foreground">
-              Draft, needs your decision
-            </span>
-          )}
-        </div>
-        <p className="text-sm leading-6">
-          <span className="font-medium">Why it matters:</span> {trend.whyItMatters}
-        </p>
-        <p className="text-sm leading-6">
-          <span className="font-medium">Content angle:</span> {trend.contentAngle}
-        </p>
-        <div className="text-xs leading-5 text-muted-foreground">
-          Sources:{" "}
-          {trend.sources.map((source, index) => (
-            <span key={source.url}>
-              {index > 0 ? " / " : ""}
-              <a
-                className="underline underline-offset-2"
-                href={source.url}
-                rel="noreferrer"
-                target="_blank"
-              >
-                {source.title}
-              </a>
-            </span>
-          ))}
-        </div>
-        <p className="text-xs leading-5 text-muted-foreground">
-          Found by {trend.model} on {formatDateTime(trend.generatedAt)}
-        </p>
-        {trend.status === "draft" ? (
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button
-              onClick={() => setTrendStatus(trend.id, "accepted")}
-              size="sm"
-              type="button"
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              Accept
-            </Button>
-            <Button
-              onClick={() => setTrendStatus(trend.id, "dismissed")}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <X className="h-4 w-4" />
-              Dismiss
-            </Button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button
-              onClick={() => setTrendStatus(trend.id, "dismissed")}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <X className="h-4 w-4" />
-              Withdraw acceptance
-            </Button>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   return (
     <Card>
-      <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <SectionTitle
-          icon={TrendingUp}
-          kicker="Trends"
-          title="Trend Radar"
-          description="A real web search for current Singapore private education, recruitment, and content trends. Every card cites the pages it came from; accepted trends feed campaign ideas and calendar generation."
+          icon={SearchCheck}
+          kicker="Listening"
+          title="Social Listening"
+          description="Real public posts from the sources you choose, read and summarised for internal research. Evidence links are always shown so every claim can be checked. Quotes are never marketing copy."
         />
-        <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          {activeTab === "trends" ? (
-            <Button
-              disabled={!liveAi || scanning}
-              onClick={scanTrends}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <Sparkles className="h-4 w-4" />
-              {scanning ? "Scanning the web" : "Scan trends"}
-            </Button>
-          ) : null}
-          {!liveAi ? (
-            <p className="text-xs leading-5 text-muted-foreground">
-              Connect OpenAI in Settings to use the Trend Radar.
-            </p>
-          ) : null}
-        </div>
+        {!liveAi ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            Connect OpenAI in Settings to run social listening.
+          </p>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={() => setActiveTab("trends")}
-            size="sm"
-            type="button"
-            variant={activeTab === "trends" ? "default" : "outline"}
-          >
-            Web trends
-          </Button>
-          <Button
-            onClick={() => setActiveTab("listening")}
-            size="sm"
-            type="button"
-            variant={activeTab === "listening" ? "default" : "outline"}
-          >
-            Social listening
-          </Button>
-        </div>
-
-        {activeTab === "trends" ? (
-          <>
-            {errorMessage ? (
-              <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
-                {errorMessage}
-              </div>
-            ) : null}
-
-            {drafts.length === 0 && accepted.length === 0 ? (
-              <p className="text-sm leading-6 text-muted-foreground">
-                No trends scanned yet. Scan trends runs a live web search; if the
-                search finds nothing solid, it says so instead of inventing trends.
-              </p>
-            ) : null}
-
-            {drafts.map((trend) => trendCard(trend))}
-
-            {accepted.length > 0 ? (
-              <>
-                <div className="pt-1">
-                  <p className="text-xs font-medium uppercase text-muted-foreground">
-                    Accepted trends
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Accepted trends are automatically included when you
-                    generate the Strategy Brief, Campaign suggestions, or
-                    Content Calendar.
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Button
-                      onClick={() => onNavigate("brief")}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      Strategy Brief
-                    </Button>
-                    <Button
-                      onClick={() => onNavigate("campaigns")}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      Campaigns
-                    </Button>
-                    <Button
-                      onClick={() => onNavigate("calendar")}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      Content Calendar
-                    </Button>
-                  </div>
-                </div>
-                {accepted.map((trend) => trendCard(trend))}
-              </>
-            ) : null}
-
-            {dismissed.length > 0 ? (
-              <p className="text-xs leading-5 text-muted-foreground">
-                {dismissed.length} dismissed trend{dismissed.length === 1 ? "" : "s"} hidden.
-                They are cleared on the next scan.
-              </p>
-            ) : null}
-          </>
-        ) : (
           <>
             <p className="text-xs leading-5 text-muted-foreground">
               Live public-opinion research, powered by the open-source
@@ -4807,7 +4567,274 @@ function TrendRadarPanel({
               ))
             )}
           </>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrendRadarPanel({
+  data,
+  onNavigate,
+  onRecordUsage,
+  onTrendInsightsChange,
+}: {
+  data: MarketingWorkspaceData;
+  onNavigate: (view: ViewId) => void;
+  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
+  onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
+}) {
+  const [scanning, setScanning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const liveAi = isLiveAiEnabled(data.aiIntegration);
+
+  // Which source chips can be ticked at all, and which currently are. An
+  // unsaved selection means every available source, so a workspace from before
+  // this feature keeps searching everything rather than silently narrowing.
+
+  const drafts = data.trendInsights.filter((trend) => trend.status === "draft");
+  const accepted = data.trendInsights.filter((trend) => trend.status === "accepted");
+  const dismissed = data.trendInsights.filter((trend) => trend.status === "dismissed");
+
+  function setTrendStatus(id: string, status: TrendInsight["status"]) {
+    onTrendInsightsChange(
+      data.trendInsights.map((trend) =>
+        trend.id === id ? { ...trend, status } : trend,
+      ),
+    );
+  }
+
+  async function scanTrends() {
+    setScanning(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(apiUrl("/api/ai/trends"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: data.aiIntegration.apiKey,
+          searchModel: resolveModelForTask(data.aiIntegration, "utility"),
+          synthesisModel: resolveModelForTask(data.aiIntegration, "analysis"),
+          context: buildTrendContext(data),
+        }),
+      });
+      const result = (await response.json()) as
+        | {
+            ok: true;
+            trends: TrendInsight[];
+            searchUsage?: OpenAiUsage;
+            searchModel?: string;
+            synthesisUsage?: OpenAiUsage;
+            synthesisModel?: string;
+          }
+        | { ok: false; error: string };
+
+      if (!result.ok) {
+        setErrorMessage(result.error);
+        return;
+      }
+
+      // Fresh drafts replace old drafts and dismissed cards; accepted cards
+      // are the manager's decisions and stay.
+      onTrendInsightsChange([
+        ...data.trendInsights.filter((trend) => trend.status === "accepted"),
+        ...result.trends,
+      ]);
+
+      if (result.searchUsage) {
+        onRecordUsage(
+          "Trend Radar search",
+          result.searchModel ?? "unknown",
+          result.searchUsage,
+        );
+      }
+
+      if (result.synthesisUsage) {
+        onRecordUsage(
+          "Trend Radar synthesis",
+          result.synthesisModel ?? "unknown",
+          result.synthesisUsage,
+        );
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function trendCard(trend: TrendInsight) {
+    return (
+      <div className="space-y-2 rounded-lg border p-3" key={trend.id}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <p className="text-sm font-semibold">{trend.title}</p>
+          {trend.status === "accepted" ? (
+            <span className="rounded-md border border-success-border bg-success px-2 py-0.5 text-xs font-medium text-success-foreground">
+              Accepted
+            </span>
+          ) : (
+            <span className="rounded-md border border-warning-border bg-warning px-2 py-0.5 text-xs font-medium text-warning-foreground">
+              Draft, needs your decision
+            </span>
+          )}
+        </div>
+        <p className="text-sm leading-6">
+          <span className="font-medium">Why it matters:</span> {trend.whyItMatters}
+        </p>
+        <p className="text-sm leading-6">
+          <span className="font-medium">Content angle:</span> {trend.contentAngle}
+        </p>
+        <div className="text-xs leading-5 text-muted-foreground">
+          Sources:{" "}
+          {trend.sources.map((source, index) => (
+            <span key={source.url}>
+              {index > 0 ? " / " : ""}
+              <a
+                className="underline underline-offset-2"
+                href={source.url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {source.title}
+              </a>
+            </span>
+          ))}
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Found by {trend.model} on {formatDateTime(trend.generatedAt)}
+        </p>
+        {trend.status === "draft" ? (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              onClick={() => setTrendStatus(trend.id, "accepted")}
+              size="sm"
+              type="button"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Accept
+            </Button>
+            <Button
+              onClick={() => setTrendStatus(trend.id, "dismissed")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <X className="h-4 w-4" />
+              Dismiss
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              onClick={() => setTrendStatus(trend.id, "dismissed")}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <X className="h-4 w-4" />
+              Withdraw acceptance
+            </Button>
+          </div>
         )}
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle
+          icon={TrendingUp}
+          kicker="Trends"
+          title="Trend Radar"
+          description="A real web search for current Singapore private education, recruitment, and content trends. Every card cites the pages it came from; accepted trends feed campaign ideas and calendar generation."
+        />
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <Button
+              disabled={!liveAi || scanning}
+              onClick={scanTrends}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Sparkles className="h-4 w-4" />
+              {scanning ? "Scanning the web" : "Scan trends"}
+            </Button>
+          {!liveAi ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Connect OpenAI in Settings to use the Trend Radar.
+            </p>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+
+          <>
+            {errorMessage ? (
+              <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
+                {errorMessage}
+              </div>
+            ) : null}
+
+            {drafts.length === 0 && accepted.length === 0 ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                No trends scanned yet. Scan trends runs a live web search; if the
+                search finds nothing solid, it says so instead of inventing trends.
+              </p>
+            ) : null}
+
+            {drafts.map((trend) => trendCard(trend))}
+
+            {accepted.length > 0 ? (
+              <>
+                <div className="pt-1">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">
+                    Accepted trends
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Accepted trends are automatically included when you
+                    generate the Strategy Brief, Campaign suggestions, or
+                    Content Calendar.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => onNavigate("brief")}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Strategy Brief
+                    </Button>
+                    <Button
+                      onClick={() => onNavigate("campaigns")}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Campaigns
+                    </Button>
+                    <Button
+                      onClick={() => onNavigate("calendar")}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Content Calendar
+                    </Button>
+                  </div>
+                </div>
+                {accepted.map((trend) => trendCard(trend))}
+              </>
+            ) : null}
+
+            {dismissed.length > 0 ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                {dismissed.length} dismissed trend{dismissed.length === 1 ? "" : "s"} hidden.
+                They are cleared on the next scan.
+              </p>
+            ) : null}
+          </>
       </CardContent>
     </Card>
   );
@@ -4829,8 +4856,6 @@ function PlatformStrategyView({
   onCalendarChange,
   onConnectionsChange,
   onDismissApplyConfirmation,
-  onListeningResultsChange,
-  onListeningSourcesChange,
   onNavigate,
   onRecordUsage,
   onTrendInsightsChange,
@@ -4849,8 +4874,6 @@ function PlatformStrategyView({
   onCalendarChange: (calendar: CalendarItem[]) => void;
   onConnectionsChange: (connections: PlatformConnection[]) => void;
   onDismissApplyConfirmation: () => void;
-  onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
-  onListeningSourcesChange: (listeningSources: string[]) => void;
   onNavigate: (view: ViewId) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
@@ -5068,8 +5091,6 @@ function PlatformStrategyView({
 
       <TrendRadarPanel
         data={data}
-        onListeningResultsChange={onListeningResultsChange}
-        onListeningSourcesChange={onListeningSourcesChange}
         onNavigate={onNavigate}
         onRecordUsage={onRecordUsage}
         onTrendInsightsChange={onTrendInsightsChange}
