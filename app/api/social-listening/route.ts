@@ -11,16 +11,18 @@
 // for this route.
 
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { NextResponse } from "next/server";
 
+import { extractJsonObject, normaliseLast30DaysExport } from "@/lib/last30days";
 import {
   buildListeningSystemPrompt,
   buildListeningUserPrompt,
   buildWebListeningSearchInput,
+  dedupeByUrl,
   normalizeResearchFile,
   webCitationsToListeningPosts,
   type ListeningAnalysisType,
@@ -43,6 +45,9 @@ type ListeningRequestBody = {
   apiKey?: string;
   xaiApiKey?: string;
   youtubeApiKey?: string;
+  scrapeCreatorsApiKey?: string;
+  blueskyHandle?: string;
+  blueskyAppPassword?: string;
   model?: string;
   searchModel?: string;
   topic?: string;
@@ -119,6 +124,161 @@ async function readResearchFile(dir: string, name: string) {
     return normalizeResearchFile(JSON.parse(raw));
   } catch {
     return null;
+  }
+}
+
+const LAST30DAYS_TIMEOUT_MS = 180_000;
+
+// The tool is a Python project with its own release cadence, so it is installed
+// beside the app rather than vendored into it, and its location comes from the
+// environment. When it is not installed every last30days source is skipped and
+// listening keeps working exactly as it did before. That matters because deploys
+// are manual: there is a real window where this code is live but the droplet has
+// not been provisioned yet, and that window must not break the feature.
+async function resolveLast30DaysScript(): Promise<string> {
+  const candidates = [
+    process.env.LAST30DAYS_SCRIPT,
+    path.join(
+      process.cwd(),
+      "..",
+      "last30days-skill",
+      "skills",
+      "last30days",
+      "scripts",
+      "last30days.py",
+    ),
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // Not at this path, try the next candidate.
+    }
+  }
+
+  return "";
+}
+
+function spawnLast30Days({
+  env,
+  python,
+  scriptPath,
+  topic,
+}: {
+  env: NodeJS.ProcessEnv;
+  python: string;
+  scriptPath: string;
+  topic: string;
+}): Promise<{ ok: boolean; stdout: string; interpreterMissing: boolean }> {
+  return new Promise((resolve) => {
+    const child = spawn(python, [scriptPath, topic, "--emit=json"], { env });
+
+    let stdout = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", () => {
+      // Progress and source-warning noise; the export lands on stdout.
+    });
+
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ ok: false, stdout: "", interpreterMissing: false });
+    }, LAST30DAYS_TIMEOUT_MS);
+
+    // An error event here is this interpreter not existing, which is different
+    // from the tool running and failing: the first is worth retrying with the
+    // next candidate, the second is not.
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve({ ok: false, stdout: "", interpreterMissing: true });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, stdout, interpreterMissing: false });
+    });
+  });
+}
+
+// Real posts from the last30days source set only. Never throws: a missing
+// install, a missing interpreter, a timeout, or an unreadable export all just
+// mean fewer posts, matching fetchYouTubeListeningPosts below.
+async function fetchLast30DaysPosts({
+  blueskyAppPassword,
+  blueskyHandle,
+  scrapeCreatorsApiKey,
+  topic,
+  xaiApiKey,
+}: {
+  blueskyAppPassword: string;
+  blueskyHandle: string;
+  scrapeCreatorsApiKey: string;
+  topic: string;
+  xaiApiKey: string;
+}): Promise<{ posts: ListeningPost[]; degradedSources: string[]; ran: boolean }> {
+  const skipped = { posts: [], degradedSources: [], ran: false };
+
+  try {
+    const scriptPath = await resolveLast30DaysScript();
+
+    if (!scriptPath) {
+      return skipped;
+    }
+
+    const env: NodeJS.ProcessEnv = { ...process.env };
+
+    // Each key is only set when present, so an absent key leaves the tool's own
+    // default behaviour alone rather than handing it an empty string.
+    if (scrapeCreatorsApiKey) {
+      env.SCRAPECREATORS_API_KEY = scrapeCreatorsApiKey;
+    }
+
+    if (xaiApiKey) {
+      env.XAI_API_KEY = xaiApiKey;
+    }
+
+    // Bluesky needs both halves before it can authenticate at all.
+    if (blueskyHandle && blueskyAppPassword) {
+      env.BSKY_HANDLE = blueskyHandle;
+      env.BSKY_APP_PASSWORD = blueskyAppPassword;
+    }
+
+    const pythons = [
+      process.env.LAST30DAYS_PYTHON,
+      // The tool requires 3.12 or newer, so prefer an explicitly versioned
+      // binary before falling back to whatever python3 happens to be.
+      "python3.12",
+      "python3",
+    ].filter(Boolean) as string[];
+
+    for (const python of pythons) {
+      const run = await spawnLast30Days({ env, python, scriptPath, topic });
+
+      if (run.interpreterMissing) {
+        continue;
+      }
+
+      if (!run.ok) {
+        return skipped;
+      }
+
+      const parsed = extractJsonObject(run.stdout);
+
+      if (!parsed) {
+        return skipped;
+      }
+
+      const { degradedSources, posts } = normaliseLast30DaysExport(parsed);
+
+      return { posts, degradedSources, ran: true };
+    }
+
+    return skipped;
+  } catch {
+    return skipped;
   }
 }
 
@@ -238,6 +398,9 @@ export async function POST(request: Request) {
   const apiKey = body.apiKey?.trim();
   const xaiApiKey = body.xaiApiKey?.trim() ?? "";
   const youtubeApiKey = body.youtubeApiKey?.trim() ?? "";
+  const scrapeCreatorsApiKey = body.scrapeCreatorsApiKey?.trim() ?? "";
+  const blueskyHandle = body.blueskyHandle?.trim() ?? "";
+  const blueskyAppPassword = body.blueskyAppPassword?.trim() ?? "";
   const model = body.model?.trim();
   const topic = body.topic?.trim();
   const analysisType = body.analysisType;
@@ -267,7 +430,7 @@ export async function POST(request: Request) {
   const workDir = await mkdtemp(path.join(tmpdir(), "sc-research-"));
 
   try {
-    const [run, youtubePosts, webSearch] = await Promise.all([
+    const [run, youtubePosts, last30days, webSearch] = await Promise.all([
       runResearchCli({
         topic,
         source,
@@ -276,6 +439,13 @@ export async function POST(request: Request) {
         xaiApiKey,
       }),
       fetchYouTubeListeningPosts(topic, youtubeApiKey),
+      fetchLast30DaysPosts({
+        blueskyAppPassword,
+        blueskyHandle,
+        scrapeCreatorsApiKey,
+        topic,
+        xaiApiKey,
+      }),
       callOpenAiWebSearch({
         apiKey,
         model: searchModel,
@@ -286,12 +456,18 @@ export async function POST(request: Request) {
     const reddit = await readResearchFile(workDir, "reddit_data.json");
     const x = await readResearchFile(workDir, "x_data.json");
     const webPosts = webSearch.ok ? webCitationsToListeningPosts(webSearch.citations) : [];
-    const posts: ListeningPost[] = [
+
+    // Public web posts go last because they are page titles rather than a real
+    // person's words, so when the 60-post budget bites they are the right thing
+    // to lose first. last30days sits above them for the same reason: it carries
+    // genuine post and comment text.
+    const posts: ListeningPost[] = dedupeByUrl([
       ...(reddit?.posts ?? []),
       ...(x?.posts ?? []),
       ...youtubePosts,
+      ...last30days.posts,
       ...webPosts,
-    ].slice(0, 60);
+    ]).slice(0, 60);
 
     if (posts.length === 0) {
       const detail = run.stderr
@@ -360,11 +536,33 @@ export async function POST(request: Request) {
     const hasX = posts.some((post) => post.source === "X");
     const hasYouTube = posts.some((post) => post.source === "YouTube");
     const hasWeb = posts.some((post) => post.source === "Public web");
+
+    // Everything last30days contributed beyond the four sources named above,
+    // listed by name so the manager sees exactly which platforms were read
+    // rather than a vague claim of broader coverage.
+    const namedAlready = new Set(["X", "YouTube", "Public web"]);
+    const extraSources = [
+      ...new Set(
+        posts
+          .filter(
+            (post) => !post.source.startsWith("r/") && !namedAlready.has(post.source),
+          )
+          .map((post) => post.source),
+      ),
+    ].sort();
+
     const sourcesCovered = [
       subreddits.length > 0 ? `Reddit (${subreddits.slice(0, 6).join(", ")})` : "",
       hasX ? "X" : source === "reddit" ? "X not searched (no xAI key)" : "",
       hasYouTube ? "YouTube comments" : youtubeApiKey ? "" : "YouTube not searched (no API key)",
+      extraSources.join(", "),
       hasWeb ? "public web" : "",
+      last30days.ran && !scrapeCreatorsApiKey
+        ? "TikTok, Instagram, Threads, Pinterest and LinkedIn not searched (no ScrapeCreators key)"
+        : "",
+      last30days.degradedSources.length > 0
+        ? `${last30days.degradedSources.join(", ")} returned nothing this run`
+        : "",
     ]
       .filter(Boolean)
       .join(", ");

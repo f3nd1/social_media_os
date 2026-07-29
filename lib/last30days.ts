@@ -68,6 +68,31 @@ export const LAST30DAYS_PER_SOURCE_CAP = 12;
 // sc-research posts, so evidence from either tool is the same shape.
 const MAX_POST_CHARACTERS = 600;
 
+// The tool writes its export to stdout, but is free to print a banner or
+// progress line first. Rather than assume stdout is pure JSON, take the widest
+// {...} span and parse that. Returns null on anything unparseable, because a
+// run that produced no readable export must mean fewer posts, never a crash.
+export function extractJsonObject(stdout: string): Last30DaysExport | null {
+  const trimmed = stdout.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+
+  if (first === -1 || last <= first) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed.slice(first, last + 1)) as Last30DaysExport;
+  } catch {
+    return null;
+  }
+}
+
 function labelForSource(source: string, url: string): string {
   const key = source.trim().toLowerCase();
 

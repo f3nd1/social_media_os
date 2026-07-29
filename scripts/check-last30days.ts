@@ -10,9 +10,11 @@
 import assert from "node:assert/strict";
 
 import {
+  extractJsonObject,
   LAST30DAYS_PER_SOURCE_CAP,
   normaliseLast30DaysExport,
 } from "../lib/last30days.ts";
+import { dedupeByUrl } from "../lib/listening-ai.ts";
 
 // A representative export: mixed sources, a Reddit url that should become a
 // subreddit label, a result missing a url, and one missing all text.
@@ -131,5 +133,63 @@ assert.deepEqual(
   [],
   "missing results should give no posts",
 );
+
+// stdout may carry a banner or progress line before the export. The extractor
+// must find the JSON anyway, and must never throw on junk.
+assert.equal(
+  extractJsonObject('Fetching sources...\n{"window_days": 7}')?.window_days,
+  7,
+  "should find the JSON object after a progress line",
+);
+assert.equal(
+  extractJsonObject('{"window_days": 7}\nDone in 12s')?.window_days,
+  7,
+  "should find the JSON object before a trailing line",
+);
+assert.equal(extractJsonObject(""), null, "empty stdout should give null");
+assert.equal(extractJsonObject("no json here"), null, "junk stdout should give null");
+assert.equal(extractJsonObject("{broken"), null, "unterminated json should give null");
+assert.equal(extractJsonObject("{{{"), null, "malformed json should give null");
+
+// The same Reddit post reached by both tools must count once, or the synthesis
+// step reads one person's opinion as two independent voices.
+const withDuplicates = [
+  { text: "richer version from sc-research", source: "r/singapore", url: "https://reddit.com/r/singapore/x/", date: "2026-07-01" },
+  { text: "thinner version from last30days", source: "r/singapore", url: "https://REDDIT.com/r/singapore/x", date: "2026-07-01" },
+  { text: "a genuinely different post", source: "TikTok", url: "https://tiktok.com/@a/video/1", date: "2026-07-02" },
+  { text: "no url, cannot be judged a duplicate", source: "Public web", url: "", date: "" },
+  { text: "also no url, must survive too", source: "Public web", url: "", date: "" },
+];
+
+const deduped = dedupeByUrl(withDuplicates);
+
+assert.equal(deduped.length, 4, "case and trailing-slash variants should collapse to one");
+assert.equal(
+  deduped[0].text,
+  "richer version from sc-research",
+  "the first occurrence should win so the richer source keeps its version",
+);
+assert.equal(
+  deduped.filter((post) => !post.url).length,
+  2,
+  "posts with no url must never be collapsed into each other",
+);
+
+// stdout may carry a banner or progress line before the export. The extractor
+// must find the JSON anyway, and must never throw on junk.
+assert.equal(
+  extractJsonObject('Fetching sources...\n{"window_days": 7}')?.window_days,
+  7,
+  "should find the JSON object after a progress line",
+);
+assert.equal(
+  extractJsonObject('{"window_days": 7}\nDone in 12s')?.window_days,
+  7,
+  "should find the JSON object before a trailing line",
+);
+assert.equal(extractJsonObject(""), null, "empty stdout should give null");
+assert.equal(extractJsonObject("no json here"), null, "junk stdout should give null");
+assert.equal(extractJsonObject("{broken"), null, "unterminated json should give null");
+assert.equal(extractJsonObject("{{{"), null, "malformed json should give null");
 
 console.log("check-last30days: all assertions passed");

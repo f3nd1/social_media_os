@@ -4106,6 +4106,9 @@ function TrendRadarPanel({
           apiKey: data.aiIntegration.apiKey,
           xaiApiKey: data.aiIntegration.xaiApiKey ?? "",
           youtubeApiKey: data.aiIntegration.youtubeApiKey ?? "",
+          scrapeCreatorsApiKey: data.aiIntegration.scrapeCreatorsApiKey ?? "",
+          blueskyHandle: data.aiIntegration.blueskyHandle ?? "",
+          blueskyAppPassword: data.aiIntegration.blueskyAppPassword ?? "",
           model: resolveModelForTask(data.aiIntegration, "analysis"),
           searchModel: resolveModelForTask(data.aiIntegration, "utility"),
           topic: listeningTopic.trim(),
@@ -7118,6 +7121,45 @@ function AiIntegrationPanel({
             Without this key, YouTube is skipped and the UI says so.
           </p>
         </Field>
+
+        <Field label="ScrapeCreators API key (optional, paid, for TikTok and Instagram listening)">
+          <Input
+            onChange={(event) => update({ scrapeCreatorsApiKey: event.target.value })}
+            placeholder="sc-..."
+            type="password"
+            value={aiIntegration.scrapeCreatorsApiKey ?? ""}
+          />
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Unlocks TikTok, Instagram, Threads, Pinterest and LinkedIn for
+            social listening. Paid: 100 free credits, then pay as you go.
+            Without this key those platforms are skipped and the UI says so.
+            Requires the last30days tool on the server, see
+            docs/last30days-setup.md.
+          </p>
+        </Field>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Bluesky handle (optional, for Bluesky listening)">
+            <Input
+              onChange={(event) => update({ blueskyHandle: event.target.value })}
+              placeholder="you.bsky.social"
+              value={aiIntegration.blueskyHandle ?? ""}
+            />
+          </Field>
+          <Field label="Bluesky app password (optional)">
+            <Input
+              onChange={(event) => update({ blueskyAppPassword: event.target.value })}
+              placeholder="xxxx-xxxx-xxxx-xxxx"
+              type="password"
+              value={aiIntegration.blueskyAppPassword ?? ""}
+            />
+          </Field>
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Bluesky is free. Generate an app password (never your account
+          password) at bsky.app under Settings, App Passwords. Both fields are
+          needed before Bluesky is searched.
+        </p>
 
         <p className="text-xs leading-5 text-muted-foreground">
           AI output is always a draft for your approval. The AI never approves

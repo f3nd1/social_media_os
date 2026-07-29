@@ -115,6 +115,31 @@ export function normalizeResearchFile(raw: RawResearchFile): {
   };
 }
 
+// sc-research and last30days both search Reddit and X, so the same post can
+// genuinely arrive from two sources. Left in, the synthesis step would read one
+// person's opinion as two independent voices and overstate how common it is.
+// First occurrence wins, so the earlier (richer) source keeps its version. A
+// post with no url is never treated as a duplicate of another, since an empty
+// key says nothing about whether two posts are the same.
+export function dedupeByUrl(posts: ListeningPost[]): ListeningPost[] {
+  const seen = new Set<string>();
+
+  return posts.filter((post) => {
+    const key = post.url.trim().toLowerCase().replace(/\/+$/, "");
+
+    if (!key) {
+      return true;
+    }
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 export function buildListeningSystemPrompt(): string {
   return [
     "You analyse real social media posts and public web findings for the marketing team of a private college in Singapore.",
