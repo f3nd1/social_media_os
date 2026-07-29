@@ -9,7 +9,8 @@
     "prebuild": "node scripts/generate-changelog.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check:listening": "node --experimental-strip-types scripts/check-last30days.ts"
   },
   "dependencies": {
     "@types/node": "^22.10.7",

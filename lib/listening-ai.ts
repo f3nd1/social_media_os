@@ -78,7 +78,9 @@ type RawResearchFile = {
   items?: RawResearchItem[];
 };
 
-function sourceFromUrl(url: string): string {
+// Exported so the last30days normaliser labels a Reddit post with the same
+// "r/subreddit" form this module already uses, rather than deriving it twice.
+export function sourceFromUrl(url: string): string {
   const redditMatch = /reddit\.com\/(r\/[A-Za-z0-9_]+)/.exec(url);
 
   if (redditMatch) {
