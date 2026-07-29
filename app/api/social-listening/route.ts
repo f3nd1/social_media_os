@@ -19,6 +19,13 @@ import { NextResponse } from "next/server";
 
 import { extractJsonObject, normaliseLast30DaysExport } from "@/lib/last30days";
 import {
+  availableListeningSources,
+  last30daysSearchArg,
+  listeningSourceLabels,
+  resolveListeningSources,
+  scResearchSourceArg,
+} from "@/lib/listening-sources";
+import {
   buildListeningSystemPrompt,
   buildListeningUserPrompt,
   buildWebListeningSearchInput,
@@ -46,6 +53,7 @@ type ListeningRequestBody = {
   xaiApiKey?: string;
   youtubeApiKey?: string;
   scrapeCreatorsApiKey?: string;
+  sources?: string[];
   model?: string;
   searchModel?: string;
   topic?: string;
@@ -65,7 +73,10 @@ function runResearchCli({
   xaiApiKey,
 }: {
   topic: string;
-  source: "reddit" | "both";
+  // sc-research's own usage string is --source=reddit|x|both. This was
+  // previously narrowed to reddit|both, which welded X to Reddit for no reason:
+  // with source selection, X alone is a valid thing to ask for.
+  source: "reddit" | "x" | "both";
   cwd: string;
   apiKey: string;
   xaiApiKey: string;
@@ -163,15 +174,25 @@ function spawnLast30Days({
   env,
   python,
   scriptPath,
+  searchArg,
   topic,
 }: {
   env: NodeJS.ProcessEnv;
   python: string;
   scriptPath: string;
+  searchArg: string;
   topic: string;
 }): Promise<{ ok: boolean; stdout: string; interpreterMissing: boolean }> {
   return new Promise((resolve) => {
-    const child = spawn(python, [scriptPath, topic, "--emit=json"], { env });
+    // --search is a per-invocation flag and beats the tool's own
+    // LAST30DAYS_DEFAULT_SEARCH env var, so the manager's chip selection takes
+    // effect on this run alone with no redeploy and no .env.production edit.
+    // It also means the noise sources the UI hides are never even requested.
+    const child = spawn(
+      python,
+      [scriptPath, topic, "--emit=json", `--search=${searchArg}`],
+      { env },
+    );
 
     let stdout = "";
 
@@ -206,10 +227,12 @@ function spawnLast30Days({
 // mean fewer posts, matching fetchYouTubeListeningPosts below.
 async function fetchLast30DaysPosts({
   scrapeCreatorsApiKey,
+  searchArg,
   topic,
   xaiApiKey,
 }: {
   scrapeCreatorsApiKey: string;
+  searchArg: string;
   topic: string;
   xaiApiKey: string;
 }): Promise<{ posts: ListeningPost[]; degradedSources: string[]; ran: boolean }> {
@@ -243,7 +266,7 @@ async function fetchLast30DaysPosts({
     ].filter(Boolean) as string[];
 
     for (const python of pythons) {
-      const run = await spawnLast30Days({ env, python, scriptPath, topic });
+      const run = await spawnLast30Days({ env, python, scriptPath, searchArg, topic });
 
       if (run.interpreterMissing) {
         continue;
@@ -412,29 +435,57 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Pick an analysis type." }, { status: 400 });
   }
 
-  const source: "reddit" | "both" = xaiApiKey ? "both" : "reddit";
+  // Which sources this run should actually search. An absent list means every
+  // source the keys allow, so a workspace saved before source selection existed
+  // behaves exactly as it did. An explicitly empty list is rejected by the
+  // screen before it gets here, but guard anyway rather than silently searching
+  // nothing and reporting an empty result as though the topic were quiet.
+  const available = availableListeningSources({
+    scrapeCreatorsApiKey,
+    xaiApiKey,
+    youtubeApiKey,
+  });
+  const selected = resolveListeningSources(body.sources, available);
+
+  if (selected.length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "Pick at least one source to search." },
+      { status: 400 },
+    );
+  }
+
+  const source = scResearchSourceArg(selected);
+  const last30daysSearch = last30daysSearchArg(selected);
+  const wantsYouTube = selected.includes("youtube");
+  const wantsWeb = selected.includes("web");
   const workDir = await mkdtemp(path.join(tmpdir(), "sc-research-"));
 
   try {
+    // Every leg is now conditional. Skipping an unwanted engine outright is
+    // where the time saving comes from: a Reddit-and-TikTok search no longer
+    // waits on the web search, the YouTube fetch, or a last30days run.
     const [run, youtubePosts, last30days, webSearch] = await Promise.all([
-      runResearchCli({
-        topic,
-        source,
-        cwd: workDir,
-        apiKey,
-        xaiApiKey,
-      }),
-      fetchYouTubeListeningPosts(topic, youtubeApiKey),
-      fetchLast30DaysPosts({
-        scrapeCreatorsApiKey,
-        topic,
-        xaiApiKey,
-      }),
-      callOpenAiWebSearch({
-        apiKey,
-        model: searchModel,
-        input: buildWebListeningSearchInput(topic),
-      }),
+      source
+        ? runResearchCli({ topic, source, cwd: workDir, apiKey, xaiApiKey })
+        : Promise.resolve({ code: 0, stderr: "" }),
+      wantsYouTube
+        ? fetchYouTubeListeningPosts(topic, youtubeApiKey)
+        : Promise.resolve([]),
+      last30daysSearch
+        ? fetchLast30DaysPosts({
+            scrapeCreatorsApiKey,
+            searchArg: last30daysSearch,
+            topic,
+            xaiApiKey,
+          })
+        : Promise.resolve({ posts: [], degradedSources: [], ran: false }),
+      wantsWeb
+        ? callOpenAiWebSearch({
+            apiKey,
+            model: searchModel,
+            input: buildWebListeningSearchInput(topic),
+          })
+        : Promise.resolve({ ok: false as const, citations: [], error: "" }),
     ]);
 
     const reddit = await readResearchFile(workDir, "reddit_data.json");
@@ -462,26 +513,21 @@ export async function POST(request: Request) {
         .join(" ")
         .slice(0, 300);
 
-      // Name every source actually attempted. Listing fewer than were tried
-      // makes a genuinely well-covered dead end look like a shallow search, and
-      // sends the manager off to broaden a topic that was already searched wide.
-      const sourcesTried = [
-        "Reddit",
-        xaiApiKey ? "X" : "",
-        youtubeApiKey || last30days.ran ? "YouTube" : "",
-        last30days.ran
-          ? scrapeCreatorsApiKey
-            ? "Hacker News, TikTok, Instagram, Threads, Pinterest, LinkedIn and the other last30days sources"
-            : "Hacker News and the other free last30days sources"
-          : "",
-        "the public web",
-      ].filter(Boolean);
+      // The selection IS the list of sources tried, so name it directly rather
+      // than inferring from which keys happen to be present. A dead end on two
+      // chosen sources should read as exactly that, not as a wide search.
+      const sourcesTried = listeningSourceLabels(selected);
+      const narrow = selected.length < available.length;
 
       return NextResponse.json({
         ok: false,
         error:
           `No public posts were found for this topic across ${sourcesTried.join(", ")}.` +
-          (detail ? ` Tool said: ${detail}` : " Try a broader topic."),
+          (detail
+            ? ` Tool said: ${detail}`
+            : narrow
+              ? " Try a broader topic, or tick more sources."
+              : " Try a broader topic."),
       });
     }
 
@@ -525,43 +571,32 @@ export async function POST(request: Request) {
           .map((post) => post.source),
       ),
     ];
-    const hasX = posts.some((post) => post.source === "X");
-    const hasYouTube = posts.some((post) => post.source === "YouTube");
-    const hasWeb = posts.some((post) => post.source === "Public web");
+    // The selection now says what was searched, so coverage is reported by
+    // comparing it against what actually produced posts. That is both simpler
+    // and more honest than inferring from which keys are set, and it retires
+    // the old "not searched (no key)" wording: a source with no key can no
+    // longer be selected, so that case is unreachable rather than merely rare.
+    const produced = (label: string) =>
+      label === "Reddit"
+        ? subreddits.length > 0
+        : posts.some((post) => post.source === label);
 
-    // Everything last30days contributed beyond the four sources named above,
-    // listed by name so the manager sees exactly which platforms were read
-    // rather than a vague claim of broader coverage.
-    const namedAlready = new Set(["X", "YouTube", "Public web"]);
-    const extraSources = [
-      ...new Set(
-        posts
-          .filter(
-            (post) => !post.source.startsWith("r/") && !namedAlready.has(post.source),
-          )
-          .map((post) => post.source),
-      ),
-    ].sort();
+    const searchedLabels = listeningSourceLabels(selected);
+    const answered = searchedLabels.filter(produced);
+    const quiet = searchedLabels.filter((label) => !produced(label));
+
+    // last30days can say a source errored rather than merely finding nothing.
+    // Only add names that "quiet" has not already covered, so a failed source
+    // is not listed twice.
+    const alsoDegraded = last30days.degradedSources.filter(
+      (label) => !quiet.includes(label) && !answered.includes(label),
+    );
 
     const sourcesCovered = [
       subreddits.length > 0 ? `Reddit (${subreddits.slice(0, 6).join(", ")})` : "",
-      hasX ? "X" : source === "reddit" ? "X not searched (no xAI key)" : "",
-      // Two independent YouTube paths now exist: this app's own Data API search,
-      // and last30days reading it through yt-dlp. Only claim it went unsearched
-      // when neither was available, or the message contradicts the evidence.
-      hasYouTube
-        ? "YouTube comments"
-        : youtubeApiKey || last30days.ran
-          ? ""
-          : "YouTube not searched (no API key, and last30days unavailable)",
-      extraSources.join(", "),
-      hasWeb ? "public web" : "",
-      last30days.ran && !scrapeCreatorsApiKey
-        ? "TikTok, Instagram, Threads, Pinterest and LinkedIn not searched (no ScrapeCreators key)"
-        : "",
-      last30days.degradedSources.length > 0
-        ? `${last30days.degradedSources.join(", ")} returned nothing this run`
-        : "",
+      ...answered.filter((label) => label !== "Reddit"),
+      quiet.length > 0 ? `${quiet.join(", ")} returned nothing this run` : "",
+      alsoDegraded.length > 0 ? `${alsoDegraded.join(", ")} errored` : "",
     ]
       .filter(Boolean)
       .join(", ");

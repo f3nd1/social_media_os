@@ -245,6 +245,13 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
               : ("new" as const),
         }))
       : [],
+    // Deliberately left undefined rather than defaulted to an array. Undefined
+    // means "search every available source", which is exactly what a workspace
+    // saved before source selection existed must keep doing. Defaulting to []
+    // here would silently turn every old workspace into "search nothing".
+    listeningSources: Array.isArray(data.listeningSources)
+      ? data.listeningSources.filter((id): id is string => typeof id === "string")
+      : undefined,
     approvalsLog: Array.isArray(data.approvalsLog) ? data.approvalsLog : [],
     flaggedAiEntries: Array.isArray(data.flaggedAiEntries) ? data.flaggedAiEntries : [],
     approverName: typeof data.approverName === "string" ? data.approverName : "",

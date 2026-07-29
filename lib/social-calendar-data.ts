@@ -1078,6 +1078,12 @@ export type MarketingWorkspaceData = {
   weeklyReport: WeeklyReport | null;
   trendInsights: TrendInsight[];
   listeningResults: ListeningResult[];
+  // Which sources a Social Listening run should search, as ListeningSourceId
+  // values. Optional on purpose: undefined means "every source the keys allow",
+  // so workspaces saved before source selection existed keep searching
+  // everything, and a source added later is picked up automatically rather than
+  // being absent from a list frozen at upgrade time. See lib/listening-sources.ts.
+  listeningSources?: string[];
   approvalsLog: ApprovalLogEntry[];
   // Ids of AI Generation Log entries the manager has flagged as inaccurate
   // (a suspected hallucination), so patterns of unreliable output surface in

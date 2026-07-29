@@ -129,6 +129,12 @@ import {
   type RemixAiDraft,
 } from "@/lib/remix-ai";
 import {
+  LISTENING_SOURCES,
+  availableListeningSources,
+  resolveListeningSources,
+  type ListeningSourceId,
+} from "@/lib/listening-sources";
+import {
   LISTENING_ANALYSIS_OPTIONS,
   SUGGESTED_LISTENING_TOPICS,
   type ListeningAnalysisType,
@@ -1224,6 +1230,9 @@ export function SocialCalendarApp() {
                 onDismissApplyConfirmation={() => setApplyConfirmation(null)}
                 onListeningResultsChange={(listeningResults) =>
                   updateWorkspace((current) => ({ ...current, listeningResults }))
+                }
+                onListeningSourcesChange={(listeningSources) =>
+                  updateWorkspace((current) => ({ ...current, listeningSources }))
                 }
                 onNavigate={setActiveView}
                 onRecordUsage={recordAiUsage}
@@ -4068,12 +4077,14 @@ function acceptedTrendLines(trendInsights: TrendInsight[]): string[] {
 function TrendRadarPanel({
   data,
   onListeningResultsChange,
+  onListeningSourcesChange,
   onNavigate,
   onRecordUsage,
   onTrendInsightsChange,
 }: {
   data: MarketingWorkspaceData;
   onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
+  onListeningSourcesChange: (listeningSources: string[]) => void;
   onNavigate: (view: ViewId) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
@@ -4087,11 +4098,35 @@ function TrendRadarPanel({
   const [listeningError, setListeningError] = useState("");
 
   const liveAi = isLiveAiEnabled(data.aiIntegration);
-  const hasXaiKey = Boolean(data.aiIntegration.xaiApiKey?.trim());
+
+  // Which source chips can be ticked at all, and which currently are. An
+  // unsaved selection means every available source, so a workspace from before
+  // this feature keeps searching everything rather than silently narrowing.
+  const availableSources = availableListeningSources(data.aiIntegration);
+  const selectedSources = resolveListeningSources(
+    data.listeningSources,
+    availableSources,
+  );
+
+  function toggleSource(id: ListeningSourceId) {
+    onListeningSourcesChange(
+      selectedSources.includes(id)
+        ? selectedSources.filter((current) => current !== id)
+        : [...selectedSources, id],
+    );
+  }
 
   async function runListening() {
     if (!listeningTopic.trim()) {
       setListeningError("Enter a topic first, or pick one of the suggested topics.");
+      return;
+    }
+
+    // Unticking everything and then getting everything would be a confusing
+    // thing to do to someone, so an empty selection stops here rather than
+    // quietly falling back to searching the lot.
+    if (selectedSources.length === 0) {
+      setListeningError("Pick at least one source to search.");
       return;
     }
 
@@ -4107,6 +4142,7 @@ function TrendRadarPanel({
           xaiApiKey: data.aiIntegration.xaiApiKey ?? "",
           youtubeApiKey: data.aiIntegration.youtubeApiKey ?? "",
           scrapeCreatorsApiKey: data.aiIntegration.scrapeCreatorsApiKey ?? "",
+          sources: selectedSources,
           model: resolveModelForTask(data.aiIntegration, "analysis"),
           searchModel: resolveModelForTask(data.aiIntegration, "utility"),
           topic: listeningTopic.trim(),
@@ -4430,11 +4466,9 @@ function TrendRadarPanel({
         ) : (
           <>
             <p className="text-xs leading-5 text-muted-foreground">
-              Live public-opinion research from Reddit{hasXaiKey ? " and X" : ""}, powered
-              by the open-source sc-research tool (MIT licence).{" "}
-              {hasXaiKey
-                ? ""
-                : "No xAI key is set, so X is not searched; add one in Settings to include X."}{" "}
+              Live public-opinion research, powered by the open-source
+              sc-research and last30days tools (both MIT licence). Pick the
+              sources to search below: fewer sources means a faster search.
               Quotes are research evidence for internal planning only, never marketing copy.
             </p>
 
@@ -4473,6 +4507,64 @@ function TrendRadarPanel({
                 <SearchCheck className="h-4 w-4" />
                 {listening ? "Researching" : "Run listening research"}
               </Button>
+
+              <div className="w-full border-t pt-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-medium uppercase text-muted-foreground">
+                    Sources to search
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      className="text-xs underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                      onClick={() => onListeningSourcesChange([...availableSources])}
+                      type="button"
+                    >
+                      All
+                    </button>
+                    <button
+                      className="text-xs underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                      onClick={() => onListeningSourcesChange([])}
+                      type="button"
+                    >
+                      None
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {LISTENING_SOURCES.map((option) => {
+                    // A source whose key is missing stays visible but
+                    // untickable, with the reason on it. Hiding it would leave
+                    // the manager wondering why TikTok is not on the list.
+                    const usable = availableSources.includes(option.id);
+                    const active = usable && selectedSources.includes(option.id);
+
+                    return (
+                      <button
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-medium transition",
+                          !usable && "cursor-not-allowed border-dashed opacity-50",
+                          usable && active && "border-primary bg-primary text-primary-foreground",
+                          usable && !active && "hover:bg-muted",
+                        )}
+                        disabled={!usable}
+                        key={option.id}
+                        onClick={() => toggleSource(option.id)}
+                        title={usable ? undefined : option.missingKeyReason}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {selectedSources.length === 0 ? (
+                  <p className="mt-2 text-xs leading-5 text-warning-foreground">
+                    Pick at least one source to search.
+                  </p>
+                ) : null}
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -4631,6 +4723,7 @@ function PlatformStrategyView({
   onConnectionsChange,
   onDismissApplyConfirmation,
   onListeningResultsChange,
+  onListeningSourcesChange,
   onNavigate,
   onRecordUsage,
   onTrendInsightsChange,
@@ -4650,6 +4743,7 @@ function PlatformStrategyView({
   onConnectionsChange: (connections: PlatformConnection[]) => void;
   onDismissApplyConfirmation: () => void;
   onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
+  onListeningSourcesChange: (listeningSources: string[]) => void;
   onNavigate: (view: ViewId) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
   onTrendInsightsChange: (trendInsights: TrendInsight[]) => void;
@@ -4868,6 +4962,7 @@ function PlatformStrategyView({
       <TrendRadarPanel
         data={data}
         onListeningResultsChange={onListeningResultsChange}
+        onListeningSourcesChange={onListeningSourcesChange}
         onNavigate={onNavigate}
         onRecordUsage={onRecordUsage}
         onTrendInsightsChange={onTrendInsightsChange}

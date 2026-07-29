@@ -15,6 +15,13 @@ import {
   normaliseLast30DaysExport,
 } from "../lib/last30days.ts";
 import { dedupeByUrl } from "../lib/listening-ai.ts";
+import {
+  availableListeningSources,
+  last30daysSearchArg,
+  listeningSourceLabels,
+  resolveListeningSources,
+  scResearchSourceArg,
+} from "../lib/listening-sources.ts";
 import { readJsonResponse } from "../lib/utils.ts";
 
 // A representative export: mixed sources, a Reddit url that should become a
@@ -255,6 +262,90 @@ assert.deepEqual(
   ),
   { ok: true },
   "a healthy JSON response should parse normally",
+);
+
+// ---- source selection ----
+
+const allKeys = {
+  xaiApiKey: "xai-k",
+  youtubeApiKey: "yt-k",
+  scrapeCreatorsApiKey: "sc-k",
+};
+
+// A chip is only tickable when its key is present.
+assert.deepEqual(
+  availableListeningSources({}),
+  ["reddit", "web"],
+  "with no optional keys, only the keyless sources are available",
+);
+assert.equal(
+  availableListeningSources(allKeys).length,
+  9,
+  "with every key set, all nine sources are available",
+);
+assert.deepEqual(
+  availableListeningSources({ scrapeCreatorsApiKey: "  " }),
+  ["reddit", "web"],
+  "a whitespace-only key must not count as present",
+);
+
+// Undefined means everything: a workspace saved before this feature existed
+// must keep searching what it always did, not silently narrow to nothing.
+assert.deepEqual(
+  resolveListeningSources(undefined, availableListeningSources(allKeys)),
+  availableListeningSources(allKeys),
+  "an unsaved selection means every available source",
+);
+
+// A stored selection is filtered to what is still usable, so a TikTok choice
+// kept from when a ScrapeCreators key existed does not resurrect itself.
+assert.deepEqual(
+  resolveListeningSources(["reddit", "tiktok"], availableListeningSources({})),
+  ["reddit"],
+  "a stored source whose key has since been removed must drop out",
+);
+assert.deepEqual(
+  resolveListeningSources(["reddit", "nonsense"], availableListeningSources({})),
+  ["reddit"],
+  "an unrecognised stored id must be ignored rather than passed through",
+);
+assert.deepEqual(
+  resolveListeningSources([], availableListeningSources(allKeys)),
+  [],
+  "an explicitly empty selection stays empty: the screen blocks it, it does not mean all",
+);
+
+// sc-research takes one flag for both its platforms, and must be skipped
+// entirely when neither is wanted. Skipping it is where the time is saved.
+assert.equal(scResearchSourceArg(["reddit", "x"]), "both");
+assert.equal(scResearchSourceArg(["reddit"]), "reddit");
+assert.equal(scResearchSourceArg(["x"]), "x", "X alone must be valid, not welded to Reddit");
+assert.equal(
+  scResearchSourceArg(["tiktok", "web"]),
+  null,
+  "sc-research must be skipped when neither of its platforms is picked",
+);
+
+// last30days gets only the platforms it owns. Reddit, X and YouTube go to the
+// dedicated engines instead, so we stop fetching them twice.
+assert.equal(last30daysSearchArg(["tiktok", "instagram"]), "tiktok,instagram");
+assert.equal(
+  last30daysSearchArg(["reddit", "x", "youtube", "web"]),
+  null,
+  "last30days must be skipped when only dedicated-engine sources are picked",
+);
+assert.equal(
+  last30daysSearchArg(["reddit", "linkedin"]),
+  "linkedin",
+  "Reddit must not be passed to last30days when sc-research is already fetching it",
+);
+
+// Labels are ordered by the catalogue, not by however the ids arrived, so the
+// "we searched X, Y, Z" wording is stable between runs.
+assert.deepEqual(
+  listeningSourceLabels(["linkedin", "reddit", "tiktok"]),
+  ["Reddit", "TikTok", "LinkedIn"],
+  "labels should follow catalogue order regardless of selection order",
 );
 
 console.log("check-last30days: all assertions passed");
