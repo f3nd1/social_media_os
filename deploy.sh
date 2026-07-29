@@ -8,6 +8,10 @@
 # sub-path baked in, and restarts the pm2 process. Safe to run repeatedly.
 # The live site keeps serving the OLD build until the restart at the end,
 # so downtime is only the second or two of the pm2 restart.
+#
+# This runs itself twice on purpose: once to pull, then it re-execs the copy it
+# just pulled to do the actual work. That is why the header lines appear twice
+# in the output. See the comment above the pull for why.
 
 set -euo pipefail
 
@@ -24,9 +28,26 @@ if ! grep -q '^NEXT_PUBLIC_BASE_PATH=' .env.production 2>/dev/null; then
   echo "==> Added NEXT_PUBLIC_BASE_PATH to .env.production"
 fi
 
-echo "==> Pulling latest $BRANCH"
-git checkout "$BRANCH"
-git pull origin "$BRANCH"
+# The pull below can rewrite this very script, and git replaces a changed file
+# by renaming a new one over the old path. The shell running this script keeps
+# its open handle on the old, now-unlinked copy, so every step after the pull
+# would come from the version that existed BEFORE it. A change to deploy.sh
+# would then silently fail to take effect on the very run that fetched it. That
+# is not hypothetical: it is exactly how the last30days install step landed on
+# the droplet and never ran.
+#
+# So do the pull, then hand off to the freshly pulled copy and let it do the
+# rest. DEPLOY_REEXEC stops that from looping, and "bash $0" rather than plain
+# "$0" keeps working even if the executable bit is ever lost in transit.
+if [ -z "${DEPLOY_REEXEC:-}" ]; then
+  echo "==> Pulling latest $BRANCH"
+  git checkout "$BRANCH"
+  git pull origin "$BRANCH"
+
+  echo "==> Reloading deploy script so the rest runs the version just pulled"
+  export DEPLOY_REEXEC=1
+  exec bash "$0" "$@"
+fi
 
 echo "==> Installing dependencies"
 npm install
