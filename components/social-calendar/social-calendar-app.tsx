@@ -131,6 +131,7 @@ import {
 import {
   LISTENING_SOURCES,
   availableListeningSources,
+  listeningSourceLabels,
   resolveListeningSources,
   type ListeningSourceId,
 } from "@/lib/listening-sources";
@@ -4096,6 +4097,31 @@ function TrendRadarPanel({
   const [listeningType, setListeningType] = useState<ListeningAnalysisType>("quick");
   const [listening, setListening] = useState(false);
   const [listeningError, setListeningError] = useState("");
+  const [listeningElapsed, setListeningElapsed] = useState(0);
+  // Held so Cancel can abort the in-flight request. Aborting is client-side
+  // only: the server keeps running its subprocesses to completion and its
+  // reply is discarded. Killing them mid-flight would mean tracking each run
+  // server-side, which is a lot of machinery for a button that is really about
+  // letting someone stop waiting and change the topic.
+  const listeningAbortRef = useRef<AbortController | null>(null);
+
+  // A search fetches real posts from several sources before any analysis
+  // starts, so a minute or more of apparently nothing is normal. Counting up
+  // is honest about progress in a way a fake percentage would not be: the
+  // sources do not report how far along they are.
+  useEffect(() => {
+    if (!listening) {
+      setListeningElapsed(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setListeningElapsed(Math.round((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [listening]);
 
   const liveAi = isLiveAiEnabled(data.aiIntegration);
 
@@ -4133,9 +4159,13 @@ function TrendRadarPanel({
     setListening(true);
     setListeningError("");
 
+    const controller = new AbortController();
+    listeningAbortRef.current = controller;
+
     try {
       const response = await fetch(apiUrl("/api/social-listening"), {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           apiKey: data.aiIntegration.apiKey,
@@ -4194,10 +4224,23 @@ function TrendRadarPanel({
         onRecordUsage("Social listening", result.model ?? "unknown", result.usage);
       }
     } catch (error) {
+      // A cancel is a choice, not a failure, so it must not read like one.
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setListeningError(
+          "Search cancelled. The server may still finish that run in the background; its result is discarded.",
+        );
+        return;
+      }
+
       setListeningError(error instanceof Error ? error.message : String(error));
     } finally {
+      listeningAbortRef.current = null;
       setListening(false);
     }
+  }
+
+  function cancelListening() {
+    listeningAbortRef.current?.abort();
   }
   const drafts = data.trendInsights.filter((trend) => trend.status === "draft");
   const accepted = data.trendInsights.filter((trend) => trend.status === "accepted");
@@ -4508,6 +4551,29 @@ function TrendRadarPanel({
                 {listening ? "Researching" : "Run listening research"}
               </Button>
 
+              {listening ? (
+                <>
+                  <Button onClick={cancelListening} size="sm" type="button" variant="outline">
+                    Cancel
+                  </Button>
+                  {/* No percentage: none of the sources report progress, so a
+                      bar would be invented. A live count of seconds against the
+                      named sources is honest and still tells you it is alive. */}
+                  <div
+                    aria-live="polite"
+                    className="flex w-full items-center gap-2 text-xs leading-5 text-muted-foreground"
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>
+                      Searching {listeningSourceLabels(selectedSources).join(", ")}
+                      {"... "}
+                      {listeningElapsed}s elapsed. Fetching real posts takes a
+                      minute or two before the analysis starts.
+                    </span>
+                  </div>
+                </>
+              ) : null}
+
               <div className="w-full border-t pt-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs font-medium uppercase text-muted-foreground">
@@ -4691,11 +4757,52 @@ function TrendRadarPanel({
                       Dismiss
                     </Button>
                   </div>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    Accepted findings feed the Strategy Brief and campaign
-                    suggestions as internal research signals. Quotes are never
-                    used as copy.
-                  </p>
+                  {result.status === "accepted" ? (
+                    // The status badge and the button label both already
+                    // changed on accept, but both are easy to miss, so the
+                    // click read as doing nothing. This states plainly what
+                    // just happened and offers a way to go and see it.
+                    <div className="rounded-md border border-success-border bg-success p-2">
+                      <p className="text-xs font-medium leading-5 text-success-foreground">
+                        Accepted. This finding now feeds Strategy Brief
+                        generation, Campaign suggestions, and the Platform
+                        Intelligence playbook as internal research. Quotes are
+                        never used as copy.
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                          onClick={() => onNavigate("brief")}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Strategy Brief
+                        </Button>
+                        <Button
+                          onClick={() => onNavigate("campaigns")}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Campaigns
+                        </Button>
+                        <Button
+                          onClick={() => onNavigate("platformIntel")}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Platform Intelligence
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Accepted findings feed Strategy Brief generation, Campaign
+                      suggestions, and the Platform Intelligence playbook as
+                      internal research signals. Quotes are never used as copy.
+                    </p>
+                  )}
                 </div>
               ))
             )}
