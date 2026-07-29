@@ -65,14 +65,31 @@ To skip it during a deploy: `SKIP_LAST30DAYS=1 ./deploy.sh`
 
 ## 3. YouTube transcripts and comments (free)
 
-The tool reads YouTube through the `yt-dlp` binary rather than an API key:
+The tool reads YouTube through the `yt-dlp` binary rather than an API key.
+`./deploy.sh` installs it for you and prints the version it found.
+
+It fetches the standalone build from the yt-dlp releases page rather than using
+`apt install yt-dlp`, on purpose. The distro package lags a long way behind, and
+YouTube changes often enough that a stale yt-dlp simply stops returning results.
+That failure is quiet: it would show up as "YouTube was quiet this run" rather
+than as a broken tool, which is exactly the kind of misleading silence worth
+paying a little to avoid.
+
+If the deploy cannot write to `/usr/local/bin` and has no passwordless sudo, it
+will not prompt you, because that would hang an otherwise unattended deploy. It
+prints the exact command instead:
 
 ```bash
-sudo apt install -y yt-dlp
+sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+  -o /usr/local/bin/yt-dlp && sudo chmod a+rx /usr/local/bin/yt-dlp
 ```
 
+Worth re-running that occasionally to stay current, for the staleness reason
+above.
+
 This is separate from the YouTube Data API key in Settings, which the app's own
-YouTube comment search uses. Both can be present; they are different paths.
+YouTube comment search uses. Both can be present; they are different paths to
+the same platform, and either one alone is enough for YouTube to appear.
 
 ## 4. Which key unlocks which platform
 

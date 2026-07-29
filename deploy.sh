@@ -88,6 +88,36 @@ if [ -d "$LAST30DAYS_DIR" ]; then
     "$L30_PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null \
       || echo "==> WARNING: that interpreter is older than 3.12. Install python3.12, or set LAST30DAYS_PYTHON in .env.production to one that is. Until then last30days sources are skipped."
   fi
+
+  # last30days reads YouTube through the yt-dlp binary rather than an API key.
+  # Deliberately the standalone build rather than the distro package: apt ships
+  # a yt-dlp that lags badly, and a stale yt-dlp fails quietly, which would
+  # surface as "YouTube was quiet this run" rather than "the tool is broken".
+  # Non-fatal like everything else in this section.
+  YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+  YTDLP_DEST="/usr/local/bin/yt-dlp"
+
+  if command -v yt-dlp >/dev/null 2>&1; then
+    echo "==> yt-dlp present: $(yt-dlp --version 2>&1 | head -1)"
+  elif ! command -v curl >/dev/null 2>&1; then
+    echo "==> curl not found, cannot install yt-dlp. YouTube will be skipped by last30days."
+  elif [ -w "$(dirname "$YTDLP_DEST")" ]; then
+    echo "==> Installing yt-dlp into $YTDLP_DEST"
+    { curl -fsSL "$YTDLP_URL" -o "$YTDLP_DEST" && chmod a+rx "$YTDLP_DEST" \
+      && echo "==> yt-dlp installed: $("$YTDLP_DEST" --version 2>&1 | head -1)"; } \
+      || echo "==> yt-dlp install failed. YouTube will be skipped by last30days."
+  elif sudo -n true 2>/dev/null; then
+    echo "==> Installing yt-dlp into $YTDLP_DEST (via sudo)"
+    { sudo curl -fsSL "$YTDLP_URL" -o "$YTDLP_DEST" && sudo chmod a+rx "$YTDLP_DEST" \
+      && echo "==> yt-dlp installed: $("$YTDLP_DEST" --version 2>&1 | head -1)"; } \
+      || echo "==> yt-dlp install failed. YouTube will be skipped by last30days."
+  else
+    # Never prompt for a password from a deploy script: it would hang an
+    # otherwise unattended run. Say exactly what to type instead.
+    echo "==> yt-dlp is missing and cannot be installed automatically here."
+    echo "    YouTube will be skipped by last30days until you run:"
+    echo "      sudo curl -fsSL $YTDLP_URL -o $YTDLP_DEST && sudo chmod a+rx $YTDLP_DEST"
+  fi
 fi
 
 echo "==> Building"

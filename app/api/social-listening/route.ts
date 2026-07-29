@@ -462,10 +462,18 @@ export async function POST(request: Request) {
         .join(" ")
         .slice(0, 300);
 
+      // Name every source actually attempted. Listing fewer than were tried
+      // makes a genuinely well-covered dead end look like a shallow search, and
+      // sends the manager off to broaden a topic that was already searched wide.
       const sourcesTried = [
         "Reddit",
         xaiApiKey ? "X" : "",
-        youtubeApiKey ? "YouTube" : "",
+        youtubeApiKey || last30days.ran ? "YouTube" : "",
+        last30days.ran
+          ? scrapeCreatorsApiKey
+            ? "Hacker News, TikTok, Instagram, Threads, Pinterest, LinkedIn and the other last30days sources"
+            : "Hacker News and the other free last30days sources"
+          : "",
         "the public web",
       ].filter(Boolean);
 
@@ -538,7 +546,14 @@ export async function POST(request: Request) {
     const sourcesCovered = [
       subreddits.length > 0 ? `Reddit (${subreddits.slice(0, 6).join(", ")})` : "",
       hasX ? "X" : source === "reddit" ? "X not searched (no xAI key)" : "",
-      hasYouTube ? "YouTube comments" : youtubeApiKey ? "" : "YouTube not searched (no API key)",
+      // Two independent YouTube paths now exist: this app's own Data API search,
+      // and last30days reading it through yt-dlp. Only claim it went unsearched
+      // when neither was available, or the message contradicts the evidence.
+      hasYouTube
+        ? "YouTube comments"
+        : youtubeApiKey || last30days.ran
+          ? ""
+          : "YouTube not searched (no API key, and last30days unavailable)",
       extraSources.join(", "),
       hasWeb ? "public web" : "",
       last30days.ran && !scrapeCreatorsApiKey
