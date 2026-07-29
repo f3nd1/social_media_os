@@ -81,13 +81,39 @@ type RawResearchFile = {
 // Exported so the last30days normaliser labels a Reddit post with the same
 // "r/subreddit" form this module already uses, rather than deriving it twice.
 export function sourceFromUrl(url: string): string {
-  const redditMatch = /reddit\.com\/(r\/[A-Za-z0-9_]+)/.exec(url);
+  // Match on the parsed hostname rather than a pattern over the whole url.
+  // The previous regex was (^|\.)x\.com OR twitter\.com, which required x.com
+  // to sit at the start of the string or right after a dot. X now serves bare
+  // https://x.com/... where the preceding character is a slash, so every real X
+  // post fell through to "web": mislabelled in the evidence list, and counted
+  // as "X returned nothing this run" because the coverage line looks for the
+  // label "X". Hostname matching cannot fail that way, and it also stops a url
+  // like evil.com/?r=reddit.com/r/foo passing itself off as Reddit.
+  let host = "";
+  let pathname = "";
 
-  if (redditMatch) {
-    return redditMatch[1];
+  try {
+    const parsed = new URL(url);
+    host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    pathname = parsed.pathname;
+  } catch {
+    // Not a parseable absolute url. Fall through to the default rather than
+    // throwing: a malformed url is worth showing as evidence with a vague
+    // label, not worth failing an entire search over.
+    return "web";
   }
 
-  if (/(^|\.)x\.com|twitter\.com/.test(url)) {
+  if (host === "reddit.com" || host.endsWith(".reddit.com")) {
+    const subreddit = /^\/(r\/[A-Za-z0-9_]+)/.exec(pathname);
+    return subreddit ? subreddit[1] : "Reddit";
+  }
+
+  if (
+    host === "x.com" ||
+    host === "twitter.com" ||
+    host.endsWith(".x.com") ||
+    host.endsWith(".twitter.com")
+  ) {
     return "X";
   }
 

@@ -14,7 +14,7 @@ import {
   LAST30DAYS_PER_SOURCE_CAP,
   normaliseLast30DaysExport,
 } from "../lib/last30days.ts";
-import { dedupeByUrl } from "../lib/listening-ai.ts";
+import { dedupeByUrl, sourceFromUrl } from "../lib/listening-ai.ts";
 import {
   availableListeningSources,
   last30daysSearchArg,
@@ -263,6 +263,38 @@ assert.deepEqual(
   { ok: true },
   "a healthy JSON response should parse normally",
 );
+
+// ---- url to source label ----
+// X serves bare x.com urls. The old regex demanded x.com sit at the start of
+// the string or right after a dot, so every real X post was labelled "web" and
+// then counted as "X returned nothing this run". These pin the shapes that
+// actually occur so that cannot regress quietly.
+assert.equal(sourceFromUrl("https://x.com/user/status/123"), "X", "bare x.com is the form X actually serves");
+assert.equal(sourceFromUrl("https://www.x.com/user/status/123"), "X");
+assert.equal(sourceFromUrl("https://twitter.com/user/status/123"), "X");
+assert.equal(sourceFromUrl("https://mobile.twitter.com/user/status/123"), "X");
+assert.equal(sourceFromUrl("https://X.com/User"), "X", "host matching must be case-insensitive");
+
+assert.equal(sourceFromUrl("https://www.reddit.com/r/singapore/comments/a/"), "r/singapore");
+assert.equal(sourceFromUrl("https://reddit.com/r/askSingapore/"), "r/askSingapore");
+assert.equal(sourceFromUrl("https://old.reddit.com/r/singapore/"), "r/singapore");
+assert.equal(sourceFromUrl("https://www.reddit.com/user/someone"), "Reddit", "reddit without a subreddit path");
+
+// A host must not be spoofable from elsewhere in the url.
+assert.equal(
+  sourceFromUrl("https://evil.example/?redirect=reddit.com/r/singapore"),
+  "web",
+  "reddit.com in a query string is not a Reddit post",
+);
+assert.equal(
+  sourceFromUrl("https://evil.example/x.com/status/1"),
+  "web",
+  "x.com in a path is not an X post",
+);
+
+// Malformed input must degrade, never throw: one bad url must not fail a search.
+assert.equal(sourceFromUrl("not a url"), "web");
+assert.equal(sourceFromUrl(""), "web");
 
 // ---- source selection ----
 
