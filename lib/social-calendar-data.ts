@@ -777,10 +777,6 @@ export type AiIntegrationSettings = {
   // Without it those platforms are simply absent, the same graceful skip as
   // xaiApiKey and youtubeApiKey. Paid: 100 free credits then pay as you go.
   scrapeCreatorsApiKey?: string;
-  // Optional Bluesky credentials for the same tool. The handle is not secret,
-  // the app password is. Both are needed before Bluesky is searched at all.
-  blueskyHandle?: string;
-  blueskyAppPassword?: string;
 };
 
 export function createDefaultAiIntegration(): AiIntegrationSettings {

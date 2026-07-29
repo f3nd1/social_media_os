@@ -2,8 +2,14 @@
 
 Social Listening reads real public posts from Reddit, X, YouTube and a public
 web search. This document covers the optional extra source group, which adds
-Hacker News, Polymarket, GitHub, StockTwits, arXiv, Techmeme and Bluesky for
-free, and TikTok, Instagram, Threads, Pinterest and LinkedIn for a fee.
+Hacker News, Polymarket, GitHub, StockTwits, arXiv and Techmeme for free, and
+TikTok, Instagram, Threads, Pinterest and LinkedIn for a fee.
+
+Bluesky is deliberately not wired up. The tool supports it and it is free, but
+it was judged not worth the setup for this college's audience, so the app asks
+for no Bluesky credentials and offers no Bluesky field. Nothing needs undoing if
+that changes later: adding it back means adding the handle and app password to
+Settings and passing them through as `BSKY_HANDLE` and `BSKY_APP_PASSWORD`.
 
 Those sources come from [last30days-skill](https://github.com/mvanhorn/last30days-skill),
 an open-source tool by Matt Van Horn, MIT licensed, Copyright (c) 2026. The app
@@ -78,15 +84,8 @@ workspace, and passed to the tool per run. None is required.
 | Reddit, Hacker News, Polymarket, GitHub, StockTwits | No key at all | Free |
 | arXiv, Techmeme | No key. The tool installs small helper CLIs itself on first run | Free |
 | YouTube | No key, needs the `yt-dlp` binary above | Free |
-| Bluesky | Settings, Bluesky handle plus app password | Free |
 | X | Settings, xAI API key (the same key X search already uses) | Paid |
 | TikTok, Instagram, Threads, Pinterest, LinkedIn | Settings, ScrapeCreators API key | Paid |
-
-### Bluesky
-
-Generate an app password, never your account password, at bsky.app under
-Settings, App Passwords. It looks like `xxxx-xxxx-xxxx-xxxx`. Both the handle
-and the app password must be filled in before Bluesky is searched at all.
 
 ### ScrapeCreators
 

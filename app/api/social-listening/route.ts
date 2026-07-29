@@ -46,8 +46,6 @@ type ListeningRequestBody = {
   xaiApiKey?: string;
   youtubeApiKey?: string;
   scrapeCreatorsApiKey?: string;
-  blueskyHandle?: string;
-  blueskyAppPassword?: string;
   model?: string;
   searchModel?: string;
   topic?: string;
@@ -207,14 +205,10 @@ function spawnLast30Days({
 // install, a missing interpreter, a timeout, or an unreadable export all just
 // mean fewer posts, matching fetchYouTubeListeningPosts below.
 async function fetchLast30DaysPosts({
-  blueskyAppPassword,
-  blueskyHandle,
   scrapeCreatorsApiKey,
   topic,
   xaiApiKey,
 }: {
-  blueskyAppPassword: string;
-  blueskyHandle: string;
   scrapeCreatorsApiKey: string;
   topic: string;
   xaiApiKey: string;
@@ -238,12 +232,6 @@ async function fetchLast30DaysPosts({
 
     if (xaiApiKey) {
       env.XAI_API_KEY = xaiApiKey;
-    }
-
-    // Bluesky needs both halves before it can authenticate at all.
-    if (blueskyHandle && blueskyAppPassword) {
-      env.BSKY_HANDLE = blueskyHandle;
-      env.BSKY_APP_PASSWORD = blueskyAppPassword;
     }
 
     const pythons = [
@@ -399,8 +387,6 @@ export async function POST(request: Request) {
   const xaiApiKey = body.xaiApiKey?.trim() ?? "";
   const youtubeApiKey = body.youtubeApiKey?.trim() ?? "";
   const scrapeCreatorsApiKey = body.scrapeCreatorsApiKey?.trim() ?? "";
-  const blueskyHandle = body.blueskyHandle?.trim() ?? "";
-  const blueskyAppPassword = body.blueskyAppPassword?.trim() ?? "";
   const model = body.model?.trim();
   const topic = body.topic?.trim();
   const analysisType = body.analysisType;
@@ -440,8 +426,6 @@ export async function POST(request: Request) {
       }),
       fetchYouTubeListeningPosts(topic, youtubeApiKey),
       fetchLast30DaysPosts({
-        blueskyAppPassword,
-        blueskyHandle,
         scrapeCreatorsApiKey,
         topic,
         xaiApiKey,

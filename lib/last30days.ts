@@ -68,6 +68,22 @@ export const LAST30DAYS_PER_SOURCE_CAP = 12;
 // sc-research posts, so evidence from either tool is the same shape.
 const MAX_POST_CHARACTERS = 600;
 
+// Statuses meaning the tool never attempted a source, almost always because it
+// has no credentials for it. Reporting these as "returned nothing this run"
+// would tell a manager a source came back empty when it was never asked, which
+// is exactly the overstatement this app exists to avoid. Bluesky is the live
+// example: it is deliberately not configured, so it must stay silent rather
+// than read as a failure. The tool's status vocabulary is not fully documented,
+// so anything unrecognised is still treated as a real degradation. Over
+// reporting a genuine problem is the safer error here than hiding one.
+const NOT_ATTEMPTED_STATUSES = new Set([
+  "disabled",
+  "missing_key",
+  "not_configured",
+  "skipped",
+  "unconfigured",
+]);
+
 // The tool writes its export to stdout, but is free to print a banner or
 // progress line first. Rather than assume stdout is pure JSON, take the widest
 // {...} span and parse that. Returns null on anything unparseable, because a
@@ -169,7 +185,10 @@ export function normaliseLast30DaysExport(
 
   const status = raw.source_status ?? {};
   const degradedSources = Object.keys(status)
-    .filter((source) => status[source] !== "ok")
+    .filter((source) => {
+      const value = (status[source] ?? "").trim().toLowerCase();
+      return value !== "ok" && !NOT_ATTEMPTED_STATUSES.has(value);
+    })
     .map((source) => labelForSource(source, ""))
     .sort();
 

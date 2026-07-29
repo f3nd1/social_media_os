@@ -22,7 +22,16 @@ const sample = {
   schema_version: "1.2",
   query: "studying in Singapore private college",
   window_days: 30,
-  source_status: { reddit: "ok", youtube: "ok", tiktok: "error", github: "skipped" },
+  source_status: {
+    reddit: "ok",
+    youtube: "ok",
+    // Genuinely tried and failed: worth telling the manager about.
+    tiktok: "error",
+    // Never attempted for want of credentials: must stay silent, or the UI
+    // claims a source came back empty when it was never asked.
+    github: "skipped",
+    bluesky: "unconfigured",
+  },
   results: [
     {
       title: "Anyone done a diploma at a private college here?",
@@ -86,9 +95,31 @@ assert.equal(posts[0].date, "2026-07-02", "date should be the ISO day only");
 assert.ok(posts[0].text.startsWith("Asking because"), "summary should win over title");
 assert.equal(posts[2].text, "Diploma vs degree in SG", "title should be the fallback text");
 
-// Anything the tool did not report as ok is surfaced, so the UI can say a
-// source was quiet instead of implying it was searched successfully.
-assert.deepEqual(degradedSources, ["GitHub", "TikTok"], "non-ok sources should be reported");
+// A source that genuinely failed is surfaced, so the UI can say it was quiet
+// instead of implying it was searched successfully. A source that was never
+// attempted is not: Bluesky is deliberately unconfigured and must not read as a
+// failure, and neither must a skipped source the manager has no key for.
+assert.deepEqual(
+  degradedSources,
+  ["TikTok"],
+  "only genuinely attempted-and-failed sources should be reported",
+);
+
+// An unrecognised status is still treated as a real degradation, because
+// hiding a genuine problem is worse than mentioning a harmless one.
+assert.deepEqual(
+  normaliseLast30DaysExport({ source_status: { reddit: "wedged somehow" } }).degradedSources,
+  ["Reddit"],
+  "an unknown status should still be reported rather than silently dropped",
+);
+
+// Status matching must not be defeated by case or padding.
+assert.deepEqual(
+  normaliseLast30DaysExport({ source_status: { github: "  SKIPPED  ", x: " OK " } })
+    .degradedSources,
+  [],
+  "status comparison should ignore case and surrounding whitespace",
+);
 
 assert.equal(windowDays, 30, "window_days should pass through");
 
