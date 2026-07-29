@@ -166,6 +166,35 @@ export function dedupeByUrl(posts: ListeningPost[]): ListeningPost[] {
   });
 }
 
+// Words that mark a stderr line as worth showing a manager. Deliberately wider
+// than it looks like it needs to be: the previous version was
+// /error|failed|key|timed out|rate limit/ and it silently dropped
+// "HTTP 402: Payment Required", which was the real reason ScrapeCreators
+// returned nothing. An allowlist will always miss something, which is why the
+// function below falls back to the last line rather than to silence.
+const ERROR_HINT =
+  /error|fail|denied|unauthor|forbidden|payment|quota|credit|billing|rate.?limit|timed? ?out|invalid|expired|missing|not found|HTTP \d{3}|\b[45]\d{2}\b/i;
+
+// Pulls the one line from a tool's stderr most likely to explain a failure.
+// Returns "" only when stderr was genuinely empty: if there was any output at
+// all, the manager gets something rather than "no posts found, try a broader
+// topic" for what is actually an unpaid invoice.
+export function meaningfulErrorLine(stderr: string): string {
+  const lines = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return "";
+  }
+
+  const flagged = lines.filter((line) => ERROR_HINT.test(line));
+  const chosen = flagged.length > 0 ? flagged[flagged.length - 1] : lines[lines.length - 1];
+
+  return chosen.slice(0, 300);
+}
+
 export function buildListeningSystemPrompt(): string {
   return [
     "You analyse real social media posts and public web findings for the marketing team of a private college in Singapore.",

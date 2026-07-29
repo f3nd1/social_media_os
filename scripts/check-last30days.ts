@@ -14,7 +14,7 @@ import {
   LAST30DAYS_PER_SOURCE_CAP,
   normaliseLast30DaysExport,
 } from "../lib/last30days.ts";
-import { dedupeByUrl, sourceFromUrl } from "../lib/listening-ai.ts";
+import { dedupeByUrl, meaningfulErrorLine, sourceFromUrl } from "../lib/listening-ai.ts";
 import {
   availableListeningSources,
   last30daysSearchArg,
@@ -262,6 +262,60 @@ assert.deepEqual(
   ),
   { ok: true },
   "a healthy JSON response should parse normally",
+);
+
+// ---- picking the useful line out of a tool's stderr ----
+// The real case this exists for: ScrapeCreators answered "HTTP 402: Payment
+// Required" once the free allowance ran out, and the old filter
+// (/error|failed|key|timed out|rate limit/) matched none of those words, so the
+// manager was told to try a broader topic when the real answer was an unpaid
+// invoice. These pin the billing and auth wordings specifically.
+// Every case below puts a harmless line AFTER the error on purpose. Without
+// that, the last-line fallback returns the error anyway and the assertion
+// passes even with a filter that cannot see it, which is a test that proves
+// nothing. The trailing line forces the filter itself to do the work.
+assert.equal(
+  meaningfulErrorLine("fetching tiktok\nHTTP 402: Payment Required\nDone in 12s"),
+  "HTTP 402: Payment Required",
+  "a 402 must survive the filter: this is the case that motivated it",
+);
+for (const line of [
+  "Payment Required",
+  "402 Client Error: Payment Required for url",
+  "insufficient credits remaining",
+  "quota exceeded for this billing period",
+  "401 Unauthorized",
+  "403 Forbidden",
+  "API key expired",
+  "rate limit exceeded",
+  "429 Too Many Requests",
+]) {
+  assert.equal(
+    meaningfulErrorLine(`progress line\n${line}\nDone in 12s`),
+    line,
+    `should surface: ${line}`,
+  );
+}
+
+// An allowlist will always miss something, so unrecognised output must still
+// reach the manager rather than being replaced by silence.
+assert.equal(
+  meaningfulErrorLine("doing a thing\nsomething odd happened that matches nothing"),
+  "something odd happened that matches nothing",
+  "unmatched stderr should fall back to the last line, never to nothing",
+);
+// The last matching line wins, since later output is usually the real failure.
+assert.equal(
+  meaningfulErrorLine("401 Unauthorized\nretrying\n402 Payment Required\nDone."),
+  "402 Payment Required",
+  "the last flagged line should win",
+);
+assert.equal(meaningfulErrorLine(""), "", "genuinely empty stderr stays empty");
+assert.equal(meaningfulErrorLine("   \n\n  "), "", "whitespace-only stderr stays empty");
+assert.equal(
+  meaningfulErrorLine(`x${"y".repeat(500)}`).length,
+  300,
+  "a runaway line should be truncated",
 );
 
 // ---- url to source label ----

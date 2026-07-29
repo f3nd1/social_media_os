@@ -30,6 +30,7 @@ import {
   buildListeningUserPrompt,
   buildWebListeningSearchInput,
   dedupeByUrl,
+  meaningfulErrorLine,
   normalizeResearchFile,
   webCitationsToListeningPosts,
   type ListeningAnalysisType,
@@ -138,6 +139,18 @@ async function readResearchFile(dir: string, name: string) {
 
 const LAST30DAYS_TIMEOUT_MS = 180_000;
 
+// The result of trying the extra source group. "ran" separates a tool that is
+// not installed from one that ran, and "reason" carries why there are no posts
+// when that is knowable. All three used to collapse into one empty result, so a
+// missing install, a crash, and a genuinely quiet topic looked identical to the
+// manager, and a paid source refusing on billing grounds looked like silence.
+type Last30DaysOutcome = {
+  posts: ListeningPost[];
+  degradedSources: string[];
+  ran: boolean;
+  reason: string;
+};
+
 // The tool is a Python project with its own release cadence, so it is installed
 // beside the app rather than vendored into it, and its location comes from the
 // environment. When it is not installed every last30days source is skipped and
@@ -182,7 +195,13 @@ function spawnLast30Days({
   scriptPath: string;
   searchArg: string;
   topic: string;
-}): Promise<{ ok: boolean; stdout: string; interpreterMissing: boolean }> {
+}): Promise<{
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  interpreterMissing: boolean;
+  timedOut: boolean;
+}> {
   return new Promise((resolve) => {
     // --search is a per-invocation flag and beats the tool's own
     // LAST30DAYS_DEFAULT_SEARCH env var, so the manager's chip selection takes
@@ -195,17 +214,21 @@ function spawnLast30Days({
     );
 
     let stdout = "";
+    let stderr = "";
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
-    child.stderr.on("data", () => {
-      // Progress and source-warning noise; the export lands on stdout.
+    // Previously discarded as progress noise. It is also where the tool reports
+    // why a paid source refused to answer, so throwing it away turned an
+    // unpaid ScrapeCreators invoice into a blank "no posts found".
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
     });
 
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      resolve({ ok: false, stdout: "", interpreterMissing: false });
+      resolve({ ok: false, stdout: "", stderr, interpreterMissing: false, timedOut: true });
     }, LAST30DAYS_TIMEOUT_MS);
 
     // An error event here is this interpreter not existing, which is different
@@ -213,11 +236,11 @@ function spawnLast30Days({
     // next candidate, the second is not.
     child.on("error", () => {
       clearTimeout(timer);
-      resolve({ ok: false, stdout: "", interpreterMissing: true });
+      resolve({ ok: false, stdout: "", stderr, interpreterMissing: true, timedOut: false });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ ok: code === 0, stdout, interpreterMissing: false });
+      resolve({ ok: code === 0, stdout, stderr, interpreterMissing: false, timedOut: false });
     });
   });
 }
@@ -235,14 +258,21 @@ async function fetchLast30DaysPosts({
   searchArg: string;
   topic: string;
   xaiApiKey: string;
-}): Promise<{ posts: ListeningPost[]; degradedSources: string[]; ran: boolean }> {
-  const skipped = { posts: [], degradedSources: [], ran: false };
+}): Promise<Last30DaysOutcome> {
+  // "not installed" is a deployment state, not a failure, so it carries no
+  // reason: the feature is simply absent and the rest of the search proceeds.
+  const notInstalled: Last30DaysOutcome = {
+    posts: [],
+    degradedSources: [],
+    ran: false,
+    reason: "",
+  };
 
   try {
     const scriptPath = await resolveLast30DaysScript();
 
     if (!scriptPath) {
-      return skipped;
+      return notInstalled;
     }
 
     const env: NodeJS.ProcessEnv = { ...process.env };
@@ -272,24 +302,65 @@ async function fetchLast30DaysPosts({
         continue;
       }
 
+      // Each of these was previously the same silent empty result. They are
+      // different problems with different fixes, so they now say which.
+      if (run.timedOut) {
+        return {
+          posts: [],
+          degradedSources: [],
+          ran: true,
+          reason: `the extra sources timed out after ${LAST30DAYS_TIMEOUT_MS / 1000} seconds`,
+        };
+      }
+
       if (!run.ok) {
-        return skipped;
+        const detail = meaningfulErrorLine(run.stderr);
+        return {
+          posts: [],
+          degradedSources: [],
+          ran: true,
+          reason: detail || "the extra sources tool exited with an error",
+        };
       }
 
       const parsed = extractJsonObject(run.stdout);
 
       if (!parsed) {
-        return skipped;
+        const detail = meaningfulErrorLine(run.stderr);
+        return {
+          posts: [],
+          degradedSources: [],
+          ran: true,
+          reason: detail || "the extra sources tool returned output that could not be read",
+        };
       }
 
       const { degradedSources, posts } = normaliseLast30DaysExport(parsed);
 
-      return { posts, degradedSources, ran: true };
+      // A clean exit can still hide a per-source refusal, an unpaid invoice
+      // being the obvious one, so keep the stderr line when nothing came back.
+      return {
+        posts,
+        degradedSources,
+        ran: true,
+        reason: posts.length === 0 ? meaningfulErrorLine(run.stderr) : "",
+      };
     }
 
-    return skipped;
-  } catch {
-    return skipped;
+    // Every candidate interpreter was missing.
+    return {
+      posts: [],
+      degradedSources: [],
+      ran: false,
+      reason: "no Python 3.12 interpreter was found for the extra sources",
+    };
+  } catch (error) {
+    return {
+      posts: [],
+      degradedSources: [],
+      ran: false,
+      reason: error instanceof Error ? error.message.slice(0, 300) : "",
+    };
   }
 }
 
@@ -478,7 +549,12 @@ export async function POST(request: Request) {
             topic,
             xaiApiKey,
           })
-        : Promise.resolve({ posts: [], degradedSources: [], ran: false }),
+        : Promise.resolve<Last30DaysOutcome>({
+            posts: [],
+            degradedSources: [],
+            ran: false,
+            reason: "",
+          }),
       wantsWeb
         ? callOpenAiWebSearch({
             apiKey,
@@ -505,26 +581,33 @@ export async function POST(request: Request) {
     ]).slice(0, 60);
 
     if (posts.length === 0) {
-      const detail = run.stderr
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => /error|failed|key|timed out|rate limit/i.test(line))
-        .slice(-1)
-        .join(" ")
-        .slice(0, 300);
-
       // The selection IS the list of sources tried, so name it directly rather
       // than inferring from which keys happen to be present. A dead end on two
       // chosen sources should read as exactly that, not as a wide search.
       const sourcesTried = listeningSourceLabels(selected);
       const narrow = selected.length < available.length;
 
+      // Every reason we actually hold, rather than only sc-research's. On a
+      // TikTok-only search sc-research is not even spawned, so its stderr is
+      // empty by construction and used to be the only thing consulted: the
+      // manager got "try a broader topic" for what was really an unpaid
+      // ScrapeCreators invoice. degradedSources is included for the same
+      // reason, having previously been computed and then only used further
+      // down, on a code path that zero posts never reaches.
+      const reasons = [
+        meaningfulErrorLine(run.stderr),
+        last30days.reason,
+        last30days.degradedSources.length > 0
+          ? `${last30days.degradedSources.join(", ")} did not answer`
+          : "",
+      ].filter(Boolean);
+
       return NextResponse.json({
         ok: false,
         error:
           `No public posts were found for this topic across ${sourcesTried.join(", ")}.` +
-          (detail
-            ? ` Tool said: ${detail}`
+          (reasons.length > 0
+            ? ` Reported: ${reasons.join("; ")}`
             : narrow
               ? " Try a broader topic, or tick more sources."
               : " Try a broader topic."),
