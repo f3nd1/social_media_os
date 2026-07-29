@@ -4113,7 +4113,11 @@ function TrendRadarPanel({
           analysisType: listeningType,
         }),
       });
-      const result = (await response.json()) as
+      // Not response.json(): a search that runs past the reverse proxy's
+      // timeout comes back as an HTML gateway error page, and json() turns that
+      // into "Unexpected token '<'", which tells the manager nothing. This
+      // reports the real status instead.
+      const result = await readJsonResponse<
         | {
             ok: true;
             insight: string;
@@ -4123,7 +4127,12 @@ function TrendRadarPanel({
             usage?: OpenAiUsage;
             model?: string;
           }
-        | { ok: false; error: string };
+        | { ok: false; error: string }
+      >(
+        response,
+        "complete the search",
+        "Searching every source at once can run past the time limit. Try a narrower topic, or search again.",
+      );
 
       if (!result.ok) {
         setListeningError(result.error);

@@ -60,15 +60,21 @@ export function dropSharedProfileUrls<T extends { url: string }>(list: T[]): T[]
 // or a crashed route). This replaces the cryptic "Unexpected token '<'" crash
 // that response.json() throws when it is handed an HTML page. Structured JSON
 // error bodies (for example { ok: false, error }) still parse and pass through.
-export async function readJsonResponse<T>(response: Response): Promise<T> {
+export async function readJsonResponse<T>(
+  response: Response,
+  // What the caller was attempting, and what the user should try next. The
+  // defaults are the upload wording the PDF callers already rely on. Any caller
+  // doing something other than an upload must pass its own, or the user gets
+  // told to shrink a PDF they never uploaded.
+  action = "process the upload",
+  advice = "Please try again, or use a smaller text-based PDF.",
+): Promise<T> {
   const body = await response.text();
 
   try {
     return JSON.parse(body) as T;
   } catch {
     const status = response.status ? ` (HTTP ${response.status})` : "";
-    throw new Error(
-      `The server could not process the upload${status}. Please try again, or use a smaller text-based PDF.`,
-    );
+    throw new Error(`The server could not ${action}${status}. ${advice}`);
   }
 }

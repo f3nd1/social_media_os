@@ -15,6 +15,7 @@ import {
   normaliseLast30DaysExport,
 } from "../lib/last30days.ts";
 import { dedupeByUrl } from "../lib/listening-ai.ts";
+import { readJsonResponse } from "../lib/utils.ts";
 
 // A representative export: mixed sources, a Reddit url that should become a
 // subreddit label, a result missing a url, and one missing all text.
@@ -222,5 +223,38 @@ assert.equal(extractJsonObject(""), null, "empty stdout should give null");
 assert.equal(extractJsonObject("no json here"), null, "junk stdout should give null");
 assert.equal(extractJsonObject("{broken"), null, "unterminated json should give null");
 assert.equal(extractJsonObject("{{{"), null, "malformed json should give null");
+
+// A search that outruns the reverse proxy comes back as an HTML gateway error
+// page, not JSON. The manager must get the real status, not "Unexpected token
+// '<'". The default wording must stay put for the PDF upload callers, which is
+// the easy thing to break when editing this helper.
+const gatewayTimeout = () =>
+  new Response("<html><head><title>504 Gateway Time-out</title></head></html>", {
+    status: 504,
+  });
+
+await assert.rejects(
+  () =>
+    readJsonResponse(gatewayTimeout(), "complete the search", "Try a narrower topic."),
+  /could not complete the search \(HTTP 504\)\. Try a narrower topic\./,
+  "a gateway error page should surface the real status, not a JSON parse crash",
+);
+
+await assert.rejects(
+  () => readJsonResponse(gatewayTimeout()),
+  /could not process the upload \(HTTP 504\)\. Please try again, or use a smaller text-based PDF\./,
+  "the default wording must stay unchanged for the existing upload callers",
+);
+
+// Valid JSON must still parse straight through, whatever the wording args.
+assert.deepEqual(
+  await readJsonResponse<{ ok: boolean }>(
+    new Response('{"ok":true}', { status: 200 }),
+    "complete the search",
+    "Try again.",
+  ),
+  { ok: true },
+  "a healthy JSON response should parse normally",
+);
 
 console.log("check-last30days: all assertions passed");
