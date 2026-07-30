@@ -303,6 +303,15 @@ export function normalizeWorkspaceData(data: MarketingWorkspaceData) {
     listeningSources: Array.isArray(data.listeningSources)
       ? data.listeningSources.filter((id): id is string => typeof id === "string")
       : undefined,
+    // Anything without an explicit "dismissed" reads as accepted: these rows
+    // only exist because a manager chose to save them, so a missing status on
+    // an older save is a saved finding, not a rejected one.
+    accountFindings: Array.isArray(data.accountFindings)
+      ? data.accountFindings.map((finding) => ({
+          ...finding,
+          status: finding?.status === "dismissed" ? ("dismissed" as const) : ("accepted" as const),
+        }))
+      : [],
     approvalsLog: Array.isArray(data.approvalsLog) ? data.approvalsLog : [],
     flaggedAiEntries: Array.isArray(data.flaggedAiEntries) ? data.flaggedAiEntries : [],
     approverName: typeof data.approverName === "string" ? data.approverName : "",

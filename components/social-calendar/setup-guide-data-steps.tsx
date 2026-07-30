@@ -34,6 +34,7 @@ import {
   type BriefAiDraft,
 } from "@/lib/brief-ai";
 import type { OpenAiUsage } from "@/lib/openai-shared";
+import { acceptedAccountFindingLines } from "@/lib/signal-board";
 
 const COURSE_CATEGORY_OPTIONS: UccCourseCategory[] = [
   "Full-time courses",
@@ -474,6 +475,7 @@ export function BriefStepBody({
       acceptedListeningInsights: (data.listeningResults ?? [])
         .filter((result) => result.status === "accepted")
         .map((result) => `${result.topic}: ${result.insight}`),
+      acceptedAccountFindings: acceptedAccountFindingLines(data.accountFindings),
       acceptedTrends: (data.trendInsights ?? [])
         .filter((trend) => trend.status === "accepted")
         .map((trend) => `${trend.title}. Suggested angle: ${trend.contentAngle}`),

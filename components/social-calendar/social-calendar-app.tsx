@@ -193,6 +193,7 @@ import {
   roles,
   statuses,
   isCampaignApproved,
+  type AccountFinding,
   type AiIntegrationSettings,
   type AiRecommendation,
   type AiUsageEntry,
@@ -269,6 +270,7 @@ import { AccountResearchPanel } from "@/components/social-calendar/account-resea
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import { PaginationControls } from "@/components/social-calendar/pagination-controls";
 import { SignalBoardPanel } from "@/components/social-calendar/signal-board-panel";
+import { acceptedAccountFindingLines } from "@/lib/signal-board";
 import { TeamView } from "@/components/social-calendar/v2-foundation-insights";
 import {
   CampaignReportsView,
@@ -1240,6 +1242,7 @@ export function SocialCalendarApp() {
             {activeView === "campaigns" ? (
               <CampaignPlanningView
                 acceptedTrends={acceptedTrendLines(data.trendInsights)}
+                accountFindings={data.accountFindings ?? []}
                 onOfferUndo={offerUndo}
                 aiIntegration={data.aiIntegration}
                 auditInsights={data.auditInsights}
@@ -1290,6 +1293,10 @@ export function SocialCalendarApp() {
               <div className="space-y-4">
                 <AccountResearchPanel
                   apiKey={data.aiIntegration.scrapeCreatorsApiKey ?? ""}
+                  findings={data.accountFindings ?? []}
+                  onFindingsChange={(accountFindings) =>
+                    updateWorkspace((current) => ({ ...current, accountFindings }))
+                  }
                 />
                 <SocialListeningPanel
                   data={data}
@@ -1334,6 +1341,7 @@ export function SocialCalendarApp() {
             {activeView === "brief" ? (
               <StrategyBriefView
                 acceptedTrends={acceptedTrendLines(data.trendInsights)}
+                accountFindings={data.accountFindings ?? []}
                 aiIntegration={data.aiIntegration}
                 audits={data.audits}
                 brand={data.brand}
@@ -3686,6 +3694,7 @@ function CampaignEditorSlideOver({
 
 function CampaignPlanningView({
   acceptedTrends,
+  accountFindings,
   aiIntegration,
   auditInsights,
   brief,
@@ -3699,6 +3708,7 @@ function CampaignPlanningView({
   ucc,
 }: {
   acceptedTrends: string[];
+  accountFindings: AccountFinding[];
   aiIntegration: AiIntegrationSettings;
   auditInsights: AuditInsight[];
   brief: StrategyBrief;
@@ -3749,6 +3759,7 @@ function CampaignPlanningView({
             acceptedListeningInsights: listeningResults
               .filter((result) => result.status === "accepted")
               .map((result) => `${result.topic}: ${result.insight}`),
+            acceptedAccountFindings: acceptedAccountFindingLines(accountFindings),
             courses: ucc.courses
               .filter((course) => course.status !== "archived")
               .map((course) => ({
@@ -11119,6 +11130,7 @@ function PlatformIntelligenceView({
       acceptedListeningInsights: data.listeningResults
         .filter((result) => result.status === "accepted")
         .map((result) => `${result.topic}: ${result.insight}`),
+      acceptedAccountFindings: acceptedAccountFindingLines(data.accountFindings),
       currentPlaybook: entry.approved,
     };
   }
@@ -11662,6 +11674,7 @@ function CompetitorPlatformsField({
 
 function StrategyBriefView({
   acceptedTrends,
+  accountFindings,
   aiIntegration,
   audits,
   brand,
@@ -11675,6 +11688,7 @@ function StrategyBriefView({
   onRecordUsage,
 }: {
   acceptedTrends: string[];
+  accountFindings: AccountFinding[];
   aiIntegration: AiIntegrationSettings;
   audits: SocialAudit[];
   brand: BrandProfile;
@@ -11757,6 +11771,7 @@ function StrategyBriefView({
       acceptedListeningInsights: listeningResults
         .filter((result) => result.status === "accepted")
         .map((result) => `${result.topic}: ${result.insight}`),
+      acceptedAccountFindings: acceptedAccountFindingLines(accountFindings),
       acceptedTrends,
       platforms: [...platforms],
     };

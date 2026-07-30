@@ -440,3 +440,63 @@ export function buildCreatorRequestUrl({
 
   return url.toString();
 }
+
+// Saving a lookup to the Signal Board. The saved summary is assembled from
+// fields the API actually returned, using the same "not reported" wording the
+// panel shows, so a number that was never returned can never turn into a zero
+// in the Strategy Brief later.
+function saveableCount(value: number | null): string {
+  return typeof value === "number" ? value.toLocaleString("en-GB") : "not reported";
+}
+
+export function accountFindingSummary(snapshot: AccountSnapshot): string {
+  return [
+    `Followers ${saveableCount(snapshot.followers)}`,
+    `posts ${saveableCount(snapshot.posts)}`,
+    snapshot.verified ? "verified account" : "",
+    snapshot.bio ? `bio: ${snapshot.bio.slice(0, 200)}` : "",
+    // A follower count is one point in time, so the saved line has to say when.
+    // Without it a six-month-old number reads as current in the brief.
+    `captured ${snapshot.capturedAt.slice(0, 10)}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+export function companyFindingSummary(company: CompanySnapshot): string {
+  return [
+    `Employees ${saveableCount(company.employeeCount)}`,
+    company.industry,
+    company.headquarters,
+    company.specialities.length > 0
+      ? `specialities: ${company.specialities.slice(0, 8).join(", ")}`
+      : "",
+    company.similarPages.length > 0
+      ? `similar pages: ${company.similarPages.slice(0, 6).map((page) => page.name).join(", ")}`
+      : "",
+    `captured ${company.capturedAt.slice(0, 10)}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+export function creatorsFindingSummary(creators: CreatorResult[]): string {
+  const top = creators
+    .slice(0, 10)
+    .map((creator) => `@${creator.handle} (${saveableCount(creator.followers)} followers)`);
+
+  return `${creators.length} Singapore creators found. Top: ${top.join(", ")}`;
+}
+
+// Comments are internal research evidence under the same rule as listening
+// quotes, so the saved summary says so in the text itself. Whatever reads this
+// downstream sees the restriction attached to the words, not only in a UI
+// caption it never sees.
+export function commentsFindingSummary(comments: CommentResult[]): string {
+  const sample = comments.slice(0, 8).map((comment) => `"${comment.text.slice(0, 160)}"`);
+
+  return [
+    `${comments.length} public comments, internal research evidence only, never marketing copy.`,
+    ...sample,
+  ].join(" ");
+}

@@ -99,4 +99,44 @@ const legacy = {
 } as never;
 assert.doesNotThrow(() => deriveApprovalLogEntries(legacy, legacy, AT));
 
+// Account Research has no draft state: a saved lookup arrives already
+// accepted, and that IS the manager's decision, so it must be logged as an
+// approval rather than skipped as a fresh draft.
+const withSavedLookup = {
+  ...(base as never as Record<string, unknown>),
+  accountFindings: [
+    { id: "f1", subject: "TikTok @rival", status: "accepted" },
+  ],
+} as never;
+
+const savedEntries = deriveApprovalLogEntries(base, withSavedLookup, AT)
+  .filter((e) => e.module === "Account Research");
+assert.equal(savedEntries.length, 1, "saving a lookup is logged");
+assert.equal(savedEntries[0].decision, "approved");
+assert.ok(
+  /TikTok @rival, available to Strategy Brief, Campaigns and Platform Intelligence/
+    .test(savedEntries[0].subject),
+  "a saved lookup names what it is and where it goes",
+);
+
+// Removing it marks it dismissed rather than deleting it, so the log sees a
+// real rejection.
+const withRemovedLookup = {
+  ...(base as never as Record<string, unknown>),
+  accountFindings: [
+    { id: "f1", subject: "TikTok @rival", status: "dismissed" },
+  ],
+} as never;
+const removedEntries = deriveApprovalLogEntries(withSavedLookup, withRemovedLookup, AT)
+  .filter((e) => e.module === "Account Research");
+assert.equal(removedEntries.length, 1);
+assert.equal(removedEntries[0].decision, "rejected");
+assert.ok(
+  !/available to/.test(removedEntries[0].subject),
+  "a removed lookup must not claim it still reaches anything",
+);
+
+// Workspaces saved before account findings existed have no such field.
+assert.doesNotThrow(() => deriveApprovalLogEntries(base, base, AT));
+
 console.log("check-approvals-log: all assertions passed");

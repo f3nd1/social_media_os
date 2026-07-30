@@ -25,6 +25,8 @@ export type CampaignAiContext = {
   // Accepted social listening findings (Module D3), phrased "topic: insight".
   // Internal research signals only; never marketing copy and no quotes.
   acceptedListeningInsights: string[];
+  // Saved Account Research lookups, phrased "subject: summary".
+  acceptedAccountFindings?: string[];
   courses: Array<{
     name: string;
     category: string;

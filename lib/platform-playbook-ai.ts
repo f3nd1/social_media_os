@@ -34,6 +34,8 @@ export type PlatformPlaybookAiContext = {
   acceptedTrends: string[];
   acceptedCompetitorInsights: string[];
   acceptedListeningInsights: string[];
+  // Saved Account Research lookups, phrased "subject: summary".
+  acceptedAccountFindings?: string[];
   // The current approved playbook, so the model refines it rather than
   // inventing an unrelated voice each time.
   currentPlaybook: PlatformPlaybookFields;

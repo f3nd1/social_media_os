@@ -30,6 +30,7 @@ const FILTERS: Array<{ id: SignalModule | "all"; label: string }> = [
   { id: "Competitor Intelligence", label: "Competitor Intelligence" },
   { id: "Trend Radar", label: "Trend Radar" },
   { id: "Social Listening", label: "Social Listening" },
+  { id: "Account Research", label: "Account Research" },
 ];
 
 export function SignalBoardPanel({
@@ -37,9 +38,10 @@ export function SignalBoardPanel({
   onNavigate,
 }: {
   data: MarketingWorkspaceData;
-  // "compliance" is the approvals log screen, the one destination here that is
-  // not a signal's own module.
-  onNavigate: (view: SignalView | "compliance") => void;
+  // "reports" is the Performance Review screen, which is where the approvals
+  // log panel actually lives. The one destination here that is not a signal's
+  // own module.
+  onNavigate: (view: SignalView | "reports") => void;
 }) {
   const [filter, setFilter] = useState<SignalModule | "all">("all");
 
@@ -58,7 +60,7 @@ export function SignalBoardPanel({
             <Badge variant="outline">Read only</Badge>
           </div>
           <p className="text-xs leading-5 text-muted-foreground">
-            Every finding you have accepted, from all four intelligence modules,
+            Every finding you have accepted, from all five intelligence modules,
             with what it feeds next. Accepting and dismissing stay on the module
             screens so the approvals log keeps one record of each decision. The
             reach shown on each card means the finding is available to those
@@ -131,11 +133,11 @@ export function SignalBoardPanel({
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>Available to: {row.reaches.join(", ")}</span>
                   <span aria-hidden>·</span>
-                  <span>Generated {formatDisplayDate(row.generatedAt)}</span>
-                  {row.model ? (
+                  <span>{row.dateLabel} {formatDisplayDate(row.generatedAt)}</span>
+                  {row.source ? (
                     <>
                       <span aria-hidden>·</span>
-                      <span>{row.model}</span>
+                      <span>{row.source}</span>
                     </>
                   ) : null}
                   <Button
@@ -152,7 +154,7 @@ export function SignalBoardPanel({
           </div>
 
           <Button
-            onClick={() => onNavigate("compliance")}
+            onClick={() => onNavigate("reports")}
             size="sm"
             variant="outline"
           >

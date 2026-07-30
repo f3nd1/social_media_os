@@ -11,9 +11,12 @@
 import assert from "node:assert/strict";
 
 import {
+  accountFindingSummary,
   buildAccountRequestUrl,
   buildCreatorRequestUrl,
   normaliseAccountSnapshot,
+  commentsFindingSummary,
+  companyFindingSummary,
   normaliseComments,
   normaliseCompanySnapshot,
   normaliseCreatorResults,
@@ -164,5 +167,35 @@ assert.equal(comments.length, 1, "an empty comment is not evidence");
 assert.equal(comments[0].author, "asker");
 assert.equal(comments[0].likes, 12);
 assert.deepEqual(normaliseComments({}), [], "a reply with no comments array must not throw");
+
+// A saved finding is read straight into the Strategy Brief prompt, so the
+// "not reported" wording has to survive into the saved text. A follower count
+// the API never returned must never become a zero in a brief.
+assert.match(
+  accountFindingSummary({
+    platform: "tiktok", handle: "someone", name: "Someone", bio: "",
+    followers: null, posts: 12, verified: false, url: "",
+    cached: false, capturedAt: "2026-07-12T10:00:00.000Z",
+  }),
+  /Followers not reported, posts 12, captured 2026-07-12/,
+);
+
+// The capture date is not decoration: without it a stale number reads as
+// current once it is sitting in a prompt.
+assert.match(
+  companyFindingSummary({
+    name: "Rival", description: "", industry: "Education", employeeCount: null,
+    headquarters: "Singapore", founded: "", website: "", specialities: [],
+    similarPages: [], capturedAt: "2026-07-12T10:00:00.000Z",
+  }),
+  /Employees not reported.*captured 2026-07-12/,
+);
+
+// Comments carry their own restriction, because whatever reads them later
+// never sees the caption in the UI.
+assert.match(
+  commentsFindingSummary(comments),
+  /internal research evidence only, never marketing copy/,
+);
 
 console.log("check-scrapecreators: all assertions passed");

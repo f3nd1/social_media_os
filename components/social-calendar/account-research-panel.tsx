@@ -23,6 +23,10 @@ import {
   COMMENT_ENDPOINTS,
   CREATOR_FOLLOWER_BANDS,
   CREATOR_SORT_OPTIONS,
+  accountFindingSummary,
+  commentsFindingSummary,
+  companyFindingSummary,
+  creatorsFindingSummary,
   type AccountPlatform,
   type AccountSnapshot,
   type CommentPlatform,
@@ -30,6 +34,7 @@ import {
   type CompanySnapshot,
   type CreatorResult,
 } from "@/lib/scrapecreators";
+import type { AccountFinding } from "@/lib/social-calendar-data";
 import { apiUrl } from "@/lib/base-path";
 import { formatDisplayDate, readJsonResponse } from "@/lib/utils";
 
@@ -64,12 +69,25 @@ const MODES: Array<{ id: Mode; label: string; blurb: string }> = [
 
 type Credits = { charged: number | null; remaining: number | null };
 
+// ponytail: oldest saved lookups past this are dropped, and the UI says so.
+// Raise it (or move saved lookups out of the workspace document) if anyone
+// ever needs a longer history than this.
+const SAVED_CAP = 50;
+
 // A count the API did not return must never render as 0.
 function countLabel(value: number | null): string {
   return typeof value === "number" ? value.toLocaleString("en-GB") : "not reported";
 }
 
-export function AccountResearchPanel({ apiKey }: { apiKey: string }) {
+export function AccountResearchPanel({
+  apiKey,
+  findings,
+  onFindingsChange,
+}: {
+  apiKey: string;
+  findings: AccountFinding[];
+  onFindingsChange: (findings: AccountFinding[]) => void;
+}) {
   const [mode, setMode] = useState<Mode>("account");
   const [platform, setPlatform] = useState<AccountPlatform>("tiktok");
   const [commentPlatform, setCommentPlatform] = useState<CommentPlatform>("tiktok");
@@ -85,9 +103,41 @@ export function AccountResearchPanel({ apiKey }: { apiKey: string }) {
   const [comments, setComments] = useState<CommentResult[]>([]);
 
   const hasKey = Boolean(apiKey.trim());
+  const saved = findings.filter((finding) => finding.status === "accepted");
   const active = MODES.find((entry) => entry.id === mode);
   const needsIdentifier = mode !== "creators";
   const endpoint = ACCOUNT_ENDPOINTS[platform];
+
+  // Saving is the decision. Account research is a factual lookup, not an AI
+  // recommendation, so there is no draft step to accept: choosing to keep a
+  // result is itself the approval, and it is logged as one.
+  function saveFinding(kind: AccountFinding["kind"], subject: string, summary: string) {
+    onFindingsChange(
+      [
+        {
+          id: `finding-${Date.now()}`,
+          kind,
+          subject,
+          summary,
+          status: "accepted" as const,
+          savedAt: new Date().toISOString(),
+          source: "ScrapeCreators",
+        },
+        ...findings,
+      ].slice(0, SAVED_CAP),
+    );
+  }
+
+  // Marked dismissed rather than deleted, so the approvals log can see the
+  // decision when it diffs the workspace. A deleted row is invisible to that
+  // diff, which would lose the record of the removal.
+  function removeFinding(id: string) {
+    onFindingsChange(
+      findings.map((finding) =>
+        finding.id === id ? { ...finding, status: "dismissed" as const } : finding,
+      ),
+    );
+  }
 
   function clearResults() {
     setAccount(null);
@@ -344,6 +394,19 @@ export function AccountResearchPanel({ apiKey }: { apiKey: string }) {
               Captured {formatDisplayDate(account.capturedAt)}. A single point in time: the API
               has no follower history, so a trend needs repeat lookups saved over weeks.
             </p>
+            <Button
+              onClick={() =>
+                saveFinding(
+                  "account",
+                  `${ACCOUNT_ENDPOINTS[account.platform].label} ${account.handle ? `@${account.handle}` : account.name}`,
+                  accountFindingSummary(account),
+                )
+              }
+              size="sm"
+              variant="outline"
+            >
+              Save to Signal Board
+            </Button>
           </div>
         ) : null}
 
@@ -375,6 +438,19 @@ export function AccountResearchPanel({ apiKey }: { apiKey: string }) {
               LinkedIn reports employee count, not followers, and none of its endpoints cache, so
               every refresh costs a credit.
             </p>
+            <Button
+              onClick={() =>
+                saveFinding(
+                  "company",
+                  `LinkedIn company ${company.name}`,
+                  companyFindingSummary(company),
+                )
+              }
+              size="sm"
+              variant="outline"
+            >
+              Save to Signal Board
+            </Button>
           </div>
         ) : null}
 
@@ -403,6 +479,19 @@ export function AccountResearchPanel({ apiKey }: { apiKey: string }) {
                 {" · "}Average views {countLabel(creator.averageViews)}
               </div>
             ))}
+            <Button
+              onClick={() =>
+                saveFinding(
+                  "creators",
+                  `Singapore TikTok creators, ranked by ${sortBy.replace("_", " ")}`,
+                  creatorsFindingSummary(creators),
+                )
+              }
+              size="sm"
+              variant="outline"
+            >
+              Save to Signal Board
+            </Button>
           </div>
         ) : null}
 
@@ -427,6 +516,56 @@ export function AccountResearchPanel({ apiKey }: { apiKey: string }) {
               These are real people writing in public. Use them to understand what prospective
               students ask, never as copy in UCC content.
             </p>
+            <Button
+              onClick={() =>
+                saveFinding(
+                  "comments",
+                  `Comments on ${identifier.trim()}`,
+                  commentsFindingSummary(comments),
+                )
+              }
+              size="sm"
+              variant="outline"
+            >
+              Save to Signal Board
+            </Button>
+          </div>
+        ) : null}
+        {saved.length > 0 ? (
+          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              {saved.length} saved {saved.length === 1 ? "lookup" : "lookups"}
+            </p>
+            <p className="text-xs leading-5 text-muted-foreground">
+              These appear on the Signal Board and are available to the Strategy
+              Brief, Campaigns and Platform Intelligence generators. Every save
+              and removal is recorded in the approvals log. Figures are the ones
+              the API returned on the day they were saved, not live values.
+            </p>
+            {saved.map((finding) => (
+              <div className="rounded-md border bg-background p-2" key={finding.id}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-medium">{finding.subject}</p>
+                  <Button
+                    className="h-6 px-2"
+                    onClick={() => removeFinding(finding.id)}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Remove
+                  </Button>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">{finding.summary}</p>
+                <p className="text-xs text-muted-foreground">
+                  Saved {formatDisplayDate(finding.savedAt)} from {finding.source}
+                </p>
+              </div>
+            ))}
+            {saved.length >= SAVED_CAP ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                At the {SAVED_CAP} saved lookup limit. Saving another drops the oldest.
+              </p>
+            ) : null}
           </div>
         ) : null}
       </CardContent>

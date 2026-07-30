@@ -9,13 +9,17 @@
 // workspace and a parallel decision surface here would be a second place to
 // forget the audit trail.
 
-import type { MarketingWorkspaceData } from "@/lib/social-calendar-data";
+import type {
+  AccountFinding,
+  MarketingWorkspaceData,
+} from "@/lib/social-calendar-data";
 
 export type SignalModule =
   | "Platform Audit"
   | "Competitor Intelligence"
   | "Trend Radar"
-  | "Social Listening";
+  | "Social Listening"
+  | "Account Research";
 
 // Where an accepted finding of each kind genuinely reaches. Every entry below
 // was read off the call sites in social-calendar-app.tsx, not assumed from the
@@ -28,6 +32,7 @@ export type SignalModule =
 //                          platform-playbook-ai (all four via
 //                          acceptedTrendLines)
 //   listeningResults    -> brief-ai, campaign-ai, platform-playbook-ai
+//   accountFindings     -> brief-ai, campaign-ai, platform-playbook-ai
 //
 // "Available to" rather than "used by": acceptance puts the finding in the
 // context those generators read the next time they run. It does not mean any
@@ -37,6 +42,7 @@ export const SIGNAL_REACH: Record<SignalModule, string[]> = {
   "Competitor Intelligence": ["Strategy Brief", "Campaigns", "Platform Intelligence"],
   "Trend Radar": ["Strategy Brief", "Campaigns", "Calendar", "Platform Intelligence"],
   "Social Listening": ["Strategy Brief", "Campaigns", "Platform Intelligence"],
+  "Account Research": ["Strategy Brief", "Campaigns", "Platform Intelligence"],
 };
 
 // The screen that owns each kind of finding, so the board can send the user
@@ -52,6 +58,8 @@ export const SIGNAL_HOME_VIEW: Record<SignalModule, SignalView> = {
   "Competitor Intelligence": "competitors",
   "Trend Radar": "platform",
   "Social Listening": "listening",
+  // Account Research shares the Social Listening screen.
+  "Account Research": "listening",
 };
 
 // Prose form of the reach list, shared with the approvals log so the two
@@ -72,45 +80,61 @@ export type Signal = {
   view: SignalView;
   title: string;
   detail: string;
-  // When the AI produced it. Deliberately NOT called "accepted at": no
-  // collection records the time of the human decision, and inventing one from
-  // the generation time would be a fabricated audit trail. The approvals log
-  // is where the real decision time and decider live.
+  // When the AI produced it, or when the lookup was captured. Deliberately NOT
+  // called "accepted at": no collection records the time of the human
+  // decision, and inventing one from the generation time would be a fabricated
+  // audit trail. The approvals log is where the real decision time and decider
+  // live.
   generatedAt: string;
-  model: string;
+  // "Generated" for AI output, "Saved" for a looked-up figure. The two are not
+  // interchangeable: a saved follower count is a reading taken on a date, and
+  // calling that "generated" would misdescribe where the number came from.
+  dateLabel: "Generated" | "Saved";
+  // The model that wrote it, or the API it was read from. Provenance either
+  // way, which is why one field covers both.
+  source: string;
   reaches: string[];
 };
 
 function signal(
   module: SignalModule,
-  row: { id: string; generatedAt: string; model: string },
+  row: { id: string; generatedAt: string; source: string; dateLabel?: "Generated" | "Saved" },
   title: string,
   detail: string,
 ): Signal {
   return {
-    id: `${SIGNAL_HOME_VIEW[module]}-${row.id}`,
+    // Prefixed by module, not by screen: Account Research and Social Listening
+    // share a screen, so a screen prefix could collide.
+    id: `${module}-${row.id}`,
     module,
     view: SIGNAL_HOME_VIEW[module],
     title,
     detail,
     generatedAt: row.generatedAt,
-    model: row.model,
+    dateLabel: row.dateLabel ?? "Generated",
+    source: row.source,
     reaches: SIGNAL_REACH[module],
   };
+}
+
+// Every collection names its provenance and timestamp fields differently, so
+// they are read into the common pair here rather than in four places.
+function ai(row: { id: string; model: string; generatedAt: string }) {
+  return { id: row.id, source: row.model, generatedAt: row.generatedAt };
 }
 
 export function collectSignals(data: MarketingWorkspaceData): Signal[] {
   const signals: Signal[] = [
     ...(data.auditInsights ?? [])
       .filter((row) => row.status === "accepted")
-      .map((row) => signal("Platform Audit", row, row.platform, row.recommendation)),
+      .map((row) => signal("Platform Audit", ai(row), row.platform, row.recommendation)),
 
     ...(data.competitorInsights ?? [])
       .filter((row) => row.status === "accepted")
       .map((row) =>
         signal(
           "Competitor Intelligence",
-          row,
+          ai(row),
           `${row.competitorName} (${row.kind})`,
           row.insight,
         ),
@@ -118,14 +142,32 @@ export function collectSignals(data: MarketingWorkspaceData): Signal[] {
 
     ...(data.trendInsights ?? [])
       .filter((row) => row.status === "accepted")
-      .map((row) => signal("Trend Radar", row, row.title, row.whyItMatters)),
+      .map((row) => signal("Trend Radar", ai(row), row.title, row.whyItMatters)),
 
     // Listening rows start at "new", not "draft", and status is optional on
     // older saves. Only an explicit "accepted" counts, so an old save never
     // silently promotes itself onto the board.
     ...(data.listeningResults ?? [])
       .filter((row) => row.status === "accepted")
-      .map((row) => signal("Social Listening", row, row.topic, row.insight)),
+      .map((row) => signal("Social Listening", ai(row), row.topic, row.insight)),
+
+    // Account Research findings are looked up rather than generated, so the
+    // provenance is the API name and the timestamp is when it was saved.
+    ...(data.accountFindings ?? [])
+      .filter((row) => row.status === "accepted")
+      .map((row) =>
+        signal(
+          "Account Research",
+          {
+            id: row.id,
+            source: row.source,
+            generatedAt: row.savedAt,
+            dateLabel: "Saved",
+          },
+          row.subject,
+          row.summary,
+        ),
+      ),
   ];
 
   // Newest first. An unparseable or missing generatedAt sorts last rather than
@@ -148,6 +190,18 @@ export function collectSignals(data: MarketingWorkspaceData): Signal[] {
 
     return right - left;
   });
+}
+
+// The saved-lookup lines handed to the Strategy Brief, Campaign and Platform
+// Intelligence generators. One helper rather than the same filter repeated at
+// four call sites, so a saved finding cannot reach one generator and quietly
+// miss another.
+export function acceptedAccountFindingLines(
+  findings: AccountFinding[] | undefined,
+): string[] {
+  return (findings ?? [])
+    .filter((row) => row.status === "accepted")
+    .map((row) => `${row.subject}: ${row.summary}`);
 }
 
 // Count of findings still waiting on a human decision per module, so the board

@@ -905,6 +905,26 @@ export type ListeningResult = {
   recency?: string;
 };
 
+// One saved Account Research lookup. Account research is a factual lookup, not
+// an AI recommendation, so there is no draft state: a manager saves a result
+// because it is worth keeping, which is itself the decision, and removing it
+// records a rejection. Saving is what makes it available to the Strategy
+// Brief, Campaigns and Platform Intelligence generators.
+export type AccountFinding = {
+  id: string;
+  kind: "account" | "company" | "creators" | "comments";
+  // What was looked up, as the manager typed it, plus the platform label.
+  subject: string;
+  // The factual lines the API actually returned. Never a summary the app made
+  // up: a count the API did not report is already "not reported" by the time
+  // it reaches here.
+  summary: string;
+  status: "accepted" | "dismissed";
+  savedAt: string;
+  // Where the numbers came from, shown as provenance next to the finding.
+  source: string;
+};
+
 // One line in the permanent approvals log (Module E3). Append-only audit
 // evidence: what was decided, in which module, by whom, and when.
 export type ApprovalLogEntry = {
@@ -1096,6 +1116,8 @@ export type MarketingWorkspaceData = {
   // everything, and a source added later is picked up automatically rather than
   // being absent from a list frozen at upgrade time. See lib/listening-sources.ts.
   listeningSources?: string[];
+  // Saved Account Research lookups. Optional so older saves upgrade safely.
+  accountFindings?: AccountFinding[];
   approvalsLog: ApprovalLogEntry[];
   // Ids of AI Generation Log entries the manager has flagged as inaccurate
   // (a suspected hallucination), so patterns of unreliable output surface in
@@ -3057,6 +3079,7 @@ export function createSeedWorkspaceData(): MarketingWorkspaceData {
     weeklyReport: null,
     trendInsights: [],
     listeningResults: [],
+    accountFindings: [],
     approvalsLog: [],
     approverName: "",
     datasetMode: "sample",
@@ -3168,6 +3191,7 @@ export function createEmptyWorkspaceData(): MarketingWorkspaceData {
     weeklyReport: null,
     trendInsights: [],
     listeningResults: [],
+    accountFindings: [],
     approvalsLog: [],
     approverName: "",
     datasetMode: "live",

@@ -199,6 +199,29 @@ export function deriveApprovalLogEntries(
     });
   }
 
+  // Account Research findings. Unlike every collection above, these have no
+  // draft state: a saved lookup is already the manager's decision to keep it,
+  // so a row that arrives "accepted" is a genuine approval and is logged as
+  // one. Removing it later is logged as a rejection.
+  for (const change of statusTransitions(
+    previous.accountFindings ?? [],
+    next.accountFindings ?? [],
+    "accepted",
+    "dismissed",
+  )) {
+    const row = (next.accountFindings ?? []).find((item) => item.id === change.id);
+    const reaches =
+      change.decision === "approved"
+        ? `, available to ${reachSentence("Account Research")}`
+        : "";
+
+    entries.push({
+      module: "Account Research",
+      subject: `${row ? row.subject.slice(0, 100) : change.id}${reaches}`,
+      decision: change.decision,
+    });
+  }
+
   // Campaign suggestions disappear on decision: accepted ones become a
   // campaign in the same update, dismissed ones just vanish.
   const nextSuggestionIds = new Set(next.campaignSuggestions.map((row) => row.id));

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 
 import {
   SIGNAL_REACH,
+  acceptedAccountFindingLines,
   collectSignals,
   pendingByModule,
   reachSentence,
@@ -40,6 +41,18 @@ const data = {
       status: "dismissed", model: "gpt", generatedAt: "2026-07-06T00:00:00.000Z",
     },
   ],
+  accountFindings: [
+    {
+      id: "f1", kind: "account", subject: "TikTok @rival", status: "accepted",
+      summary: "Followers 12,400, posts not reported, captured 2026-07-12",
+      savedAt: "2026-07-12T00:00:00.000Z", source: "ScrapeCreators",
+    },
+    {
+      id: "f2", kind: "company", subject: "LinkedIn company Removed Co",
+      summary: "Employees 40", status: "dismissed",
+      savedAt: "2026-07-13T00:00:00.000Z", source: "ScrapeCreators",
+    },
+  ],
   listeningResults: [
     {
       id: "l1", topic: "IELTS preparation", insight: "Cost is the top worry",
@@ -58,9 +71,48 @@ const signals = collectSignals(data);
 
 assert.deepEqual(
   signals.map((row) => row.id),
-  ["listening-l1", "competitors-c1", "objectives-a1"],
+  [
+    "Account Research-f1",
+    "Social Listening-l1",
+    "Competitor Intelligence-c1",
+    "Platform Audit-a1",
+  ],
   "only accepted findings appear, newest first",
 );
+
+// A removed lookup stays in the workspace so the approvals log can see the
+// change, but it must never show up as a live signal again.
+assert.ok(
+  !signals.some((row) => row.title.includes("Removed Co")),
+  "a dismissed account finding is off the board",
+);
+
+// A saved follower count is a reading, not something an AI generated, and the
+// board has to say which it is.
+assert.equal(
+  signals.find((row) => row.module === "Account Research")?.dateLabel,
+  "Saved",
+);
+assert.equal(
+  signals.find((row) => row.module === "Trend Radar" || row.module === "Platform Audit")
+    ?.dateLabel,
+  "Generated",
+);
+
+// Provenance for a lookup is the API, not a model name.
+assert.equal(
+  signals.find((row) => row.module === "Account Research")?.source,
+  "ScrapeCreators",
+);
+
+assert.deepEqual(
+  acceptedAccountFindingLines(
+    (data as unknown as { accountFindings: never[] }).accountFindings,
+  ),
+  ["TikTok @rival: Followers 12,400, posts not reported, captured 2026-07-12"],
+  "only saved lookups reach the brief and campaign prompts, with the capture date",
+);
+assert.deepEqual(acceptedAccountFindingLines(undefined), []);
 
 assert.ok(
   !signals.some((row) => row.module === "Trend Radar"),
