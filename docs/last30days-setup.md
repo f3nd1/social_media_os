@@ -134,6 +134,34 @@ That third command is the useful one. The app deliberately swallows the tool's
 errors so a bad run cannot break a manager's search, which does mean the real
 error message only shows up when you run it directly.
 
+## 5a. Choosing sources and a time window per search
+
+Social Listening has its own screen (Insights, Social Listening) with a chip
+per source. Only the sources you tick are searched, and each engine is skipped
+outright when nothing it covers is picked, which is where most of the time
+saving comes from on a narrow search. A chip whose key is missing stays visible
+but untickable, with the reason on it.
+
+`--search` is a per-invocation flag that beats the tool's own
+`LAST30DAYS_DEFAULT_SEARCH`, so changing sources needs no redeploy and no
+`.env.production` edit. The noise sources named in section 6 are never
+requested at all, because the app always passes an explicit list.
+
+The "Posted within" selector offers this week, this month and last 3 months.
+Those three exist because those three can be honoured: sc-research takes real
+`--from` and `--to` dates, TikTok takes its own relative buckets, and every
+other source is filtered after the fetch. A date picker would imply a precision
+the sources do not have. Posts with no date are kept rather than assumed to be
+outside the window, and the count of them is shown with the result.
+
+## 5b. Timeouts
+
+A search is capped so its total is predictable: 90s per sourcing leg, 30s for
+the web search, 60s for analysis. Sourcing runs concurrently, so worst case is
+about 150 seconds. nginx must allow at least that; see
+`docs/nginx-upload-size.md`, which covers both the upload limit and the
+timeout, since they are the same layer.
+
 ## 6. A note on source quality
 
 Several of the free sources are a poor fit for a Singapore private college:
