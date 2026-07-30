@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "check:listening": "node --experimental-strip-types scripts/check-last30days.ts"
+    "check:listening": "node --experimental-strip-types scripts/check-last30days.ts",
+    "check:scrapecreators": "node --experimental-strip-types scripts/check-scrapecreators.ts"
   },
   "dependencies": {
     "@types/node": "^22.10.7",
