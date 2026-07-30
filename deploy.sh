@@ -127,7 +127,7 @@ echo "==> Restarting pm2 process '$PM2_NAME'"
 pm2 restart "$PM2_NAME" --update-env
 
 echo "==> Done. Check https://apps.unitedceres.edu.sg/social_media_os"
-echo "==> Uploads are capped at 25 MB. If a real PDF is rejected with 413,"
-echo "    raise nginx client_max_body_size to 26m (see docs/nginx-upload-size.md)."
+echo "==> nginx limits: uploads need client_max_body_size 26m, and a listening"
+echo "    search needs proxy_read_timeout 180s. Both in docs/nginx-upload-size.md."
 echo "==> Extra social listening sources: see docs/last30days-setup.md for the"
 echo "    Python 3.12 requirement and which key unlocks which platform."

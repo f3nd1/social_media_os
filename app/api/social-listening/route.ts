@@ -136,8 +136,11 @@ function runResearchCli({
 
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      resolve({ code: -1, stderr: `${stderr}\nTimed out after 180 seconds.` });
-    }, 180_000);
+      resolve({
+        code: -1,
+        stderr: `${stderr}\nTimed out after ${SOURCE_TIMEOUT_MS / 1000} seconds.`,
+      });
+    }, SOURCE_TIMEOUT_MS);
 
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -159,7 +162,23 @@ async function readResearchFile(dir: string, name: string) {
   }
 }
 
-const LAST30DAYS_TIMEOUT_MS = 180_000;
+// The time budget for one search, in one place so it can be checked by reading
+// rather than by adding up numbers scattered through the file.
+//
+// The sourcing legs run concurrently, so the parallel block costs the slowest
+// of them, not their sum. Synthesis then runs after it. Worst case is therefore
+// SOURCE + SYNTHESIS, about 150 seconds, which fits inside a reverse proxy
+// limit of 180s with headroom.
+//
+// These were each 180 seconds, with both OpenAI calls unbounded entirely. That
+// let one slow source consume a budget the proxy had already given up on, so
+// the manager got a gateway error page instead of a result. Capping each leg
+// does not make anything faster; it makes the total predictable.
+const SOURCE_TIMEOUT_MS = 90_000;
+const WEB_SEARCH_TIMEOUT_MS = 30_000;
+const SYNTHESIS_TIMEOUT_MS = 60_000;
+
+const LAST30DAYS_TIMEOUT_MS = SOURCE_TIMEOUT_MS;
 
 // The result of trying the extra source group. "ran" separates a tool that is
 // not installed from one that ran, and "reason" carries why there are no posts
@@ -590,6 +609,7 @@ export async function POST(request: Request) {
             apiKey,
             model: searchModel,
             input: buildWebListeningSearchInput(topic),
+            timeoutMs: WEB_SEARCH_TIMEOUT_MS,
           })
         : Promise.resolve({ ok: false as const, citations: [], error: "" }),
     ]);
@@ -656,6 +676,7 @@ export async function POST(request: Request) {
       model,
       system: buildListeningSystemPrompt(),
       user: buildListeningUserPrompt(topic, analysisType, posts),
+      timeoutMs: SYNTHESIS_TIMEOUT_MS,
     });
 
     if (!analysis.ok) {

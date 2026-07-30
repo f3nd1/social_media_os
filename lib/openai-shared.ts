@@ -94,18 +94,27 @@ type OpenAiResponsesPayload = {
 // Run a real web search through the OpenAI Responses API and return the
 // written findings together with the pages they cite. Never fabricates
 // sources: only citations returned by the API are passed on.
+// Optional deadline for one call. There is deliberately no default: a blanket
+// timeout would change behaviour for every existing caller at once, and a route
+// that has run fine for months should not start failing because of a number
+// chosen here. Callers needing a predictable ceiling pass their own, which is
+// what the listening route does so its total stays inside the reverse proxy's
+// limit. Worth knowing that without one, a call can run until maxDuration.
 export async function callOpenAiWebSearch({
   apiKey,
   model,
   input,
+  timeoutMs,
 }: {
   apiKey: string;
   model: string;
   input: string;
+  timeoutMs?: number;
 }): Promise<OpenAiWebSearchResult> {
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
+      signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -175,6 +184,15 @@ export async function callOpenAiWebSearch({
       model: payload?.model ?? model,
     };
   } catch (error) {
+    // A deadline reached by AbortSignal.timeout arrives as "The operation was
+    // aborted due to timeout", which is accurate and tells a manager nothing.
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      return {
+        ok: false,
+        error: "The model did not reply in time. Try a narrower request, or try again.",
+      };
+    }
+
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
@@ -187,15 +205,18 @@ export async function callOpenAiJson<T>({
   model,
   system,
   user,
+  timeoutMs,
 }: {
   apiKey: string;
   model: string;
   system: string;
   user: string;
+  timeoutMs?: number;
 }): Promise<OpenAiJsonResult<T>> {
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
+      signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -246,6 +267,15 @@ export async function callOpenAiJson<T>({
       model: payload?.model ?? model,
     };
   } catch (error) {
+    // A deadline reached by AbortSignal.timeout arrives as "The operation was
+    // aborted due to timeout", which is accurate and tells a manager nothing.
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      return {
+        ok: false,
+        error: "The model did not reply in time. Try a narrower request, or try again.",
+      };
+    }
+
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
