@@ -259,6 +259,7 @@ import {
   countAttentionItems,
   type DirectorModuleId,
 } from "@/components/social-calendar/ai-director-panel";
+import { AccountResearchPanel } from "@/components/social-calendar/account-research-panel";
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import { PaginationControls } from "@/components/social-calendar/pagination-controls";
 import { TeamView } from "@/components/social-calendar/v2-foundation-insights";
@@ -1244,17 +1245,22 @@ export function SocialCalendarApp() {
             ) : null}
 
             {activeView === "listening" ? (
-              <SocialListeningPanel
-                data={data}
-                onListeningResultsChange={(listeningResults) =>
-                  updateWorkspace((current) => ({ ...current, listeningResults }))
-                }
-                onListeningSourcesChange={(listeningSources) =>
-                  updateWorkspace((current) => ({ ...current, listeningSources }))
-                }
-                onNavigate={setActiveView}
-                onRecordUsage={recordAiUsage}
-              />
+              <div className="space-y-4">
+                <AccountResearchPanel
+                  apiKey={data.aiIntegration.scrapeCreatorsApiKey ?? ""}
+                />
+                <SocialListeningPanel
+                  data={data}
+                  onListeningResultsChange={(listeningResults) =>
+                    updateWorkspace((current) => ({ ...current, listeningResults }))
+                  }
+                  onListeningSourcesChange={(listeningSources) =>
+                    updateWorkspace((current) => ({ ...current, listeningSources }))
+                  }
+                  onNavigate={setActiveView}
+                  onRecordUsage={recordAiUsage}
+                />
+              </div>
             ) : null}
 
             {activeView === "competitors" ? (
