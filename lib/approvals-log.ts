@@ -7,6 +7,11 @@ import type {
   ApprovalLogEntry,
   MarketingWorkspaceData,
 } from "@/lib/social-calendar-data";
+// Relative with an explicit extension, like lib/last30days.ts: this is a value
+// import, so it survives type stripping and has to resolve when
+// scripts/check-approvals-log.ts runs the file straight through node, where
+// the "@/" alias does not exist.
+import { reachSentence } from "./signal-board.ts";
 
 const LOG_CAP = 1000;
 
@@ -179,9 +184,12 @@ export function deriveApprovalLogEntries(
     // generators that read acceptedListeningInsights (brief-ai, campaign-ai,
     // platform-playbook-ai); it does not mean any of them has run yet, so the
     // wording is "available to" rather than a claim it was used.
+    // Wording comes from the Signal Board's reach map so the log and the board
+    // cannot drift apart. Today that map yields the same sentence this line
+    // used to hardcode.
     const reaches =
       change.decision === "approved"
-        ? ", available to Strategy Brief, Campaigns and Platform Intelligence"
+        ? `, available to ${reachSentence("Social Listening")}`
         : "";
 
     entries.push({

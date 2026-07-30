@@ -34,6 +34,7 @@ import {
   Loader2,
   PenLine,
   Plus,
+  Radar,
   RefreshCcw,
   SearchCheck,
   Settings2,
@@ -267,6 +268,7 @@ import {
 import { AccountResearchPanel } from "@/components/social-calendar/account-research-panel";
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import { PaginationControls } from "@/components/social-calendar/pagination-controls";
+import { SignalBoardPanel } from "@/components/social-calendar/signal-board-panel";
 import { TeamView } from "@/components/social-calendar/v2-foundation-insights";
 import {
   CampaignReportsView,
@@ -309,6 +311,7 @@ export type ViewId =
   | "campaigns"
   | "platform"
   | "listening"
+  | "signals"
   | "competitors"
   | "brief"
   | "calendar"
@@ -371,6 +374,7 @@ const modules: Array<{
       { id: "competitors", label: "Competitor Intelligence", icon: UsersRound },
       { id: "platform", label: "Market Intelligence", icon: Gauge },
       { id: "listening", label: "Social Listening", icon: SearchCheck },
+      { id: "signals", label: "Signal Board", icon: Radar },
       { id: "platformIntel", label: "Platform Intelligence", icon: Gauge },
     ],
   },
@@ -1299,6 +1303,10 @@ export function SocialCalendarApp() {
                   onRecordUsage={recordAiUsage}
                 />
               </div>
+            ) : null}
+
+            {activeView === "signals" ? (
+              <SignalBoardPanel data={data} onNavigate={setActiveView} />
             ) : null}
 
             {activeView === "competitors" ? (
