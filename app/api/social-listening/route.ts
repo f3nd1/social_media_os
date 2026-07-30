@@ -432,12 +432,26 @@ type YouTubeCommentItem = {
 // video with comments disabled all just mean fewer posts, not a failed
 // request, matching the never-throw pattern used by scrapeHomepageSocialLinks
 // in lib/competitor-observe-ai.ts.
+// YouTube listening runs on the YouTube Data API v3, NOT on yt-dlp. yt-dlp is
+// only used by last30days, and youtube is deliberately absent from
+// LAST30DAYS_SOURCE_IDS because the dedicated path returns real comment threads
+// rather than summaries. So whether yt-dlp is installed has no bearing on
+// whether this works, which is worth stating because it is the obvious wrong
+// place to look.
+//
+// Returns a reason alongside the posts. Every failure here used to be a bare
+// "return []": an invalid key, a restricted key and an exhausted quota all
+// looked identical to a topic nobody has posted about. Quota is the likely one
+// in practice, since search.list costs 100 units against a 10,000 unit daily
+// default, so about a hundred searches exhausts a fresh project for the day.
+type YouTubeOutcome = { posts: ListeningPost[]; reason: string };
+
 async function fetchYouTubeListeningPosts(
   topic: string,
   apiKey: string,
-): Promise<ListeningPost[]> {
+): Promise<YouTubeOutcome> {
   if (!apiKey) {
-    return [];
+    return { posts: [], reason: "" };
   }
 
   try {
@@ -452,7 +466,19 @@ async function fetchYouTubeListeningPosts(
     const searchResponse = await fetch(searchUrl, { signal: AbortSignal.timeout(10_000) });
 
     if (!searchResponse.ok) {
-      return [];
+      // Google puts the real cause in the body: quotaExceeded, keyInvalid,
+      // ipRefererBlocked. Passing it through is the difference between the
+      // manager fixing it and the manager retyping their topic.
+      const body = await searchResponse.text().catch(() => "");
+      const detail = /"(?:reason|message)"\s*:\s*"([^"]+)"/.exec(body)?.[1] ?? "";
+
+      return {
+        posts: [],
+        reason:
+          `YouTube refused the search (HTTP ${searchResponse.status}` +
+          (detail ? `: ${detail}` : "") +
+          `). ${searchResponse.status === 403 ? "That is usually the daily quota or a restricted key." : "Check the YouTube Data API key in Settings."}`,
+      };
     }
 
     const searchPayload = (await searchResponse.json().catch(() => null)) as {
@@ -505,9 +531,24 @@ async function fetchYouTubeListeningPosts(
       }),
     );
 
-    return perVideo.flat().filter((post) => post.text);
-  } catch {
-    return [];
+    const posts = perVideo.flat().filter((post) => post.text);
+
+    return {
+      posts,
+      reason:
+        posts.length === 0 && videoIds.length > 0
+          ? "YouTube returned videos but none had readable comments (comments may be disabled on them)"
+          : "",
+    };
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === "TimeoutError";
+
+    return {
+      posts: [],
+      reason: timedOut
+        ? "YouTube did not respond within 10 seconds"
+        : `YouTube could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 
@@ -589,7 +630,7 @@ export async function POST(request: Request) {
         : Promise.resolve({ code: 0, stderr: "" }),
       wantsYouTube
         ? fetchYouTubeListeningPosts(topic, youtubeApiKey)
-        : Promise.resolve([]),
+        : Promise.resolve({ posts: [], reason: "" }),
       last30daysSearch
         ? fetchLast30DaysPosts({
             scrapeCreatorsApiKey,
@@ -625,7 +666,7 @@ export async function POST(request: Request) {
     const merged = dedupeByUrl([
       ...(reddit?.posts ?? []),
       ...(x?.posts ?? []),
-      ...youtubePosts,
+      ...youtubePosts.posts,
       ...last30days.posts,
       ...webPosts,
     ]);
@@ -653,6 +694,7 @@ export async function POST(request: Request) {
       // down, on a code path that zero posts never reaches.
       const reasons = [
         meaningfulErrorLine(run.stderr),
+        youtubePosts.reason,
         last30days.reason,
         last30days.degradedSources.length > 0
           ? `${last30days.degradedSources.join(", ")} did not answer`
@@ -750,6 +792,11 @@ export async function POST(request: Request) {
         .map((label) => `${label} (${countFor(label)})`),
       quiet.length > 0 ? `${quiet.join(", ")} returned nothing this run` : "",
       alsoDegraded.length > 0 ? `${alsoDegraded.join(", ")} errored` : "",
+      // A source can fail while others succeed, in which case the zero-post
+      // path never runs and the reason would be lost. Without this, a quota
+      // refusal reads as "YouTube returned nothing this run", which sends the
+      // manager looking at their topic instead of their key.
+      youtubePosts.reason,
     ]
       .filter(Boolean)
       .join(", ");
