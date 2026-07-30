@@ -150,6 +150,47 @@ export function deriveApprovalLogEntries(
     });
   }
 
+  // Social listening findings. This collection was the one sibling with no
+  // diffing block, so accepting a finding as strategy input left no trace
+  // anywhere: the confirmation named three consumers and then the decision
+  // vanished from the audit trail. Flagged as issue 3 in
+  // docs/module-connection-map.html.
+  //
+  // Note the odd initial status: listening rows start at "new" where every
+  // other collection starts at "draft". statusTransitions only cares about the
+  // accepted and rejected values, so that difference is harmless here, but it
+  // is why "new" is passed through rather than normalised to "draft".
+  for (const change of statusTransitions(
+    (previous.listeningResults ?? []).map((row) => ({
+      id: row.id,
+      status: row.status ?? "new",
+    })),
+    (next.listeningResults ?? []).map((row) => ({
+      id: row.id,
+      status: row.status ?? "new",
+    })),
+    "accepted",
+    "dismissed",
+  )) {
+    const row = next.listeningResults.find((item) => item.id === change.id);
+
+    // Say where an accepted finding goes, because that is the question the
+    // log has to answer later. Acceptance makes it available to the three
+    // generators that read acceptedListeningInsights (brief-ai, campaign-ai,
+    // platform-playbook-ai); it does not mean any of them has run yet, so the
+    // wording is "available to" rather than a claim it was used.
+    const reaches =
+      change.decision === "approved"
+        ? ", available to Strategy Brief, Campaigns and Platform Intelligence"
+        : "";
+
+    entries.push({
+      module: "Social Listening",
+      subject: `${row ? row.topic.slice(0, 100) : change.id}${reaches}`,
+      decision: change.decision,
+    });
+  }
+
   // Campaign suggestions disappear on decision: accepted ones become a
   // campaign in the same update, dismissed ones just vanish.
   const nextSuggestionIds = new Set(next.campaignSuggestions.map((row) => row.id));
