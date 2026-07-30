@@ -206,11 +206,16 @@ export function SetupGuide({
     });
 
     if (result.ok) {
-      saveSupabaseConfig({ url: sbUrl.trim(), anonKey: sbKey.trim() });
+      // The connection working and the details being stored are two different
+      // things. Claiming both when only the first happened would send someone
+      // away believing cloud sync is set up when it is not.
+      const stored = saveSupabaseConfig({ url: sbUrl.trim(), anonKey: sbKey.trim() });
       onPatch({ supabaseTested: true });
-      setSbState("ok");
+      setSbState(stored ? "ok" : "error");
       setSbMsg(
-        "Connected. The workspace_state table is reachable and your details are saved. Cloud sync becomes active the next time the app loads.",
+        stored
+          ? "Connected. The workspace_state table is reachable and your details are saved. Cloud sync becomes active the next time the app loads."
+          : "The connection works, but your details could not be saved because browser storage is full. Free some space, then connect again.",
       );
     } else {
       onPatch({ supabaseTested: false });

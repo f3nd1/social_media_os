@@ -85,18 +85,28 @@ export function resolveSupabaseConfig(): ResolvedSupabaseConfig {
   return { config: null, source: "none" };
 }
 
-export function saveSupabaseConfig(config: SupabaseConfig) {
+// Returns false when the config could not be stored. This is the one write
+// that most needs to survive a full quota: the moment local storage fills up
+// is exactly when somebody goes to Settings to connect cloud sync and get
+// their data somewhere safer. Throwing here would break the escape route.
+// The config is tiny, so if even this fails, storage is genuinely exhausted.
+export function saveSupabaseConfig(config: SupabaseConfig): boolean {
   if (typeof window === "undefined") {
-    return;
+    return false;
   }
 
-  window.localStorage.setItem(
-    CONFIG_STORAGE_KEY,
-    JSON.stringify({
-      url: normaliseUrl(config.url),
-      anonKey: config.anonKey.trim(),
-    }),
-  );
+  try {
+    window.localStorage.setItem(
+      CONFIG_STORAGE_KEY,
+      JSON.stringify({
+        url: normaliseUrl(config.url),
+        anonKey: config.anonKey.trim(),
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function clearSupabaseConfig() {
