@@ -18,6 +18,7 @@ import { dedupeByUrl, meaningfulErrorLine, sourceFromUrl } from "../lib/listenin
 import {
   availableListeningSources,
   last30daysSearchArg,
+  listeningPerSourceCap,
   listeningSourceLabels,
   resolveListeningSources,
   scResearchSourceArg,
@@ -433,5 +434,13 @@ assert.deepEqual(
   ["Reddit", "TikTok", "LinkedIn"],
   "labels should follow catalogue order regardless of selection order",
 );
+
+// The per-source cap shares the 60-post budget out. A fixed 12 meant narrowing
+// a search to one source also threw away 48 slots of evidence it had already
+// paid to fetch, which is the opposite of what picking one source should do.
+assert.equal(listeningPerSourceCap(1), 60, "one source should get the whole budget");
+assert.equal(listeningPerSourceCap(5), 12, "five sources should match the old fixed cap");
+assert.equal(listeningPerSourceCap(9), 8, "many sources should still leave each a usable floor");
+assert.equal(listeningPerSourceCap(0), 60, "a zero count must not divide by zero");
 
 console.log("check-last30days: all assertions passed");

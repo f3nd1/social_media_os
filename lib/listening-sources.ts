@@ -160,6 +160,21 @@ export function listeningSourceLabels(selected: ListeningSourceId[]): string[] {
   );
 }
 
+// Total posts the analysis step receives. The route trims to this after merging
+// and deduplicating, so it is the real evidence budget for a run.
+export const LISTENING_EVIDENCE_BUDGET = 60;
+
+// How many posts one source may contribute, given how many were picked.
+// A fixed cap of 12 made sense when everything ran at once, but with source
+// selection it became a bug: a TikTok-only search fetched 60 slots of budget
+// and then threw away everything past the twelfth, so narrowing the search
+// narrowed the evidence too. Sharing the budget out keeps the anti-crowding
+// property when several sources run and lifts it when only one does. The floor
+// stops a nine-source search starving any single one.
+export function listeningPerSourceCap(selectedCount: number): number {
+  return Math.max(8, Math.ceil(LISTENING_EVIDENCE_BUDGET / Math.max(1, selectedCount)));
+}
+
 // sc-research takes one flag covering both its platforms. Null means it has
 // nothing to do this run and should not be spawned at all, which is where most
 // of the time saving comes from on a narrow search.

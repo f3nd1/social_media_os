@@ -23,6 +23,7 @@ import {
   last30daysSearchArg,
   listeningSourceLabels,
   resolveListeningSources,
+  listeningPerSourceCap,
   scResearchSourceArg,
 } from "@/lib/listening-sources";
 import {
@@ -250,11 +251,13 @@ function spawnLast30Days({
 // mean fewer posts, matching fetchYouTubeListeningPosts below.
 async function fetchLast30DaysPosts({
   scrapeCreatorsApiKey,
+  perSourceCap,
   searchArg,
   topic,
   xaiApiKey,
 }: {
   scrapeCreatorsApiKey: string;
+  perSourceCap: number;
   searchArg: string;
   topic: string;
   xaiApiKey: string;
@@ -335,7 +338,7 @@ async function fetchLast30DaysPosts({
         };
       }
 
-      const { degradedSources, posts } = normaliseLast30DaysExport(parsed);
+      const { degradedSources, posts } = normaliseLast30DaysExport(parsed, perSourceCap);
 
       // A clean exit can still hide a per-source refusal, an unpaid invoice
       // being the obvious one, so keep the stderr line when nothing came back.
@@ -545,6 +548,7 @@ export async function POST(request: Request) {
       last30daysSearch
         ? fetchLast30DaysPosts({
             scrapeCreatorsApiKey,
+            perSourceCap: listeningPerSourceCap(selected.length),
             searchArg: last30daysSearch,
             topic,
             xaiApiKey,
@@ -675,9 +679,21 @@ export async function POST(request: Request) {
       (label) => !quiet.includes(label) && !answered.includes(label),
     );
 
+    // Show how much each source actually contributed. A run reading "TikTok,
+    // Reddit" hides that TikTok gave 30 posts and Reddit gave 1, which changes
+    // how much weight the insight deserves.
+    const countFor = (label: string) =>
+      label === "Reddit"
+        ? posts.filter((post) => post.source.startsWith("r/")).length
+        : posts.filter((post) => post.source === label).length;
+
     const sourcesCovered = [
-      subreddits.length > 0 ? `Reddit (${subreddits.slice(0, 6).join(", ")})` : "",
-      ...answered.filter((label) => label !== "Reddit"),
+      subreddits.length > 0
+        ? `Reddit (${subreddits.slice(0, 6).join(", ")}: ${countFor("Reddit")} posts)`
+        : "",
+      ...answered
+        .filter((label) => label !== "Reddit")
+        .map((label) => `${label} (${countFor(label)})`),
       quiet.length > 0 ? `${quiet.join(", ")} returned nothing this run` : "",
       alsoDegraded.length > 0 ? `${alsoDegraded.join(", ")} errored` : "",
     ]
