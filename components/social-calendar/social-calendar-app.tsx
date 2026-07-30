@@ -552,10 +552,28 @@ export function SocialCalendarApp() {
     setIsHydrated(true);
   }, []);
 
+  // A save that cannot complete has to be visible. This previously threw an
+  // uncaught QuotaExceededError straight out of setItem and took the whole page
+  // down on load, so "cannot save" became "cannot open the app".
+  const [storageNotice, setStorageNotice] = useState("");
+
   useEffect(() => {
-    if (isHydrated) {
-      localSocialCalendarRepository.save(data);
+    if (!isHydrated) {
+      return;
     }
+
+    const outcome = localSocialCalendarRepository.save(data);
+
+    if (!outcome.ok) {
+      setStorageNotice(outcome.error);
+      return;
+    }
+
+    setStorageNotice(
+      outcome.shed
+        ? `Browser storage was full, so the saved text of ${outcome.freedFrom} was cleared to make room. Those records are still listed, and the text returns if you upload the file again. Nothing you approved or decided was touched.`
+        : "",
+    );
   }, [data, isHydrated]);
 
   const sync = useWorkspaceSync(data, setData, isHydrated);
@@ -803,6 +821,21 @@ export function SocialCalendarApp() {
 
   return (
     <main className="min-h-screen">
+      {/* Shown above everything, because the consequence is that work stops
+          being saved. Silence here meant a manager kept working into a
+          workspace that was no longer persisting. */}
+      {storageNotice ? (
+        <div
+          className="border-b border-warning-border bg-warning px-4 py-3 text-sm leading-6 text-warning-foreground"
+          role="alert"
+        >
+          <span className="font-semibold">Storage: </span>
+          {storageNotice}
+          {sync.isConfigured
+            ? " Your workspace also syncs to the cloud, so this browser is not the only copy."
+            : " This browser is the only copy of your workspace, so export a backup from Settings now."}
+        </div>
+      ) : null}
       <div className="mx-auto flex w-full max-w-[1560px] gap-0 px-4 py-4 sm:px-6 lg:gap-8 lg:px-8 lg:py-8">
         <aside
           className={cn(

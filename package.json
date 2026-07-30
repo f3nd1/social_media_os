@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "check:listening": "node --experimental-strip-types scripts/check-last30days.ts",
     "check:scrapecreators": "node --experimental-strip-types scripts/check-scrapecreators.ts",
-    "check:patterns": "node --experimental-strip-types scripts/check-listening-patterns.ts"
+    "check:patterns": "node --experimental-strip-types scripts/check-listening-patterns.ts",
+    "check:storage": "node --experimental-strip-types scripts/check-storage.ts"
   },
   "dependencies": {
     "@types/node": "^22.10.7",

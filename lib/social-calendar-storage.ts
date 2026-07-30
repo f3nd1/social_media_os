@@ -15,6 +15,29 @@ import {
   type SetupGuideProgress,
 } from "@/lib/social-calendar-data";
 import { dropSharedProfileUrls, roleLabel } from "@/lib/utils";
+import { shedRederivableText } from "@/lib/workspace-storage-limits";
+
+export type SaveOutcome =
+  | { ok: true; shed: false }
+  | { ok: true; shed: true; freedFrom: string }
+  | { ok: false; error: string };
+
+export type SocialCalendarRepository = {
+  load: () => MarketingWorkspaceData;
+  save: (data: MarketingWorkspaceData) => SaveOutcome;
+  reset: () => MarketingWorkspaceData;
+};
+
+function isQuotaError(error: unknown): boolean {
+  // Browsers disagree on the name and code, so test several rather than one.
+  return (
+    error instanceof DOMException &&
+    (error.name === "QuotaExceededError" ||
+      error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      error.code === 22 ||
+      error.code === 1014)
+  );
+}
 
 // Upgrade path for workspaces saved before ucc.contentPillars existed: build
 // a structured entry per name already in the brief, rather than falling back
@@ -72,11 +95,37 @@ function normalizeFieldEstimates(value: unknown): CompetitorFieldEstimates | und
 
 const STORAGE_KEY = "social-calendar-intelligence-os:v1";
 
-export type SocialCalendarRepository = {
-  load: () => MarketingWorkspaceData;
-  save: (data: MarketingWorkspaceData) => void;
-  reset: () => MarketingWorkspaceData;
-};
+// Writes without ever throwing. A full quota used to escape setItem as an
+// uncaught QuotaExceededError and take the whole page down on load, turning
+// "cannot save" into "cannot open the app". A failed save is bad; a blank
+// screen is worse.
+function writeWorkspace(data: MarketingWorkspaceData): SaveOutcome {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return { ok: true, shed: false };
+  } catch (error) {
+    if (!isQuotaError(error)) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+
+    const { next, freedFrom } = shedRederivableText(data);
+
+    if (freedFrom) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        return { ok: true, shed: true, freedFrom };
+      } catch {
+        // Fall through to the honest failure below.
+      }
+    }
+
+    return {
+      ok: false,
+      error:
+        "Browser storage is full, so this change was not saved locally. Export a backup from Settings, then remove old report uploads or reset the workspace.",
+    };
+  }
+}
 
 export const localSocialCalendarRepository: SocialCalendarRepository = {
   load() {
@@ -88,7 +137,9 @@ export const localSocialCalendarRepository: SocialCalendarRepository = {
 
     if (!storedValue) {
       const seed = createSeedWorkspaceData();
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+      // Seeding is a convenience, not a requirement. If storage is full the app
+      // still runs from the in-memory copy rather than failing to start.
+      writeWorkspace(seed);
       return seed;
     }
 
@@ -97,24 +148,24 @@ export const localSocialCalendarRepository: SocialCalendarRepository = {
       return normalizeWorkspaceData(parsed);
     } catch {
       const seed = createSeedWorkspaceData();
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+      writeWorkspace(seed);
       return seed;
     }
   },
 
   save(data) {
     if (typeof window === "undefined") {
-      return;
+      return { ok: true, shed: false };
     }
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return writeWorkspace(data);
   },
 
   reset() {
     const seed = createSeedWorkspaceData();
 
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+      writeWorkspace(seed);
     }
 
     return seed;
