@@ -15,7 +15,8 @@
     "check:patterns": "node --experimental-strip-types scripts/check-listening-patterns.ts",
     "check:storage": "node --experimental-strip-types scripts/check-storage.ts",
     "check:approvals": "node --experimental-strip-types scripts/check-approvals-log.ts",
-    "check:signals": "node --experimental-strip-types scripts/check-signal-board.ts"
+    "check:signals": "node --experimental-strip-types scripts/check-signal-board.ts",
+    "check:discover": "node --experimental-strip-types scripts/check-discover-topics.ts"
   },
   "dependencies": {
     "@types/node": "^22.10.7",

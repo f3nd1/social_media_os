@@ -271,6 +271,10 @@ import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import { PaginationControls } from "@/components/social-calendar/pagination-controls";
 import { SignalBoardPanel } from "@/components/social-calendar/signal-board-panel";
 import { acceptedAccountFindingLines } from "@/lib/signal-board";
+import {
+  DISCOVERY_DEFAULT_SELECTION,
+  suggestDiscoveryTopics,
+} from "@/lib/discover-topics";
 import { TeamView } from "@/components/social-calendar/v2-foundation-insights";
 import {
   CampaignReportsView,
@@ -4180,6 +4184,23 @@ function SocialListeningPanel({
   // server-side, which is a lot of machinery for a button that is really about
   // letting someone stop waiting and change the topic.
   const listeningAbortRef = useRef<AbortController | null>(null);
+  // Set by Cancel so a multi-topic Discover run stops after the current search
+  // instead of carrying on through the rest of the list.
+  const cancelledRef = useRef(false);
+
+  // Discover state: which derived topics are ticked, and how far a run has
+  // got. Progress is a real count of finished searches, not a percentage.
+  const discoveryTopics = suggestDiscoveryTopics(data);
+  const [discoverPicked, setDiscoverPicked] = useState<string[]>(() =>
+    suggestDiscoveryTopics(data)
+      .slice(0, DISCOVERY_DEFAULT_SELECTION)
+      .map((entry) => entry.id),
+  );
+  const [discoverProgress, setDiscoverProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [discoverOpen, setDiscoverOpen] = useState(false);
 
   // A search fetches real posts from several sources before any analysis
   // starts, so a minute or more of apparently nothing is normal. Counting up
@@ -4215,23 +4236,13 @@ function SocialListeningPanel({
     );
   }
 
-  async function runListening() {
-    if (!listeningTopic.trim()) {
-      setListeningError("Enter a topic first, or pick one of the suggested topics.");
-      return;
-    }
-
-    // Unticking everything and then getting everything would be a confusing
-    // thing to do to someone, so an empty selection stops here rather than
-    // quietly falling back to searching the lot.
-    if (selectedSources.length === 0) {
-      setListeningError("Pick at least one source to search.");
-      return;
-    }
-
-    setListening(true);
-    setListeningError("");
-
+  // One search. Split out of runListening so Discover can run the same code
+  // path per topic instead of a second, slightly different copy of it: a
+  // Discover result must be identical in every way to one the manager typed,
+  // or the two would drift and only one of them would keep getting fixes.
+  // Returns the entry rather than saving it, so a multi-topic run can save
+  // once at the end instead of racing itself through stale props.
+  async function searchTopic(topic: string): Promise<ListeningResult | null> {
     const controller = new AbortController();
     listeningAbortRef.current = controller;
 
@@ -4249,7 +4260,7 @@ function SocialListeningPanel({
           recency: listeningRecency,
           model: resolveModelForTask(data.aiIntegration, "analysis"),
           searchModel: resolveModelForTask(data.aiIntegration, "utility"),
-          topic: listeningTopic.trim(),
+          topic,
           analysisType: listeningType,
         }),
       });
@@ -4279,12 +4290,12 @@ function SocialListeningPanel({
 
       if (!result.ok) {
         setListeningError(result.error);
-        return;
+        return null;
       }
 
       const entry: ListeningResult = {
-        id: `listen-${Date.now()}`,
-        topic: listeningTopic.trim(),
+        id: `listen-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+        topic,
         analysisType: listeningType,
         insight: result.insight,
         quotes: result.quotes,
@@ -4297,28 +4308,107 @@ function SocialListeningPanel({
         recency: result.recency,
       };
 
-      onListeningResultsChange([entry, ...data.listeningResults].slice(0, 20));
-
       if (result.usage) {
         onRecordUsage("Social listening", result.model ?? "unknown", result.usage);
       }
+
+      return entry;
     } catch (error) {
       // A cancel is a choice, not a failure, so it must not read like one.
       if (error instanceof DOMException && error.name === "AbortError") {
         setListeningError(
           "Search cancelled. The server may still finish that run in the background; its result is discarded.",
         );
-        return;
+        return null;
       }
 
       setListeningError(error instanceof Error ? error.message : String(error));
+      return null;
     } finally {
       listeningAbortRef.current = null;
+    }
+  }
+
+  function saveResults(entries: ListeningResult[]) {
+    if (entries.length === 0) {
+      return;
+    }
+
+    onListeningResultsChange([...entries, ...data.listeningResults].slice(0, 20));
+  }
+
+  async function runListening() {
+    if (!listeningTopic.trim()) {
+      setListeningError("Enter a topic first, or pick one of the suggested topics.");
+      return;
+    }
+
+    // Unticking everything and then getting everything would be a confusing
+    // thing to do to someone, so an empty selection stops here rather than
+    // quietly falling back to searching the lot.
+    if (selectedSources.length === 0) {
+      setListeningError("Pick at least one source to search.");
+      return;
+    }
+
+    setListening(true);
+    setListeningError("");
+
+    try {
+      const entry = await searchTopic(listeningTopic.trim());
+      saveResults(entry ? [entry] : []);
+    } finally {
+      setListening(false);
+    }
+  }
+
+  // Discover: run the picked topics one after another through the same search.
+  // Sequential on purpose. Each search already fans out across every ticked
+  // source and the server has a per-run timeout budget, so firing several at
+  // once is the reliable way to make all of them time out together.
+  async function runDiscover(topics: string[]) {
+    if (topics.length === 0) {
+      setListeningError("Pick at least one topic to discover.");
+      return;
+    }
+
+    if (selectedSources.length === 0) {
+      setListeningError("Pick at least one source to search.");
+      return;
+    }
+
+    setListening(true);
+    setListeningError("");
+    setDiscoverProgress({ done: 0, total: topics.length });
+
+    const found: ListeningResult[] = [];
+
+    try {
+      for (const [index, topic] of topics.entries()) {
+        const entry = await searchTopic(topic);
+
+        if (entry) {
+          found.push(entry);
+        }
+
+        setDiscoverProgress({ done: index + 1, total: topics.length });
+
+        // A cancel stops the whole run, not just the topic in flight, and what
+        // was already found is kept rather than thrown away.
+        if (cancelledRef.current) {
+          break;
+        }
+      }
+    } finally {
+      saveResults(found);
+      cancelledRef.current = false;
+      setDiscoverProgress(null);
       setListening(false);
     }
   }
 
   function cancelListening() {
+    cancelledRef.current = true;
     listeningAbortRef.current?.abort();
   }
 
@@ -4492,6 +4582,95 @@ function SocialListeningPanel({
                   {topic}
                 </Button>
               ))}
+            </div>
+
+            {/* Discover. Not a separate engine: it runs exactly the search
+                above, once per picked topic, with the terms read out of the
+                workspace so nobody has to think of them first. */}
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <button
+                className="flex w-full items-center justify-between gap-2 text-left"
+                onClick={() => setDiscoverOpen(!discoverOpen)}
+                type="button"
+              >
+                <span className="text-xs font-medium uppercase text-muted-foreground">
+                  Discover: not sure what to search?
+                </span>
+                <ChevronDown
+                  className={cn("h-4 w-4 transition", discoverOpen && "rotate-180")}
+                />
+              </button>
+
+              {discoverOpen ? (
+                <div className="mt-3 space-y-3">
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    These topics are read from your own courses, audience
+                    concerns and competitors. Nothing here is invented, and
+                    nothing runs until you press the button. Each ticked topic
+                    is one full search across the sources and window above, so
+                    picking four means four searches and four times the credits
+                    on the paid sources.
+                  </p>
+
+                  {discoveryTopics.length === 0 ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Nothing to suggest yet. Add a course, an audience or a
+                      competitor and topics appear here.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {discoveryTopics.map((entry) => (
+                        <label
+                          className="flex items-start gap-2 text-xs leading-5"
+                          key={entry.id}
+                        >
+                          <input
+                            checked={discoverPicked.includes(entry.id)}
+                            className="mt-1"
+                            onChange={() =>
+                              setDiscoverPicked(
+                                discoverPicked.includes(entry.id)
+                                  ? discoverPicked.filter((id) => id !== entry.id)
+                                  : [...discoverPicked, entry.id],
+                              )
+                            }
+                            type="checkbox"
+                          />
+                          <span>
+                            {entry.topic}
+                            <span className="ml-2 text-muted-foreground">{entry.why}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      disabled={!liveAi || listening || discoverPicked.length === 0}
+                      onClick={() =>
+                        void runDiscover(
+                          discoveryTopics
+                            .filter((entry) => discoverPicked.includes(entry.id))
+                            .map((entry) => entry.topic),
+                        )
+                      }
+                      size="sm"
+                      type="button"
+                    >
+                      <SearchCheck className="h-4 w-4" />
+                      Run {discoverPicked.length}{" "}
+                      {discoverPicked.length === 1 ? "search" : "searches"}
+                    </Button>
+                    {discoverProgress ? (
+                      <span aria-live="polite" className="text-xs text-muted-foreground">
+                        {discoverProgress.done} of {discoverProgress.total} finished.
+                        Cancel stops after the current one and keeps what it found.
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {listeningError ? (
