@@ -129,6 +129,11 @@ import {
   type RemixAiDraft,
 } from "@/lib/remix-ai";
 import {
+  DEFAULT_LISTENING_RECENCY,
+  LISTENING_RECENCY_OPTIONS,
+  type ListeningRecency,
+} from "@/lib/listening-patterns";
+import {
   LISTENING_SOURCES,
   availableListeningSources,
   listeningSourceLabels,
@@ -4112,6 +4117,8 @@ function SocialListeningPanel({
 }) {
   const [listeningTopic, setListeningTopic] = useState("");
   const [listeningType, setListeningType] = useState<ListeningAnalysisType>("quick");
+  const [listeningRecency, setListeningRecency] =
+    useState<ListeningRecency>(DEFAULT_LISTENING_RECENCY);
   const [listening, setListening] = useState(false);
   const [listeningError, setListeningError] = useState("");
   const [listeningElapsed, setListeningElapsed] = useState(0);
@@ -4187,6 +4194,7 @@ function SocialListeningPanel({
           youtubeApiKey: data.aiIntegration.youtubeApiKey ?? "",
           scrapeCreatorsApiKey: data.aiIntegration.scrapeCreatorsApiKey ?? "",
           sources: selectedSources,
+          recency: listeningRecency,
           model: resolveModelForTask(data.aiIntegration, "analysis"),
           searchModel: resolveModelForTask(data.aiIntegration, "utility"),
           topic: listeningTopic.trim(),
@@ -4204,6 +4212,9 @@ function SocialListeningPanel({
             quotes: Array<{ text: string; source: string; url: string }>;
             sourcesCovered: string;
             dateRange: string;
+            patterns?: ListeningResult["patterns"];
+            recency?: string;
+            olderPostsDropped?: number;
             usage?: OpenAiUsage;
             model?: string;
           }
@@ -4230,6 +4241,8 @@ function SocialListeningPanel({
         model: result.model ?? "unknown",
         generatedAt: new Date().toISOString(),
         status: "new",
+        patterns: result.patterns,
+        recency: result.recency,
       };
 
       onListeningResultsChange([entry, ...data.listeningResults].slice(0, 20));
@@ -4289,6 +4302,22 @@ function SocialListeningPanel({
                     value={listeningTopic}
                     onChange={(event) => setListeningTopic(event.target.value)}
                   />
+                </Field>
+              </div>
+              <div className="min-w-[150px]">
+                <Field label="Posted within">
+                  <NativeSelect
+                    onChange={(event) =>
+                      setListeningRecency(event.target.value as ListeningRecency)
+                    }
+                    value={listeningRecency}
+                  >
+                    {LISTENING_RECENCY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
                 </Field>
               </div>
               <div className="min-w-[180px]">
@@ -4481,6 +4510,41 @@ function SocialListeningPanel({
                       </div>
                     ))}
                   </div>
+                  {result.patterns && result.patterns.hashtags.length > 0 ? (
+                    <div className="rounded-md border bg-muted/20 p-2">
+                      <p className="text-xs font-medium uppercase text-muted-foreground">
+                        Patterns in our own search sample
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Counted across the {result.patterns.postCount} posts this
+                        search returned. This is our sample, not platform-wide
+                        trend data, and it is far too small to say what is
+                        trending on any platform.
+                        {result.patterns.undated > 0
+                          ? ` ${result.patterns.undated} of them carried no date, so they were kept rather than assumed to be outside the window.`
+                          : ""}
+                      </p>
+                      <p className="mt-2 text-xs leading-5">
+                        <span className="font-medium">Tags seen more than once:</span>{" "}
+                        {result.patterns.hashtags
+                          .map((tag) => `#${tag.tag} (${tag.count})`)
+                          .join(", ")}
+                      </p>
+                      {result.patterns.sourceMix.length > 0 ? (
+                        <p className="mt-1 text-xs leading-5">
+                          <span className="font-medium">Where they came from:</span>{" "}
+                          {result.patterns.sourceMix
+                            .map((entry) => `${entry.source} (${entry.count})`)
+                            .join(", ")}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                        Use these to spot themes and formats worth adapting.
+                        Recreating a specific post is not the point and is not
+                        something this tool will help with.
+                      </p>
+                    </div>
+                  ) : null}
                   <p className="text-xs leading-5 text-muted-foreground">
                     Covered: {result.sourcesCovered}. Analysed by {result.model} on{" "}
                     {formatDateTime(result.generatedAt)}. Research

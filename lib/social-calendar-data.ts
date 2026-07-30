@@ -891,6 +891,18 @@ export type ListeningResult = {
   // "accepted" findings flow into the brief and campaign context; others stay
   // as research on this screen. Optional so older saves upgrade safely.
   status?: "new" | "accepted" | "dismissed";
+  // Counts over the posts this one search returned: hashtags seen more than
+  // once, and the mix of sources. A sample, never platform-wide trend data,
+  // and the UI is required to say so. Optional so older saves upgrade safely.
+  patterns?: {
+    postCount: number;
+    hashtags: Array<{ tag: string; count: number }>;
+    sourceMix: Array<{ source: string; count: number }>;
+    undated: number;
+  };
+  // Which recency window was asked for, so a saved result still says what it
+  // covered rather than looking like an all-time search.
+  recency?: string;
 };
 
 // One line in the permanent approvals log (Module E3). Append-only audit

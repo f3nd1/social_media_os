@@ -19,6 +19,14 @@ import { NextResponse } from "next/server";
 
 import { extractJsonObject, normaliseLast30DaysExport } from "@/lib/last30days";
 import {
+  DEFAULT_LISTENING_RECENCY,
+  filterPostsByRecency,
+  isListeningRecency,
+  recencyToDateRange,
+  summariseSample,
+  type ListeningRecency,
+} from "@/lib/listening-patterns";
+import {
   availableListeningSources,
   last30daysSearchArg,
   listeningSourceLabels,
@@ -56,6 +64,7 @@ type ListeningRequestBody = {
   youtubeApiKey?: string;
   scrapeCreatorsApiKey?: string;
   sources?: string[];
+  recency?: string;
   model?: string;
   searchModel?: string;
   topic?: string;
@@ -70,11 +79,16 @@ type ListeningDraft = {
 function runResearchCli({
   topic,
   source,
+  dateRange,
   cwd,
   apiKey,
   xaiApiKey,
 }: {
   topic: string;
+  // sc-research accepts --from and --to as plain YYYY-MM-DD and turns them
+  // into Reddit's own period parameter, so this leg genuinely narrows at the
+  // source instead of fetching wide and discarding afterwards.
+  dateRange: { from: string; to: string };
   // sc-research's own usage string is --source=reddit|x|both. This was
   // previously narrowed to reddit|both, which welded X to Reddit for no reason:
   // with source selection, X alone is a valid thing to ask for.
@@ -93,7 +107,14 @@ function runResearchCli({
     );
     const child = spawn(
       process.execPath,
-      [cliPath, "research", topic, `--source=${source}`],
+      [
+        cliPath,
+        "research",
+        topic,
+        `--source=${source}`,
+        `--from=${dateRange.from}`,
+        `--to=${dateRange.to}`,
+      ],
       {
         cwd,
         env: {
@@ -528,6 +549,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const recency: ListeningRecency = isListeningRecency(body.recency)
+    ? body.recency
+    : DEFAULT_LISTENING_RECENCY;
+  const dateRange = recencyToDateRange(recency, new Date());
+
   const source = scResearchSourceArg(selected);
   const last30daysSearch = last30daysSearchArg(selected);
   const wantsYouTube = selected.includes("youtube");
@@ -540,7 +566,7 @@ export async function POST(request: Request) {
     // waits on the web search, the YouTube fetch, or a last30days run.
     const [run, youtubePosts, last30days, webSearch] = await Promise.all([
       source
-        ? runResearchCli({ topic, source, cwd: workDir, apiKey, xaiApiKey })
+        ? runResearchCli({ topic, source, dateRange, cwd: workDir, apiKey, xaiApiKey })
         : Promise.resolve({ code: 0, stderr: "" }),
       wantsYouTube
         ? fetchYouTubeListeningPosts(topic, youtubeApiKey)
@@ -576,13 +602,20 @@ export async function POST(request: Request) {
     // person's words, so when the 60-post budget bites they are the right thing
     // to lose first. last30days sits above them for the same reason: it carries
     // genuine post and comment text.
-    const posts: ListeningPost[] = dedupeByUrl([
+    const merged = dedupeByUrl([
       ...(reddit?.posts ?? []),
       ...(x?.posts ?? []),
       ...youtubePosts,
       ...last30days.posts,
       ...webPosts,
-    ]).slice(0, 60);
+    ]);
+
+    // Only sc-research and TikTok can narrow at the source. Everything else
+    // returns whatever it returns, so the window is applied here. Undated posts
+    // survive on purpose: not knowing when something was written is not a
+    // reason to throw away real evidence.
+    const windowed = filterPostsByRecency(merged, recency, new Date());
+    const posts: ListeningPost[] = windowed.kept.slice(0, 60);
 
     if (posts.length === 0) {
       // The selection IS the list of sources tried, so name it directly rather
@@ -710,6 +743,11 @@ export async function POST(request: Request) {
       sourcesCovered: sourcesCovered || "Public web posts",
       dateRange: from && to ? `${from} to ${to}` : "Recent posts",
       postsFetched: posts.length,
+      // Counts over the posts THIS search returned. A sample, never the
+      // platform: the UI must label it that way.
+      patterns: summariseSample(posts, windowed.undated),
+      recency,
+      olderPostsDropped: windowed.dropped,
       usage: analysis.usage,
       model: analysis.model,
     });
