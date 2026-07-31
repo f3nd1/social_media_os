@@ -27,18 +27,20 @@ import {
   commentsFindingSummary,
   companyFindingSummary,
   creatorsFindingSummary,
+  xTweetFindingSummary,
   type AccountPlatform,
   type AccountSnapshot,
   type CommentPlatform,
   type CommentResult,
   type CompanySnapshot,
   type CreatorResult,
+  type XTweet,
 } from "@/lib/scrapecreators";
 import type { AccountFinding } from "@/lib/social-calendar-data";
 import { apiUrl } from "@/lib/base-path";
 import { formatDisplayDate, readJsonResponse } from "@/lib/utils";
 
-type Mode = "account" | "company" | "creators" | "comments";
+type Mode = "account" | "company" | "creators" | "comments" | "x-tweet";
 
 const MODES: Array<{ id: Mode; label: string; blurb: string }> = [
   {
@@ -64,6 +66,12 @@ const MODES: Array<{ id: Mode; label: string; blurb: string }> = [
     label: "Post comments",
     blurb:
       "What people actually ask under a post. Internal research evidence only, never marketing copy.",
+  },
+  {
+    id: "x-tweet",
+    label: "X post",
+    blurb:
+      "A single known X post's own text and engagement, by its url. Lookup only, like everything else here: ScrapeCreators has no keyword search for X, so this cannot search topics the way Social Listening's other sources do.",
   },
 ];
 
@@ -103,6 +111,7 @@ export function AccountResearchPanel({
   const [company, setCompany] = useState<CompanySnapshot | null>(null);
   const [creators, setCreators] = useState<CreatorResult[]>([]);
   const [comments, setComments] = useState<CommentResult[]>([]);
+  const [tweet, setTweet] = useState<XTweet | null>(null);
 
   const [showArchived, setShowArchived] = useState(false);
   const hasKey = Boolean(apiKey.trim());
@@ -148,6 +157,7 @@ export function AccountResearchPanel({
     setCompany(null);
     setCreators([]);
     setComments([]);
+    setTweet(null);
     setCredits(null);
   }
 
@@ -181,6 +191,7 @@ export function AccountResearchPanel({
             company?: CompanySnapshot;
             creators?: CreatorResult[];
             comments?: CommentResult[];
+            tweet?: XTweet;
           })
         | { ok: false; error: string }
       >(response, "complete the lookup", "Try again in a moment.");
@@ -195,10 +206,12 @@ export function AccountResearchPanel({
       setCompany(result.company ?? null);
       setCreators(result.creators ?? []);
       setComments(result.comments ?? []);
+      setTweet(result.tweet ?? null);
 
       if (
         !result.account &&
         !result.company &&
+        !result.tweet &&
         (result.creators?.length ?? 0) === 0 &&
         (result.comments?.length ?? 0) === 0
       ) {
@@ -333,7 +346,9 @@ export function AccountResearchPanel({
                   ? "LinkedIn company page url"
                   : mode === "comments"
                     ? "Post url"
-                    : `Handle or url (${endpoint.inputHint})`}
+                    : mode === "x-tweet"
+                      ? "Tweet url"
+                      : `Handle or url (${endpoint.inputHint})`}
               </span>
               <Input
                 onChange={(event) => setIdentifier(event.target.value)}
@@ -342,7 +357,9 @@ export function AccountResearchPanel({
                     ? "https://www.linkedin.com/company/..."
                     : mode === "comments"
                       ? "https://www.tiktok.com/@someone/video/..."
-                      : endpoint.inputHint
+                      : mode === "x-tweet"
+                        ? "https://x.com/someone/status/..."
+                        : endpoint.inputHint
                 }
                 value={identifier}
               />
@@ -535,6 +552,42 @@ export function AccountResearchPanel({
             </Button>
           </div>
         ) : null}
+
+        {tweet ? (
+          <div className="space-y-1 rounded-lg border p-3">
+            <p className="text-sm leading-6">{tweet.text}</p>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {typeof tweet.likes === "number" ? `${tweet.likes} likes` : "likes not reported"}
+              {" · "}
+              {typeof tweet.retweets === "number"
+                ? `${tweet.retweets} retweets`
+                : "retweets not reported"}
+              {" · "}
+              {typeof tweet.replies === "number"
+                ? `${tweet.replies} replies`
+                : "replies not reported"}
+            </p>
+            <a
+              className="text-xs underline underline-offset-2"
+              href={tweet.url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {tweet.url}
+            </a>
+            {tweet.date ? (
+              <p className="text-xs text-muted-foreground">Posted {formatDisplayDate(tweet.date)}</p>
+            ) : null}
+            <Button
+              onClick={() => saveFinding("x-tweet", `X post ${tweet.url}`, xTweetFindingSummary(tweet))}
+              size="sm"
+              variant="outline"
+            >
+              Save to Signal Board
+            </Button>
+          </div>
+        ) : null}
+
         {saved.length > 0 ? (
           <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
             <p className="text-xs font-medium uppercase text-muted-foreground">

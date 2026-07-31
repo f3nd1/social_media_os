@@ -913,7 +913,7 @@ export type ListeningResult = {
 // Brief, Campaigns and Platform Intelligence generators.
 export type AccountFinding = {
   id: string;
-  kind: "account" | "company" | "creators" | "comments";
+  kind: "account" | "company" | "creators" | "comments" | "x-tweet";
   // What was looked up, as the manager typed it, plus the platform label.
   subject: string;
   // The factual lines the API actually returned. Never a summary the app made

@@ -391,6 +391,68 @@ export function normaliseComments(raw: unknown): CommentResult[] {
     .filter((comment) => comment.text);
 }
 
+// A single known X/Twitter post, looked up by its own url via ScrapeCreators'
+// Tweet Details endpoint. This is lookup, matching the Facebook pattern
+// exactly: X was never added back to Social Listening's topic search chips,
+// because ScrapeCreators has no keyword search for X, only endpoints that
+// need a known account or post already. Confirmed working (Tweet Details) in
+// the live endpoint audit.
+export const X_TWEET_DETAILS_PATH = "/v1/twitter/tweet";
+
+export type XTweet = {
+  text: string;
+  url: string;
+  date: string;
+  likes: number | null;
+  retweets: number | null;
+  replies: number | null;
+};
+
+export function buildXTweetDetailsUrl(tweetUrl: string): string {
+  const url = new URL(X_TWEET_DETAILS_PATH, SCRAPECREATORS_BASE);
+  url.searchParams.set("url", tweetUrl.trim());
+  return url.toString();
+}
+
+// The endpoint's exact response shape was not directly observable while this
+// was built (no live call could be made from the build environment), so
+// several plausible field names are tried per field, the same defensive
+// approach used elsewhere in this file. requestedUrl is the url the manager
+// typed in: used only as a last-resort fallback if the reply does not echo
+// its own url back, since that is a genuine fact (this response is about the
+// url that was asked for) rather than a guess.
+export function normaliseXTweetDetails(raw: unknown, requestedUrl: string): XTweet | null {
+  const body = asJson(raw);
+  const entry = Object.keys(asJson(body.tweet)).length > 0 ? asJson(body.tweet) : body;
+
+  const text = firstString(entry.text, entry.full_text, entry.tweet_text);
+  const url = firstString(entry.url, entry.tweetUrl, entry.link, requestedUrl);
+
+  if (!text || !url) {
+    return null;
+  }
+
+  return {
+    text: text.slice(0, 600),
+    url,
+    date: firstString(entry.created_at, entry.date, entry.createdAt).slice(0, 10),
+    likes: firstNumber(entry.favorite_count, entry.like_count, entry.likes),
+    retweets: firstNumber(entry.retweet_count, entry.retweets),
+    replies: firstNumber(entry.reply_count, entry.replies),
+  };
+}
+
+export function xTweetFindingSummary(tweet: XTweet): string {
+  return [
+    `Likes: ${saveableCount(tweet.likes)}`,
+    `Retweets: ${saveableCount(tweet.retweets)}`,
+    `Replies: ${saveableCount(tweet.replies)}`,
+    tweet.date ? `Posted ${tweet.date}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
 // Builds the request url. Kept pure so the self-check can assert the exact
 // query string, including that LinkedIn never gets a cache parameter it does
 // not support.

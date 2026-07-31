@@ -15,10 +15,12 @@ import {
   SCRAPECREATORS_BASE,
   buildAccountRequestUrl,
   buildCreatorRequestUrl,
+  buildXTweetDetailsUrl,
   normaliseAccountSnapshot,
   normaliseComments,
   normaliseCompanySnapshot,
   normaliseCreatorResults,
+  normaliseXTweetDetails,
   type AccountPlatform,
   type CacheMaxAge,
   type CommentPlatform,
@@ -29,7 +31,7 @@ export const maxDuration = 60;
 
 type RequestBody = {
   apiKey?: string;
-  action?: "account" | "company" | "creators" | "comments";
+  action?: "account" | "company" | "creators" | "comments" | "x-tweet";
   platform?: string;
   identifier?: string;
   cacheMaxAge?: CacheMaxAge;
@@ -204,6 +206,32 @@ export async function POST(request: Request) {
       comments: normaliseComments(result.body),
       credits: result.credits,
     });
+  }
+
+  if (body.action === "x-tweet") {
+    if (!/^https?:\/\//i.test(identifier)) {
+      return NextResponse.json({
+        ok: false,
+        error: "X post lookup needs the full tweet url, not a handle.",
+      });
+    }
+
+    const result = await callScrapeCreators(buildXTweetDetailsUrl(identifier), apiKey);
+
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: result.error });
+    }
+
+    const tweet = normaliseXTweetDetails(result.body, identifier);
+
+    if (!tweet) {
+      return NextResponse.json({
+        ok: false,
+        error: "The lookup succeeded but returned nothing readable. Check the tweet url.",
+      });
+    }
+
+    return NextResponse.json({ ok: true, tweet, credits: result.credits });
   }
 
   const platform = body.platform as AccountPlatform;

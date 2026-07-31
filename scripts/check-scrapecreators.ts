@@ -14,12 +14,15 @@ import {
   accountFindingSummary,
   buildAccountRequestUrl,
   buildCreatorRequestUrl,
+  buildXTweetDetailsUrl,
   normaliseAccountSnapshot,
   commentsFindingSummary,
   companyFindingSummary,
   normaliseComments,
   normaliseCompanySnapshot,
   normaliseCreatorResults,
+  normaliseXTweetDetails,
+  xTweetFindingSummary,
 } from "../lib/scrapecreators.ts";
 
 const AT = "2026-07-29T12:00:00.000Z";
@@ -196,6 +199,58 @@ assert.match(
 assert.match(
   commentsFindingSummary(comments),
   /internal research evidence only, never marketing copy/,
+);
+
+// ---- X post lookup (Tweet Details) ----
+//
+// This endpoint's exact response shape was not directly observable while
+// this was built (no live call could be made from the build environment),
+// so several plausible field names are tried per field. That is worth a
+// dedicated check: an unread field would silently render as "not reported"
+// rather than fail loudly.
+
+const tweetUrl = new URL(
+  buildXTweetDetailsUrl("https://x.com/unitedceres/status/123"),
+);
+assert.equal(tweetUrl.pathname, "/v1/twitter/tweet");
+assert.equal(tweetUrl.searchParams.get("url"), "https://x.com/unitedceres/status/123");
+
+const tweet = normaliseXTweetDetails(
+  {
+    text: "Real tweet text",
+    favorite_count: 40,
+    retweet_count: 5,
+    reply_count: 2,
+    created_at: "2026-07-01T00:00:00.000Z",
+  },
+  "https://x.com/unitedceres/status/123",
+);
+assert.deepEqual(tweet, {
+  text: "Real tweet text",
+  url: "https://x.com/unitedceres/status/123",
+  date: "2026-07-01",
+  likes: 40,
+  retweets: 5,
+  replies: 2,
+});
+
+// A reply nested under a "tweet" key must be read the same way.
+assert.equal(
+  normaliseXTweetDetails({ tweet: { text: "Nested", favorite_count: 1 } }, "https://x.com/a/status/1")
+    ?.likes,
+  1,
+);
+
+// No text at all means nothing to show: dropped rather than guessed at.
+assert.equal(normaliseXTweetDetails({}, "https://x.com/a/status/1"), null);
+assert.equal(normaliseXTweetDetails(null, "https://x.com/a/status/1"), null);
+
+assert.match(
+  xTweetFindingSummary({
+    text: "x", url: "https://x.com/a/status/1", date: "2026-07-01",
+    likes: null, retweets: 3, replies: null,
+  }),
+  /Likes: not reported.*Retweets: 3.*Replies: not reported/,
 );
 
 console.log("check-scrapecreators: all assertions passed");
