@@ -270,6 +270,7 @@ import { AccountResearchPanel } from "@/components/social-calendar/account-resea
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import { PaginationControls } from "@/components/social-calendar/pagination-controls";
 import { SignalBoardPanel } from "@/components/social-calendar/signal-board-panel";
+import { TrendingNowPanel } from "@/components/social-calendar/trending-now-panel";
 import { acceptedAccountFindingLines } from "@/lib/signal-board";
 import {
   DISCOVERY_DEFAULT_SELECTION,
@@ -4351,15 +4352,10 @@ function SocialListeningPanel({
     onListeningResultsChange([...entries, ...data.listeningResults].slice(0, 20));
   }
 
-  async function runListening() {
-    if (!listeningTopic.trim()) {
-      setListeningError("Enter a topic first, or pick one of the suggested topics.");
-      return;
-    }
-
-    // Unticking everything and then getting everything would be a confusing
-    // thing to do to someone, so an empty selection stops here rather than
-    // quietly falling back to searching the lot.
+  // One search from a known term. Shared by the topic box and by Trending's
+  // "Research this", so a trending tag goes through exactly the same path as a
+  // typed topic rather than a near-copy of it.
+  async function runListeningFor(topic: string) {
     if (selectedSources.length === 0) {
       setListeningError("Pick at least one source to search.");
       return;
@@ -4369,11 +4365,23 @@ function SocialListeningPanel({
     setListeningError("");
 
     try {
-      const entry = await searchTopic(listeningTopic.trim());
+      const entry = await searchTopic(topic);
       saveResults(entry ? [entry] : []);
     } finally {
       setListening(false);
     }
+  }
+
+  async function runListening() {
+    if (!listeningTopic.trim()) {
+      setListeningError("Enter a topic first, or pick one of the suggested topics.");
+      return;
+    }
+
+    // Unticking everything and then getting everything would be a confusing
+    // thing to do to someone, so an empty selection stops here rather than
+    // quietly falling back to searching the lot.
+    await runListeningFor(listeningTopic.trim());
   }
 
   // Discover: run the picked topics one after another through the same search.
@@ -4597,6 +4605,21 @@ function SocialListeningPanel({
                 </Button>
               ))}
             </div>
+
+            {/* Trending now sits above Discover because it answers the
+                earlier question: Discover asks "more about what we already
+                know", this asks "what is moving that we have not thought of".
+                A picked tag drops into the box above and runs the same search
+                everything else here runs. */}
+            <TrendingNowPanel
+              busy={listening}
+              onResearch={(topic) => {
+                setListeningTopic(topic);
+                void runListeningFor(topic);
+              }}
+              scrapeCreatorsApiKey={data.aiIntegration.scrapeCreatorsApiKey ?? ""}
+              youtubeApiKey={data.aiIntegration.youtubeApiKey ?? ""}
+            />
 
             {/* Discover. Not a separate engine: it runs exactly the search
                 above, once per picked topic, with the terms read out of the
