@@ -375,6 +375,22 @@ assert.deepEqual(
   "a whitespace-only key must not count as present",
 );
 
+// YouTube is the one chip either key unlocks: ScrapeCreators needs no
+// separate Google key (the default, zero-Settings-action path), and a real
+// YouTube Data API key also works and is preferred for its richer comments.
+assert.ok(
+  availableListeningSources({ scrapeCreatorsApiKey: "sc-k" }).includes("youtube"),
+  "a ScrapeCreators key alone must unlock YouTube, with no Google key required",
+);
+assert.ok(
+  availableListeningSources({ youtubeApiKey: "yt-k" }).includes("youtube"),
+  "a genuine YouTube Data API key alone must still unlock YouTube",
+);
+assert.ok(
+  !availableListeningSources({}).includes("youtube"),
+  "with neither key, YouTube stays unavailable rather than silently failing",
+);
+
 // Undefined means everything: a workspace saved before this feature existed
 // must keep searching what it always did, not silently narrow to nothing.
 assert.deepEqual(

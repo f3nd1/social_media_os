@@ -7770,7 +7770,7 @@ function AiIntegrationPanel({
           </Field>
         </div>
 
-        <Field label="YouTube Data API key (optional, for social listening on YouTube)">
+        <Field label="YouTube Data API key (optional, for richer YouTube social listening)">
           <Input
             onChange={(event) => update({ youtubeApiKey: event.target.value })}
             placeholder="AIza..."
@@ -7778,8 +7778,10 @@ function AiIntegrationPanel({
             value={aiIntegration.youtubeApiKey ?? ""}
           />
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Free from Google Cloud Console (no billing required for search).
-            Without this key, YouTube is skipped and the UI says so.
+            YouTube listening already works without this, via ScrapeCreators
+            above. Adding a free key from Google Cloud Console upgrades it
+            from video titles to real audience comments, which is the only
+            thing this key changes.
           </p>
         </Field>
 
@@ -7791,11 +7793,12 @@ function AiIntegrationPanel({
             value={aiIntegration.scrapeCreatorsApiKey ?? ""}
           />
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Unlocks TikTok, Instagram, Threads, Pinterest and LinkedIn for
-            social listening. Paid: 100 free credits, then pay as you go.
-            Without this key those platforms are skipped and the UI says so.
-            Requires the last30days tool on the server, see
-            docs/last30days-setup.md.
+            Unlocks TikTok, Instagram, Threads and LinkedIn for social
+            listening (these need the last30days tool on the server too, see
+            docs/last30days-setup.md), plus YouTube for social listening and
+            Trending Now, which need only this key. Paid: 100 free credits,
+            then pay as you go. Without this key those platforms are skipped
+            and the UI says so.
           </p>
         </Field>
 

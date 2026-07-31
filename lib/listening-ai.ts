@@ -316,3 +316,78 @@ export function normaliseInstagramHashtagPosts(raw: unknown): ListeningPost[] {
       date: (post.taken_at ?? "").slice(0, 10),
     }));
 }
+
+// YouTube search, a direct ScrapeCreators call. This is the no-key path for
+// the YouTube listening chip: it used to require a separate Google-issued
+// YouTube Data API key, which was never going to be added, so the chip sat
+// permanently disabled. Confirmed working in the live ScrapeCreators endpoint
+// audit, and billed through the ScrapeCreators key this app already has.
+//
+// This is a real trade, not a free upgrade: the Google API path returns real
+// audience comments (see fetchYouTubeListeningPostsViaGoogle in the route),
+// which is richer evidence than a video's own title and description. The
+// route prefers the Google path when a YouTube Data API key is present, and
+// only falls back to this one otherwise, so nothing is lost for a workspace
+// that does have the key.
+//
+// A video's title and description are still genuine evidence, not invented
+// text, the same way webCitationsToListeningPosts above treats a public web
+// page's own title as evidence rather than fabricating a summary of it.
+export const YOUTUBE_SEARCH_BASE = "https://api.scrapecreators.com/v1/youtube/search";
+
+export function buildYouTubeSearchUrl(topic: string): string {
+  const url = new URL(YOUTUBE_SEARCH_BASE);
+  url.searchParams.set("query", topic);
+  return url.toString();
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+// The endpoint's exact response shape could not be observed directly while
+// this was built (no live call was possible from the build environment), so
+// several plausible field names are tried per item rather than one, the same
+// defensive approach lib/trending.ts's normaliseTrendingVideos uses for the
+// same reason. An unreadable shape returns an empty list rather than a guess;
+// the route treats that as a real parse failure to report, not silence.
+export function normaliseYouTubeSearchPosts(raw: unknown): ListeningPost[] {
+  const body = (raw ?? {}) as Record<string, unknown>;
+  const list = body.videos ?? body.items ?? body.data ?? body.results;
+
+  if (!Array.isArray(list)) {
+    return [];
+  }
+
+  return list
+    .map((entry) => (entry ?? {}) as Record<string, unknown>)
+    .map((entry) => {
+      const id = firstString(entry.id, entry.videoId, entry.video_id);
+      const url = firstString(
+        entry.url,
+        entry.videoUrl,
+        entry.link,
+        id && `https://www.youtube.com/watch?v=${id}`,
+      );
+      const title = firstString(entry.title, entry.videoTitle, entry.name);
+      const description = firstString(entry.description, entry.descriptionSnippet);
+
+      return {
+        text: [title, description].filter(Boolean).join(" - ").slice(0, 600),
+        source: "YouTube",
+        url,
+        date: firstString(
+          entry.publishedAt,
+          entry.publishedTimeText,
+          entry.published_time,
+        ).slice(0, 10),
+      };
+    })
+    .filter((post) => post.text && post.url);
+}

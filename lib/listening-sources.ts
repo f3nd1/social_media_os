@@ -5,7 +5,8 @@
 // search engines actually understands:
 //
 //   sc-research   --source=reddit         (Reddit, real comment text, free)
-//   the app       YouTube Data API        (YouTube comments)
+//   the app       YouTube Data API, or ScrapeCreators Search if no Google
+//                 key is set                (YouTube comments, or titles)
 //   the app       ScrapeCreators directly (Instagram hashtag search)
 //   OpenAI        web_search              (public web, titles only)
 //   last30days    --search <comma list>   (TikTok, Instagram, Threads, LinkedIn)
@@ -52,8 +53,14 @@ export const LISTENING_SOURCES: ListeningSourceOption[] = [
   {
     id: "youtube",
     label: "YouTube",
-    requiresKey: "youtubeApiKey",
-    missingKeyReason: "Needs a YouTube Data API key in Settings",
+    // ScrapeCreators is the key that actually unlocks this by default: it
+    // needs no separate Google-issued key, which is why it is listed here.
+    // A genuine YouTube Data API key also works and is preferred when
+    // present, for real comments rather than a video's own title (see
+    // fetchYouTubeListeningPosts in the route) - availableListeningSources
+    // below checks for either key, not only this one.
+    requiresKey: "scrapeCreatorsApiKey",
+    missingKeyReason: "Needs a ScrapeCreators API key in Settings",
   },
   { id: "web", label: "Public web" },
   {
@@ -109,6 +116,13 @@ export function availableListeningSources(keys: {
   scrapeCreatorsApiKey?: string;
 }): ListeningSourceId[] {
   return LISTENING_SOURCES.filter((source) => {
+    // YouTube alone can work off either key: ScrapeCreators (no separate
+    // Google key needed, the default) or a genuine YouTube Data API key
+    // (real comments, preferred when present). See fetchYouTubeListeningPosts.
+    if (source.id === "youtube") {
+      return Boolean(keys.scrapeCreatorsApiKey?.trim() || keys.youtubeApiKey?.trim());
+    }
+
     if (!source.requiresKey) {
       return true;
     }

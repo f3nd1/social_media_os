@@ -39,11 +39,13 @@ import {
   buildListeningSystemPrompt,
   buildListeningUserPrompt,
   buildWebListeningSearchInput,
+  buildYouTubeSearchUrl,
   dedupeByUrl,
   isHashtagShapedTopic,
   meaningfulErrorLine,
   normalizeResearchFile,
   normaliseInstagramHashtagPosts,
+  normaliseYouTubeSearchPosts,
   webCitationsToListeningPosts,
   type ListeningAnalysisType,
   type ListeningPost,
@@ -421,11 +423,39 @@ type YouTubeCommentItem = {
   };
 };
 
-// Real YouTube comments only, via the free YouTube Data API v3 (search.list +
-// commentThreads.list). Never throws: a missing key, a quota error, or a
-// video with comments disabled all just mean fewer posts, not a failed
-// request, matching the never-throw pattern used by scrapeHomepageSocialLinks
-// in lib/competitor-observe-ai.ts.
+// YouTube listening has two independent paths, tried in this order:
+//
+//   1. The official YouTube Data API v3 (search.list + commentThreads.list),
+//      when a Google-issued key is in Settings. Real audience comments, the
+//      richer of the two.
+//   2. ScrapeCreators' YouTube Search, when only a ScrapeCreators key is
+//      present. A video's own title and description rather than comments,
+//      but it needs no separate Google key, which is why it is the default:
+//      the chip must work with zero Settings action, and a Google key was
+//      never going to be added.
+//
+// Neither throws: a missing key, a quota error, or a video with comments
+// disabled all just mean fewer posts, not a failed request, matching the
+// never-throw pattern used by scrapeHomepageSocialLinks in
+// lib/competitor-observe-ai.ts.
+type YouTubeOutcome = { posts: ListeningPost[]; reason: string };
+
+async function fetchYouTubeListeningPosts(
+  topic: string,
+  youtubeApiKey: string,
+  scrapeCreatorsApiKey: string,
+): Promise<YouTubeOutcome> {
+  if (youtubeApiKey) {
+    return fetchYouTubeListeningPostsViaGoogle(topic, youtubeApiKey);
+  }
+
+  if (scrapeCreatorsApiKey) {
+    return fetchYouTubeListeningPostsViaScrapeCreators(topic, scrapeCreatorsApiKey);
+  }
+
+  return { posts: [], reason: "" };
+}
+
 // YouTube listening runs on the YouTube Data API v3, NOT on yt-dlp. yt-dlp is
 // only used by last30days, and youtube is deliberately absent from
 // LAST30DAYS_SOURCE_IDS because the dedicated path returns real comment threads
@@ -438,9 +468,7 @@ type YouTubeCommentItem = {
 // looked identical to a topic nobody has posted about. Quota is the likely one
 // in practice, since search.list costs 100 units against a 10,000 unit daily
 // default, so about a hundred searches exhausts a fresh project for the day.
-type YouTubeOutcome = { posts: ListeningPost[]; reason: string };
-
-async function fetchYouTubeListeningPosts(
+async function fetchYouTubeListeningPostsViaGoogle(
   topic: string,
   apiKey: string,
 ): Promise<YouTubeOutcome> {
@@ -542,6 +570,59 @@ async function fetchYouTubeListeningPosts(
       reason: timedOut
         ? "YouTube did not respond within 10 seconds"
         : `YouTube could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+// YouTube search, direct to ScrapeCreators. The no-key fallback used when no
+// YouTube Data API key is in Settings (see fetchYouTubeListeningPosts above).
+// Confirmed working in the live endpoint audit. Never throws, matching every
+// other fetch* function in this route: a bad key, a timeout, or a quiet topic
+// all just mean fewer posts.
+async function fetchYouTubeListeningPostsViaScrapeCreators(
+  topic: string,
+  apiKey: string,
+): Promise<YouTubeOutcome> {
+  try {
+    const response = await fetch(buildYouTubeSearchUrl(topic), {
+      headers: { "x-api-key": apiKey },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      const detail = text.trim().slice(0, 300);
+      return {
+        posts: [],
+        reason:
+          `YouTube search returned HTTP ${response.status}` +
+          (detail ? `: ${detail}` : "") +
+          (response.status === 401 || response.status === 403
+            ? ". Check the ScrapeCreators API key in Settings."
+            : response.status === 402
+              ? ". The ScrapeCreators account is out of credits."
+              : "."),
+      };
+    }
+
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { posts: [], reason: "YouTube search returned a reply that could not be read as JSON." };
+    }
+
+    return { posts: normaliseYouTubeSearchPosts(parsed), reason: "" };
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === "TimeoutError";
+
+    return {
+      posts: [],
+      reason: timedOut
+        ? "YouTube search did not respond within 15 seconds"
+        : `YouTube search could not be reached: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
@@ -683,7 +764,7 @@ export async function POST(request: Request) {
         ? runResearchCli({ topic, cwd: workDir, apiKey })
         : Promise.resolve({ code: 0, stderr: "" }),
       wantsYouTube
-        ? fetchYouTubeListeningPosts(topic, youtubeApiKey)
+        ? fetchYouTubeListeningPosts(topic, youtubeApiKey, scrapeCreatorsApiKey)
         : Promise.resolve({ posts: [], reason: "" }),
       last30daysSearch
         ? fetchLast30DaysPosts({
