@@ -4332,7 +4332,6 @@ function SocialListeningPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           apiKey: data.aiIntegration.apiKey,
-          xaiApiKey: data.aiIntegration.xaiApiKey ?? "",
           youtubeApiKey: data.aiIntegration.youtubeApiKey ?? "",
           scrapeCreatorsApiKey: data.aiIntegration.scrapeCreatorsApiKey ?? "",
           sources: selectedSources,
@@ -7771,19 +7770,6 @@ function AiIntegrationPanel({
             </p>
           </Field>
         </div>
-
-        <Field label="xAI API key (optional, for social listening on X)">
-          <Input
-            onChange={(event) => update({ xaiApiKey: event.target.value })}
-            placeholder="xai-..."
-            type="password"
-            value={aiIntegration.xaiApiKey ?? ""}
-          />
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Without this key, social listening searches Reddit only and says
-            so. Stored the same way as the OpenAI key.
-          </p>
-        </Field>
 
         <Field label="YouTube Data API key (optional, for social listening on YouTube)">
           <Input

@@ -1,13 +1,21 @@
 // Which sources a Social Listening run should search (Module D3).
 //
 // Pure catalogue and mapping, no network. The manager picks source chips on the
-// screen; this file turns that choice into the arguments each of the three
+// screen; this file turns that choice into the arguments each of the four
 // search engines actually understands:
 //
-//   sc-research   --source=reddit|x|both   (Reddit and X, real comment text)
-//   the app       YouTube Data API         (YouTube comments)
-//   OpenAI        web_search               (public web, titles only)
-//   last30days    --search <comma list>    (TikTok, Instagram, Threads, ...)
+//   sc-research   --source=reddit         (Reddit, real comment text, free)
+//   the app       YouTube Data API        (YouTube comments)
+//   the app       ScrapeCreators directly (Instagram hashtag search)
+//   OpenAI        web_search              (public web, titles only)
+//   last30days    --search <comma list>   (TikTok, Instagram, Threads, LinkedIn)
+//
+// X/Twitter listening (sc-research --source=x, billed through the xAI key) has
+// been removed on cost grounds: it is the one engine here that is not free,
+// and the decision was to stop paying for it rather than gate it behind a key
+// check like the others. Pinterest has been removed because it was never a
+// plausible place to hear from a prospective Singapore college student; ignore
+// it entirely rather than leave a chip nobody should tick.
 //
 // Nothing here needs a redeploy to change: --search is a per-invocation flag
 // and beats the tool's LAST30DAYS_DEFAULT_SEARCH env var, so a manager can
@@ -15,17 +23,15 @@
 
 export type ListeningSourceId =
   | "reddit"
-  | "x"
   | "youtube"
   | "web"
   | "tiktok"
   | "instagram"
   | "threads"
-  | "pinterest"
   | "linkedin";
 
 // The Settings key a source cannot work without, if any.
-type RequiredKey = "xaiApiKey" | "youtubeApiKey" | "scrapeCreatorsApiKey";
+type RequiredKey = "youtubeApiKey" | "scrapeCreatorsApiKey";
 
 export type ListeningSourceOption = {
   id: ListeningSourceId;
@@ -43,12 +49,6 @@ export type ListeningSourceOption = {
 // now always passes an explicit --search list, they are simply never requested.
 export const LISTENING_SOURCES: ListeningSourceOption[] = [
   { id: "reddit", label: "Reddit" },
-  {
-    id: "x",
-    label: "X",
-    requiresKey: "xaiApiKey",
-    missingKeyReason: "Needs an xAI API key in Settings",
-  },
   {
     id: "youtube",
     label: "YouTube",
@@ -75,12 +75,6 @@ export const LISTENING_SOURCES: ListeningSourceOption[] = [
     missingKeyReason: "Needs a ScrapeCreators API key in Settings",
   },
   {
-    id: "pinterest",
-    label: "Pinterest",
-    requiresKey: "scrapeCreatorsApiKey",
-    missingKeyReason: "Needs a ScrapeCreators API key in Settings",
-  },
-  {
     id: "linkedin",
     label: "LinkedIn",
     requiresKey: "scrapeCreatorsApiKey",
@@ -88,7 +82,7 @@ export const LISTENING_SOURCES: ListeningSourceOption[] = [
   },
 ];
 
-// Sources reached through the last30days tool. Reddit, X and YouTube are
+// Sources reached through the last30days tool. Reddit and YouTube are
 // deliberately absent even though the tool can also fetch them: the dedicated
 // engines return real comment threads rather than summaries, and asking both
 // for the same platform meant paying twice for posts that were then merged
@@ -97,7 +91,6 @@ const LAST30DAYS_SOURCE_IDS = new Set<ListeningSourceId>([
   "tiktok",
   "instagram",
   "threads",
-  "pinterest",
   "linkedin",
 ]);
 
@@ -112,7 +105,6 @@ export function isListeningSourceId(value: unknown): value is ListeningSourceId 
 // installed on the server is not knowable from the browser, and a run with the
 // tool missing already degrades quietly and reports it honestly.
 export function availableListeningSources(keys: {
-  xaiApiKey?: string;
   youtubeApiKey?: string;
   scrapeCreatorsApiKey?: string;
 }): ListeningSourceId[] {
@@ -175,24 +167,13 @@ export function listeningPerSourceCap(selectedCount: number): number {
   return Math.max(8, Math.ceil(LISTENING_EVIDENCE_BUDGET / Math.max(1, selectedCount)));
 }
 
-// sc-research takes one flag covering both its platforms. Null means it has
-// nothing to do this run and should not be spawned at all, which is where most
-// of the time saving comes from on a narrow search.
-export function scResearchSourceArg(
-  selected: ListeningSourceId[],
-): "reddit" | "x" | "both" | null {
-  const reddit = selected.includes("reddit");
-  const x = selected.includes("x");
-
-  if (reddit && x) {
-    return "both";
-  }
-
-  if (reddit) {
-    return "reddit";
-  }
-
-  return x ? "x" : null;
+// sc-research also supports X via the xAI key, but that leg has been removed
+// on cost grounds (see the file header), so this now only ever spawns the tool
+// for Reddit. Null means Reddit is not selected and the subprocess should not
+// be spawned at all, which is where most of the time saving comes from on a
+// narrow search.
+export function scResearchSourceArg(selected: ListeningSourceId[]): "reddit" | null {
+  return selected.includes("reddit") ? "reddit" : null;
 }
 
 // The --search value for last30days, or null when nothing it covers is

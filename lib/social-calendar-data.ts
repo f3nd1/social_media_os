@@ -765,17 +765,15 @@ export type AiIntegrationSettings = {
   // million tokens. Optional; when a model has no prices the meter shows
   // token counts only, never an invented cost.
   modelPrices?: Record<string, { inPerMillion: number; outPerMillion: number }>;
-  // Optional xAI key for social listening on X. Without it, listening runs
-  // on Reddit only and the UI says so honestly (Module D3).
-  xaiApiKey?: string;
   // Optional free YouTube Data API v3 key for social listening on YouTube
   // (public video/comment search). Without it, YouTube is skipped and the UI
-  // says so honestly, same pattern as xaiApiKey for X.
+  // says so honestly (Module D3).
   youtubeApiKey?: string;
   // Optional ScrapeCreators key, passed to the last30days tool to unlock
-  // TikTok, Instagram, Threads, Pinterest and LinkedIn for social listening.
-  // Without it those platforms are simply absent, the same graceful skip as
-  // xaiApiKey and youtubeApiKey. Paid: 100 free credits then pay as you go.
+  // TikTok, Instagram, Threads and LinkedIn for social listening, and used
+  // directly for Instagram hashtag search. Without it those platforms are
+  // simply absent, the same graceful skip as youtubeApiKey. Paid: 100 free
+  // credits then pay as you go.
   scrapeCreatorsApiKey?: string;
 };
 

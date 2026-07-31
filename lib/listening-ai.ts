@@ -262,3 +262,57 @@ export function buildListeningUserPrompt(
     'Return JSON: { "insight": "your analysis in plain English", "quoteIndexes": [the post numbers your analysis rests on] }',
   ].join("\n");
 }
+
+// Instagram hashtag search, a direct ScrapeCreators call rather than something
+// last30days does for us: last30days' own Instagram leg searches reels by
+// keyword, which is a real and different angle from a hashtag search over
+// ordinary posts. Confirmed working in a live ScrapeCreators endpoint audit.
+// Kept pure (url-building and response-parsing only) so it is testable without
+// a network call, matching every other ScrapeCreators helper in this app.
+export const INSTAGRAM_HASHTAG_SEARCH_BASE = "https://api.scrapecreators.com/v1/instagram/search/hashtag";
+
+// The endpoint takes a single hashtag, not a free-text query. Most listening
+// topics here are full phrases ("IELTS preparation in Singapore"), and
+// concatenating every word into "ieltspreparationinsingapore" would almost
+// never match a hashtag anyone actually uses, turning "no evidence" into
+// "evidence from an unrelated tag that happens to share a word." Rather than
+// guess, this only treats a topic as hashtag-shaped when it already is one:
+// a single word, with no spaces. A manager researching "IELTS" alone gets a
+// real hashtag search; one researching a full phrase does not get a fabricated
+// guess standing in for it.
+export function isHashtagShapedTopic(topic: string): boolean {
+  return topic.trim().length > 0 && !/\s/.test(topic.trim());
+}
+
+export function topicToInstagramHashtag(topic: string): string {
+  return topic.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function buildInstagramHashtagSearchUrl(topic: string): string {
+  const url = new URL(INSTAGRAM_HASHTAG_SEARCH_BASE);
+  url.searchParams.set("hashtag", topicToInstagramHashtag(topic));
+  return url.toString();
+}
+
+// One entry from the endpoint's real, published response shape: id, caption,
+// url, taken_at among others. Only what is needed to make a ListeningPost is
+// read, matching the narrow-read convention lib/last30days.ts already uses.
+type InstagramHashtagPost = {
+  caption?: string;
+  url?: string;
+  taken_at?: string;
+};
+
+export function normaliseInstagramHashtagPosts(raw: unknown): ListeningPost[] {
+  const body = (raw ?? {}) as { posts?: unknown };
+  const posts = Array.isArray(body.posts) ? (body.posts as InstagramHashtagPost[]) : [];
+
+  return posts
+    .filter((post) => post.caption?.trim() && post.url)
+    .map((post) => ({
+      text: post.caption!.trim().slice(0, 600),
+      source: "Instagram",
+      url: post.url!,
+      date: (post.taken_at ?? "").slice(0, 10),
+    }));
+}

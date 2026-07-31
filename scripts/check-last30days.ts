@@ -354,7 +354,6 @@ assert.equal(sourceFromUrl(""), "web");
 // ---- source selection ----
 
 const allKeys = {
-  xaiApiKey: "xai-k",
   youtubeApiKey: "yt-k",
   scrapeCreatorsApiKey: "sc-k",
 };
@@ -367,8 +366,8 @@ assert.deepEqual(
 );
 assert.equal(
   availableListeningSources(allKeys).length,
-  9,
-  "with every key set, all nine sources are available",
+  7,
+  "with every key set, all seven sources are available (X and Pinterest were removed)",
 );
 assert.deepEqual(
   availableListeningSources({ scrapeCreatorsApiKey: "  " }),
@@ -402,22 +401,20 @@ assert.deepEqual(
   "an explicitly empty selection stays empty: the screen blocks it, it does not mean all",
 );
 
-// sc-research takes one flag for both its platforms, and must be skipped
-// entirely when neither is wanted. Skipping it is where the time is saved.
-assert.equal(scResearchSourceArg(["reddit", "x"]), "both");
+// sc-research now only ever fetches Reddit (X was removed on cost grounds),
+// and must be skipped entirely when Reddit is not wanted.
 assert.equal(scResearchSourceArg(["reddit"]), "reddit");
-assert.equal(scResearchSourceArg(["x"]), "x", "X alone must be valid, not welded to Reddit");
 assert.equal(
   scResearchSourceArg(["tiktok", "web"]),
   null,
-  "sc-research must be skipped when neither of its platforms is picked",
+  "sc-research must be skipped when Reddit is not picked",
 );
 
-// last30days gets only the platforms it owns. Reddit, X and YouTube go to the
+// last30days gets only the platforms it owns. Reddit and YouTube go to the
 // dedicated engines instead, so we stop fetching them twice.
 assert.equal(last30daysSearchArg(["tiktok", "instagram"]), "tiktok,instagram");
 assert.equal(
-  last30daysSearchArg(["reddit", "x", "youtube", "web"]),
+  last30daysSearchArg(["reddit", "youtube", "web"]),
   null,
   "last30days must be skipped when only dedicated-engine sources are picked",
 );

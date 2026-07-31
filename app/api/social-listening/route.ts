@@ -35,12 +35,15 @@ import {
   scResearchSourceArg,
 } from "@/lib/listening-sources";
 import {
+  buildInstagramHashtagSearchUrl,
   buildListeningSystemPrompt,
   buildListeningUserPrompt,
   buildWebListeningSearchInput,
   dedupeByUrl,
+  isHashtagShapedTopic,
   meaningfulErrorLine,
   normalizeResearchFile,
+  normaliseInstagramHashtagPosts,
   webCitationsToListeningPosts,
   type ListeningAnalysisType,
   type ListeningPost,
@@ -60,7 +63,6 @@ const ANALYSIS_TYPES: ListeningAnalysisType[] = [
 
 type ListeningRequestBody = {
   apiKey?: string;
-  xaiApiKey?: string;
   youtubeApiKey?: string;
   scrapeCreatorsApiKey?: string;
   sources?: string[];
@@ -78,24 +80,17 @@ type ListeningDraft = {
 
 function runResearchCli({
   topic,
-  source,
   dateRange,
   cwd,
   apiKey,
-  xaiApiKey,
 }: {
   topic: string;
   // sc-research accepts --from and --to as plain YYYY-MM-DD and turns them
   // into Reddit's own period parameter, so this leg genuinely narrows at the
   // source instead of fetching wide and discarding afterwards.
   dateRange: { from: string; to: string };
-  // sc-research's own usage string is --source=reddit|x|both. This was
-  // previously narrowed to reddit|both, which welded X to Reddit for no reason:
-  // with source selection, X alone is a valid thing to ask for.
-  source: "reddit" | "x" | "both";
   cwd: string;
   apiKey: string;
-  xaiApiKey: string;
 }): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve) => {
     const cliPath = path.join(
@@ -105,13 +100,15 @@ function runResearchCli({
       "dist",
       "index.js",
     );
+    // sc-research also supports --source=x|both via an xAI key, but that leg
+    // has been removed on cost grounds, so this only ever asks for Reddit now.
     const child = spawn(
       process.execPath,
       [
         cliPath,
         "research",
         topic,
-        `--source=${source}`,
+        "--source=reddit",
         `--from=${dateRange.from}`,
         `--to=${dateRange.to}`,
       ],
@@ -120,7 +117,6 @@ function runResearchCli({
         env: {
           ...process.env,
           OPENAI_API_KEY: apiKey,
-          XAI_API_KEY: xaiApiKey,
         },
       },
     );
@@ -294,13 +290,11 @@ async function fetchLast30DaysPosts({
   perSourceCap,
   searchArg,
   topic,
-  xaiApiKey,
 }: {
   scrapeCreatorsApiKey: string;
   perSourceCap: number;
   searchArg: string;
   topic: string;
-  xaiApiKey: string;
 }): Promise<Last30DaysOutcome> {
   // "not installed" is a deployment state, not a failure, so it carries no
   // reason: the feature is simply absent and the rest of the search proceeds.
@@ -320,14 +314,14 @@ async function fetchLast30DaysPosts({
 
     const env: NodeJS.ProcessEnv = { ...process.env };
 
-    // Each key is only set when present, so an absent key leaves the tool's own
-    // default behaviour alone rather than handing it an empty string.
+    // Only set when present, so an absent key leaves the tool's own default
+    // behaviour alone rather than handing it an empty string. XAI_API_KEY is
+    // deliberately never passed here: the only source set this app ever asks
+    // last30days for (tiktok, instagram, threads, linkedin) has no X/Twitter
+    // among it, so the tool's own X backend is unreachable through this call
+    // regardless, and passing a costly key it will never use would be pointless.
     if (scrapeCreatorsApiKey) {
       env.SCRAPECREATORS_API_KEY = scrapeCreatorsApiKey;
-    }
-
-    if (xaiApiKey) {
-      env.XAI_API_KEY = xaiApiKey;
     }
 
     const pythons = [
@@ -552,6 +546,59 @@ async function fetchYouTubeListeningPosts(
   }
 }
 
+// Instagram hashtag search, direct to ScrapeCreators. A second, complementary
+// Instagram leg alongside last30days' own reel-by-keyword search: this one
+// finds ordinary posts (not just reels) by hashtag. Confirmed working in a
+// live endpoint audit. Never throws, matching every other fetch* function in
+// this route: a bad key, a timeout, or a quiet tag all just mean fewer posts.
+async function fetchInstagramHashtagPosts(
+  topic: string,
+  apiKey: string,
+): Promise<{ posts: ListeningPost[]; reason: string }> {
+  try {
+    const response = await fetch(buildInstagramHashtagSearchUrl(topic), {
+      headers: { "x-api-key": apiKey },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      const detail = text.trim().slice(0, 300);
+      return {
+        posts: [],
+        reason:
+          `Instagram hashtag search returned HTTP ${response.status}` +
+          (detail ? `: ${detail}` : "") +
+          (response.status === 401 || response.status === 403
+            ? ". Check the ScrapeCreators API key in Settings."
+            : response.status === 402
+              ? ". The ScrapeCreators account is out of credits."
+              : "."),
+      };
+    }
+
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { posts: [], reason: "Instagram hashtag search returned a reply that could not be read as JSON." };
+    }
+
+    return { posts: normaliseInstagramHashtagPosts(parsed), reason: "" };
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === "TimeoutError";
+
+    return {
+      posts: [],
+      reason: timedOut
+        ? "Instagram hashtag search did not respond within 15 seconds"
+        : `Instagram hashtag search could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 export async function POST(request: Request) {
   let body: ListeningRequestBody;
 
@@ -562,7 +609,6 @@ export async function POST(request: Request) {
   }
 
   const apiKey = body.apiKey?.trim();
-  const xaiApiKey = body.xaiApiKey?.trim() ?? "";
   const youtubeApiKey = body.youtubeApiKey?.trim() ?? "";
   const scrapeCreatorsApiKey = body.scrapeCreatorsApiKey?.trim() ?? "";
   const model = body.model?.trim();
@@ -597,7 +643,6 @@ export async function POST(request: Request) {
   // nothing and reporting an empty result as though the topic were quiet.
   const available = availableListeningSources({
     scrapeCreatorsApiKey,
-    xaiApiKey,
     youtubeApiKey,
   });
   const selected = resolveListeningSources(body.sources, available);
@@ -618,15 +663,24 @@ export async function POST(request: Request) {
   const last30daysSearch = last30daysSearchArg(selected);
   const wantsYouTube = selected.includes("youtube");
   const wantsWeb = selected.includes("web");
+  // Instagram already gets keyword-shaped reel search via last30days. This is
+  // a second, complementary leg straight to ScrapeCreators: real Instagram
+  // posts (not just reels) matching a hashtag, confirmed working in the live
+  // endpoint audit and genuinely missing from the pipeline before this. Only
+  // fired for a single-word topic (see isHashtagShapedTopic): guessing a
+  // hashtag out of a full phrase would risk pulling in posts under an
+  // unrelated tag and calling that evidence.
+  const wantsInstagramHashtags =
+    selected.includes("instagram") && Boolean(scrapeCreatorsApiKey) && isHashtagShapedTopic(topic);
   const workDir = await mkdtemp(path.join(tmpdir(), "sc-research-"));
 
   try {
     // Every leg is now conditional. Skipping an unwanted engine outright is
     // where the time saving comes from: a Reddit-and-TikTok search no longer
     // waits on the web search, the YouTube fetch, or a last30days run.
-    const [run, youtubePosts, last30days, webSearch] = await Promise.all([
+    const [run, youtubePosts, last30days, webSearch, instagramHashtagPosts] = await Promise.all([
       source
-        ? runResearchCli({ topic, source, dateRange, cwd: workDir, apiKey, xaiApiKey })
+        ? runResearchCli({ topic, dateRange, cwd: workDir, apiKey })
         : Promise.resolve({ code: 0, stderr: "" }),
       wantsYouTube
         ? fetchYouTubeListeningPosts(topic, youtubeApiKey)
@@ -637,7 +691,6 @@ export async function POST(request: Request) {
             perSourceCap: listeningPerSourceCap(selected.length),
             searchArg: last30daysSearch,
             topic,
-            xaiApiKey,
           })
         : Promise.resolve<Last30DaysOutcome>({
             posts: [],
@@ -653,10 +706,12 @@ export async function POST(request: Request) {
             timeoutMs: WEB_SEARCH_TIMEOUT_MS,
           })
         : Promise.resolve({ ok: false as const, citations: [], error: "" }),
+      wantsInstagramHashtags
+        ? fetchInstagramHashtagPosts(topic, scrapeCreatorsApiKey)
+        : Promise.resolve({ posts: [], reason: "" }),
     ]);
 
     const reddit = await readResearchFile(workDir, "reddit_data.json");
-    const x = await readResearchFile(workDir, "x_data.json");
     const webPosts = webSearch.ok ? webCitationsToListeningPosts(webSearch.citations) : [];
 
     // Public web posts go last because they are page titles rather than a real
@@ -665,9 +720,9 @@ export async function POST(request: Request) {
     // genuine post and comment text.
     const merged = dedupeByUrl([
       ...(reddit?.posts ?? []),
-      ...(x?.posts ?? []),
       ...youtubePosts.posts,
       ...last30days.posts,
+      ...instagramHashtagPosts.posts,
       ...webPosts,
     ]);
 
@@ -699,6 +754,7 @@ export async function POST(request: Request) {
         last30days.degradedSources.length > 0
           ? `${last30days.degradedSources.join(", ")} did not answer`
           : "",
+        instagramHashtagPosts.reason,
       ].filter(Boolean);
 
       return NextResponse.json({
@@ -797,12 +853,13 @@ export async function POST(request: Request) {
       // refusal reads as "YouTube returned nothing this run", which sends the
       // manager looking at their topic instead of their key.
       youtubePosts.reason,
+      instagramHashtagPosts.reason,
     ]
       .filter(Boolean)
       .join(", ");
 
-    const from = [reddit?.from, x?.from].filter(Boolean).sort()[0] ?? "";
-    const to = [reddit?.to, x?.to].filter(Boolean).sort().reverse()[0] ?? "";
+    const from = reddit?.from ?? "";
+    const to = reddit?.to ?? "";
 
     return NextResponse.json({
       ok: true,
