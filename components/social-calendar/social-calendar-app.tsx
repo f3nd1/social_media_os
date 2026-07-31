@@ -4681,7 +4681,6 @@ function SocialListeningPanel({
                 void runListeningFor(topic);
               }}
               scrapeCreatorsApiKey={data.aiIntegration.scrapeCreatorsApiKey ?? ""}
-              youtubeApiKey={data.aiIntegration.youtubeApiKey ?? ""}
             />
 
             {/* Discover. Not a separate engine: it runs exactly the search
