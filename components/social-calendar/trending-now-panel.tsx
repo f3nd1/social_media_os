@@ -29,7 +29,7 @@ import {
   type TrendingTag,
   type TrendingVideo,
 } from "@/lib/trending";
-import { formatDisplayDate, readJsonResponse } from "@/lib/utils";
+import { cn, formatDisplayDate, readJsonResponse } from "@/lib/utils";
 
 function countLabel(value: number | null): string {
   return typeof value === "number" ? value.toLocaleString("en-GB") : "not reported";
@@ -131,6 +131,12 @@ export function TrendingNowPanel({
   busy: boolean;
 }) {
   const [country, setCountry] = useState(DEFAULT_TRENDING_COUNTRY);
+  // Both on, so nothing changes until a source is actively turned off. Off
+  // means the request is never made: the point of skipping TikTok is not
+  // waiting on a page the vendor documents as liable to disappear.
+  const [runTikTok, setRunTikTok] = useState(true);
+  const [runYouTube, setRunYouTube] = useState(true);
+  const [pickError, setPickError] = useState("");
   const [period, setPeriod] = useState<TikTokPeriod>(7);
   const [industry, setIndustry] = useState("education");
   const [categoryId, setCategoryId] = useState("27");
@@ -177,9 +183,25 @@ export function TrendingNowPanel({
   // Promise.all on a single state write: a rejected TikTok call must not stop
   // the YouTube list appearing, which is the whole point of splitting them.
   async function run() {
+    // Matches the "pick at least one source" rule the listening chips already
+    // use: unticking everything and then getting everything would be a
+    // confusing thing to do to someone.
+    if (!runTikTok && !runYouTube) {
+      setPickError("Pick at least one source to read.");
+      return;
+    }
+
+    setPickError("");
     setCredits(null);
 
     const tiktokRun = (async () => {
+      // Not selected means not called. The leg is reset to idle so a result
+      // from a previous run cannot linger and look like it came from this one.
+      if (!runTikTok) {
+        setTiktok(IDLE);
+        return;
+      }
+
       if (!market.tiktok) {
         setTiktok({
           state: "unsupported",
@@ -223,6 +245,11 @@ export function TrendingNowPanel({
     })();
 
     const youtubeRun = (async () => {
+      if (!runYouTube) {
+        setYoutube(IDLE);
+        return;
+      }
+
       if (!market.youtube) {
         setYoutube({
           state: "unsupported",
@@ -286,6 +313,37 @@ export function TrendingNowPanel({
       </CardHeader>
 
       <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium uppercase text-muted-foreground">
+            Sources to read
+          </span>
+          {[
+            { on: runTikTok, set: setRunTikTok, label: "TikTok hashtags" },
+            { on: runYouTube, set: setRunYouTube, label: "YouTube most viewed" },
+          ].map((chip) => (
+            <button
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-medium transition",
+                chip.on
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "hover:bg-muted",
+              )}
+              key={chip.label}
+              onClick={() => {
+                chip.set(!chip.on);
+                setPickError("");
+              }}
+              type="button"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+
+        {pickError ? (
+          <p className="text-xs leading-5 text-warning-foreground">{pickError}</p>
+        ) : null}
+
         <div className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
           <label className="block space-y-1">
             <span className="text-xs font-medium">Country</span>
@@ -309,6 +367,8 @@ export function TrendingNowPanel({
             </select>
           </label>
 
+          {runTikTok ? (
+            <>
           <label className="block space-y-1">
             <span className="text-xs font-medium">TikTok industry</span>
             <select
@@ -347,7 +407,10 @@ export function TrendingNowPanel({
             />
             Newly trending only
           </label>
+            </>
+          ) : null}
 
+          {runYouTube ? (
           <label className="block space-y-1">
             <span className="text-xs font-medium">YouTube category</span>
             <select
@@ -362,6 +425,7 @@ export function TrendingNowPanel({
               ))}
             </select>
           </label>
+          ) : null}
 
           <Button
             disabled={running || (!hasTikTokKey && !hasYouTubeKey)}
@@ -370,7 +434,13 @@ export function TrendingNowPanel({
             type="button"
           >
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Flame className="h-4 w-4" />}
-            {running ? "Reading" : "Show what is trending"}
+            {running
+              ? "Reading"
+              : runTikTok && runYouTube
+                ? "Show what is trending"
+                : runTikTok
+                  ? "Show trending hashtags"
+                  : "Show most viewed"}
           </Button>
         </div>
 
@@ -380,9 +450,16 @@ export function TrendingNowPanel({
           market would need Xiaohongshu or WeChat and neither is integrated.
         </p>
 
+        {/* The cost has to name only what is actually about to be spent: a
+            YouTube-only run must not mention a ScrapeCreators credit. */}
         <p className="text-xs leading-5 text-muted-foreground">
-          A run costs one ScrapeCreators credit for the TikTok list and one
-          YouTube quota unit, out of the 10,000 a day a standard key allows.
+          {runTikTok && runYouTube
+            ? "A run costs one ScrapeCreators credit for the TikTok list and one YouTube quota unit, out of the 10,000 a day a standard key allows."
+            : runTikTok
+              ? "A run costs one ScrapeCreators credit. No YouTube quota is used."
+              : runYouTube
+                ? "A run costs one YouTube quota unit, out of the 10,000 a day a standard key allows. No ScrapeCreators credit is spent."
+                : "Nothing is selected, so a run would cost nothing and do nothing."}{" "}
           Ranking, post counts and view counts are the platforms&rsquo; own
           figures, read at the moment you press the button.
         </p>
