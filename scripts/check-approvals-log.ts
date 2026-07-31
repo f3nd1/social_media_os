@@ -188,4 +188,87 @@ assert.deepEqual(
 // Nothing matching means nothing lost.
 assert.equal(purgeApprovalsForSource(log, "Trend Radar", "l1", []).length, log.length);
 
+// --- Platform Intelligence: no archivable list, but decisions must still log
+
+function playbookEntry(overrides: Record<string, unknown>) {
+  return {
+    approved: { content: "Post twice a week", role: "", persona: "", defaultFormat: "",
+      bestPostingTime: "", cta: "", metrics: "", guardrail: "" },
+    approvedBy: "", approvedAt: "", approvedSource: "template",
+    draft: null, draftSource: "none", draftModel: "", draftGeneratedAt: "",
+    ...overrides,
+  };
+}
+
+const playbookBase = {
+  ...(base as never as Record<string, unknown>),
+  platformPlaybook: { tiktok: playbookEntry({}) },
+} as never;
+
+// Approving a draft: a fresh, later approvedAt is the signal, regardless of
+// whether the draft came from AI or a manual edit.
+const playbookApproved = {
+  ...(base as never as Record<string, unknown>),
+  platformPlaybook: {
+    tiktok: playbookEntry({
+      approved: { content: "New AI-drafted plan", role: "", persona: "", defaultFormat: "",
+        bestPostingTime: "", cta: "", metrics: "", guardrail: "" },
+      approvedBy: "Felix", approvedAt: AT, approvedSource: "ai",
+    }),
+  },
+} as never;
+
+const playbookLog = deriveApprovalLogEntries(playbookBase, playbookApproved, AT)
+  .filter((e) => e.module === "Platform Intelligence");
+assert.equal(playbookLog.length, 1, "approving a platform playbook draft is logged");
+assert.equal(playbookLog[0].decision, "approved");
+assert.ok(
+  playbookLog[0].subject.startsWith("tiktok: New AI-drafted plan"),
+  "the subject names the platform and the newly-approved content",
+);
+assert.ok(
+  /available to calendar generation and content production/.test(playbookLog[0].subject),
+  "an approved playbook says where it is actually read",
+);
+
+// Discarding a draft: the draft disappears with no new approval alongside it.
+const playbookWithDraft = {
+  ...(base as never as Record<string, unknown>),
+  platformPlaybook: {
+    tiktok: playbookEntry({
+      draft: { content: "A rejected draft", role: "", persona: "", defaultFormat: "",
+        bestPostingTime: "", cta: "", metrics: "", guardrail: "" },
+      draftSource: "ai",
+    }),
+  },
+} as never;
+
+const playbookDiscarded = deriveApprovalLogEntries(playbookWithDraft, playbookBase, AT)
+  .filter((e) => e.module === "Platform Intelligence");
+assert.equal(playbookDiscarded.length, 1, "discarding a draft is logged");
+assert.equal(playbookDiscarded[0].decision, "rejected");
+assert.ok(playbookDiscarded[0].subject.startsWith("tiktok: A rejected draft"));
+
+// Editing draft text without approving or discarding must not log anything:
+// that is neither decision, just a work in progress.
+const playbookEdited = {
+  ...(base as never as Record<string, unknown>),
+  platformPlaybook: {
+    tiktok: playbookEntry({
+      draft: { content: "Edited, not yet decided", role: "", persona: "", defaultFormat: "",
+        bestPostingTime: "", cta: "", metrics: "", guardrail: "" },
+      draftSource: "manual",
+    }),
+  },
+} as never;
+assert.deepEqual(
+  deriveApprovalLogEntries(playbookWithDraft, playbookEdited, AT)
+    .filter((e) => e.module === "Platform Intelligence"),
+  [],
+  "editing a draft's text, with no approve or discard, logs nothing",
+);
+
+// A workspace saved before platformPlaybook existed must not throw.
+assert.doesNotThrow(() => deriveApprovalLogEntries(base, base, AT));
+
 console.log("check-approvals-log: all assertions passed");

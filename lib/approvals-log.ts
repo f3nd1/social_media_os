@@ -6,9 +6,10 @@
 import type {
   ApprovalLogEntry,
   MarketingWorkspaceData,
+  PlatformPlaybookEntry,
 } from "@/lib/social-calendar-data";
-// Relative with an explicit extension, like lib/last30days.ts: this is a value
-// import, so it survives type stripping and has to resolve when
+// Relative with an explicit extension, like lib/last30days.ts: these are value
+// imports, so they survive type stripping and have to resolve when
 // scripts/check-approvals-log.ts runs the file straight through node, where
 // the "@/" alias does not exist.
 import { reachSentence } from "./signal-board.ts";
@@ -223,6 +224,62 @@ export function deriveApprovalLogEntries(
       decision: change.decision,
       sourceId: change.id,
     });
+  }
+
+  // Platform Intelligence playbooks. Unlike every collection above, this is
+  // not a growing list a manager accepts or archives rows out of: it is one
+  // fixed slot per platform, always present, that the calendar and copywriting
+  // engines read unconditionally. There is nothing here to archive or delete,
+  // so it is genuinely out of scope for that pattern (see Task 4's report).
+  // What was missing, and is genuine, is that a decision on this screen left
+  // no trace anywhere: approving a draft or discarding it vanished exactly
+  // like every module before Task 3's fix to Social Listening, with no way to
+  // see later who changed a platform's playbook or when.
+  // The union of whatever platforms either side actually has an entry for,
+  // rather than importing the canonical platforms list: that list lives in
+  // social-calendar-data.ts, which itself has "@/..." imports that only the
+  // Next.js bundler resolves, not the plain node process this file's own
+  // check script runs under.
+  const playbookPlatforms = new Set([
+    ...Object.keys(previous.platformPlaybook ?? {}),
+    ...Object.keys(next.platformPlaybook ?? {}),
+  ]);
+
+  const previousPlaybook = previous.platformPlaybook as
+    | Record<string, PlatformPlaybookEntry>
+    | undefined;
+  const nextPlaybook = next.platformPlaybook as Record<string, PlatformPlaybookEntry> | undefined;
+
+  for (const platform of playbookPlatforms) {
+    const before = previousPlaybook?.[platform];
+    const after = nextPlaybook?.[platform];
+
+    if (!before || !after) {
+      continue;
+    }
+
+    // A new, later approval timestamp is the manager clicking Approve. This
+    // reads the timestamp rather than approvedSource, so a manual edit and an
+    // AI draft are logged the same honest way: a human approved it either way.
+    if (after.approvedAt && after.approvedAt !== before.approvedAt) {
+      entries.push({
+        module: "Platform Intelligence",
+        subject: `${platform}: ${after.approved.content.slice(0, 120)}, available to calendar generation and content production`,
+        decision: "approved",
+      });
+      continue;
+    }
+
+    // A draft that existed and is now gone, with no approval having just
+    // happened, is Discard draft: the closest thing this screen has to a
+    // rejection, and previously the one decision on it with no record at all.
+    if (before.draft && !after.draft) {
+      entries.push({
+        module: "Platform Intelligence",
+        subject: `${platform}: ${before.draft.content.slice(0, 120)}`,
+        decision: "rejected",
+      });
+    }
   }
 
   // Campaign suggestions disappear on decision: accepted ones become a
