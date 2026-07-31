@@ -130,23 +130,6 @@ import {
   type RemixAiDraft,
 } from "@/lib/remix-ai";
 import {
-  DEFAULT_LISTENING_RECENCY,
-  LISTENING_RECENCY_OPTIONS,
-  type ListeningRecency,
-} from "@/lib/listening-patterns";
-import {
-  LISTENING_SOURCES,
-  availableListeningSources,
-  listeningSourceLabels,
-  resolveListeningSources,
-  type ListeningSourceId,
-} from "@/lib/listening-sources";
-import {
-  LISTENING_ANALYSIS_OPTIONS,
-  SUGGESTED_LISTENING_TOPICS,
-  type ListeningAnalysisType,
-} from "@/lib/listening-ai";
-import {
   appendApprovalLog,
   deriveApprovalLogEntries,
   purgeApprovalsForSource,
@@ -267,16 +250,11 @@ import {
   countAttentionItems,
   type DirectorModuleId,
 } from "@/components/social-calendar/ai-director-panel";
-import { AccountResearchPanel } from "@/components/social-calendar/account-research-panel";
 import { ChangelogView } from "@/components/social-calendar/changelog-view";
+import { SocialListeningWorkspace } from "@/components/social-calendar/listening-workspace";
 import { PaginationControls } from "@/components/social-calendar/pagination-controls";
 import { SignalBoardPanel } from "@/components/social-calendar/signal-board-panel";
-import { TrendingNowPanel } from "@/components/social-calendar/trending-now-panel";
 import { acceptedAccountFindingLines, reachSentence } from "@/lib/signal-board";
-import {
-  DISCOVERY_DEFAULT_SELECTION,
-  suggestDiscoveryTopics,
-} from "@/lib/discover-topics";
 import { TeamView } from "@/components/social-calendar/v2-foundation-insights";
 import {
   CampaignReportsView,
@@ -675,26 +653,50 @@ export function SocialCalendarApp() {
     );
   }
 
-  function deleteListeningResult(id: string, topic: string) {
-    if (!confirmDestroy(`the listening finding "${topic}"`)) {
+  // Takes a list because the listening workspace supports bulk delete. It does
+  // NOT call confirmDestroy: that workspace owns an accessible confirm dialog
+  // which can state the count and name any accepted findings it is refusing to
+  // touch, which a native confirm cannot do as clearly. Undo is offered here
+  // instead, matching every other destructive action in the app.
+  function deleteListeningResults(ids: string[]) {
+    if (ids.length === 0) {
       return;
     }
 
-    updateWorkspace((current) => ({
-      ...current,
-      listeningResults: current.listeningResults.filter((row) => row.id !== id),
-      approvalsLog: purgeApprovalsForSource(
-        current.approvalsLog,
-        "Social Listening",
-        id,
-        // Legacy entries carry no id, so the exact subject strings the log
-        // would have written for this row are offered as the fallback match.
-        [
-          topic.slice(0, 100),
-          `${topic.slice(0, 100)}, available to ${reachSentence("Social Listening")}`,
-        ],
-      ),
-    }));
+    offerUndo(
+      `${ids.length} listening ${ids.length === 1 ? "finding" : "findings"} deleted.`,
+    );
+
+    updateWorkspace((current) => {
+      const topicById = new Map(
+        current.listeningResults.map((row) => [row.id, row.topic]),
+      );
+      let approvalsLog = current.approvalsLog;
+
+      for (const id of ids) {
+        const topic = topicById.get(id) ?? "";
+
+        approvalsLog = purgeApprovalsForSource(
+          approvalsLog,
+          "Social Listening",
+          id,
+          // Legacy entries carry no id, so the exact subject strings the log
+          // would have written for this row are offered as the fallback match.
+          topic
+            ? [
+                topic.slice(0, 100),
+                `${topic.slice(0, 100)}, available to ${reachSentence("Social Listening")}`,
+              ]
+            : [],
+        );
+      }
+
+      return {
+        ...current,
+        listeningResults: current.listeningResults.filter((row) => !ids.includes(row.id)),
+        approvalsLog,
+      };
+    });
   }
 
   function deleteAccountFinding(id: string, subject: string) {
@@ -1355,28 +1357,22 @@ export function SocialCalendarApp() {
             ) : null}
 
             {activeView === "listening" ? (
-              <div className="space-y-4">
-                <AccountResearchPanel
-                  apiKey={data.aiIntegration.scrapeCreatorsApiKey ?? ""}
-                  findings={data.accountFindings ?? []}
-                  onDeleteFinding={deleteAccountFinding}
-                  onFindingsChange={(accountFindings) =>
-                    updateWorkspace((current) => ({ ...current, accountFindings }))
-                  }
-                />
-                <SocialListeningPanel
-                  data={data}
-                  onDeleteListeningResult={deleteListeningResult}
-                  onListeningResultsChange={(listeningResults) =>
-                    updateWorkspace((current) => ({ ...current, listeningResults }))
-                  }
-                  onListeningSourcesChange={(listeningSources) =>
-                    updateWorkspace((current) => ({ ...current, listeningSources }))
-                  }
-                  onNavigate={setActiveView}
-                  onRecordUsage={recordAiUsage}
-                />
-              </div>
+              <SocialListeningWorkspace
+                data={data}
+                onAccountFindingsChange={(accountFindings) =>
+                  updateWorkspace((current) => ({ ...current, accountFindings }))
+                }
+                onDeleteAccountFinding={deleteAccountFinding}
+                onDeleteListeningResults={deleteListeningResults}
+                onListeningResultsChange={(listeningResults) =>
+                  updateWorkspace((current) => ({ ...current, listeningResults }))
+                }
+                onListeningSourcesChange={(listeningSources) =>
+                  updateWorkspace((current) => ({ ...current, listeningSources }))
+                }
+                onNavigate={setActiveView}
+                onRecordUsage={recordAiUsage}
+              />
             ) : null}
 
             {activeView === "signals" ? (
@@ -4213,807 +4209,6 @@ function acceptedTrendLines(trendInsights: TrendInsight[]): string[] {
   return trendInsights
     .filter((trend) => trend.status === "accepted")
     .map((trend) => `${trend.title}. Suggested angle: ${trend.contentAngle}`);
-}
-
-// Social Listening (Module D3). Split out of TrendRadarPanel and given its own
-// top-level screen: it had grown past being a tab on somebody else's panel, and
-// burying a source picker, a running search and an evidence list behind Market
-// Intelligence made it hard to find. Nothing about the data moved. Every
-// consumer of listeningResults reads it off the workspace document, so this is
-// a display-only relocation.
-function SocialListeningPanel({
-  data,
-  onDeleteListeningResult,
-  onListeningResultsChange,
-  onListeningSourcesChange,
-  onNavigate,
-  onRecordUsage,
-}: {
-  data: MarketingWorkspaceData;
-  onDeleteListeningResult: (id: string, topic: string) => void;
-  onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
-  onListeningSourcesChange: (listeningSources: string[]) => void;
-  onNavigate: (view: ViewId) => void;
-  onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
-}) {
-  const [listeningTopic, setListeningTopic] = useState("");
-  const [listeningType, setListeningType] = useState<ListeningAnalysisType>("quick");
-  const [listeningRecency, setListeningRecency] =
-    useState<ListeningRecency>(DEFAULT_LISTENING_RECENCY);
-  const [listening, setListening] = useState(false);
-  const [listeningError, setListeningError] = useState("");
-  const [listeningElapsed, setListeningElapsed] = useState(0);
-  // Held so Cancel can abort the in-flight request. Aborting is client-side
-  // only: the server keeps running its subprocesses to completion and its
-  // reply is discarded. Killing them mid-flight would mean tracking each run
-  // server-side, which is a lot of machinery for a button that is really about
-  // letting someone stop waiting and change the topic.
-  const listeningAbortRef = useRef<AbortController | null>(null);
-  // Set by Cancel so a multi-topic Discover run stops after the current search
-  // instead of carrying on through the rest of the list.
-  const cancelledRef = useRef(false);
-
-  // Discover state: which derived topics are ticked, and how far a run has
-  // got. Progress is a real count of finished searches, not a percentage.
-  const discoveryTopics = suggestDiscoveryTopics(data);
-  const [discoverPicked, setDiscoverPicked] = useState<string[]>(() =>
-    suggestDiscoveryTopics(data)
-      .slice(0, DISCOVERY_DEFAULT_SELECTION)
-      .map((entry) => entry.id),
-  );
-  const [discoverProgress, setDiscoverProgress] = useState<{
-    done: number;
-    total: number;
-  } | null>(null);
-  const [discoverOpen, setDiscoverOpen] = useState(false);
-  // Off by default. Dismissed findings stay in the workspace as audit records
-  // for the approvals log; this only decides whether they are listed here.
-  // Local state on purpose, so every visit starts from the tidy view.
-  const [showDismissedListening, setShowDismissedListening] = useState(false);
-
-  // A search fetches real posts from several sources before any analysis
-  // starts, so a minute or more of apparently nothing is normal. Counting up
-  // is honest about progress in a way a fake percentage would not be: the
-  // sources do not report how far along they are.
-  useEffect(() => {
-    if (!listening) {
-      setListeningElapsed(0);
-      return;
-    }
-
-    const startedAt = Date.now();
-    const timer = setInterval(() => {
-      setListeningElapsed(Math.round((Date.now() - startedAt) / 1000));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [listening]);
-
-  const liveAi = isLiveAiEnabled(data.aiIntegration);
-
-  // Dismissed findings are kept as records, so the list only grows. Filtering
-  // them out of the view is a display choice; nothing is deleted and the
-  // approvals log entry for the dismissal is untouched.
-  const dismissedListeningCount = data.listeningResults.filter(
-    (result) => result.status === "dismissed",
-  ).length;
-  const shownListeningResults = showDismissedListening
-    ? data.listeningResults
-    : data.listeningResults.filter((result) => result.status !== "dismissed");
-
-  const availableSources = availableListeningSources(data.aiIntegration);
-  const selectedSources = resolveListeningSources(
-    data.listeningSources,
-    availableSources,
-  );
-
-  function toggleSource(id: ListeningSourceId) {
-    onListeningSourcesChange(
-      selectedSources.includes(id)
-        ? selectedSources.filter((current) => current !== id)
-        : [...selectedSources, id],
-    );
-  }
-
-  // One search. Split out of runListening so Discover can run the same code
-  // path per topic instead of a second, slightly different copy of it: a
-  // Discover result must be identical in every way to one the manager typed,
-  // or the two would drift and only one of them would keep getting fixes.
-  // Returns the entry rather than saving it, so a multi-topic run can save
-  // once at the end instead of racing itself through stale props.
-  async function searchTopic(topic: string): Promise<ListeningResult | null> {
-    const controller = new AbortController();
-    listeningAbortRef.current = controller;
-
-    try {
-      const response = await fetch(apiUrl("/api/social-listening"), {
-        method: "POST",
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey: data.aiIntegration.apiKey,
-          youtubeApiKey: data.aiIntegration.youtubeApiKey ?? "",
-          scrapeCreatorsApiKey: data.aiIntegration.scrapeCreatorsApiKey ?? "",
-          sources: selectedSources,
-          recency: listeningRecency,
-          model: resolveModelForTask(data.aiIntegration, "analysis"),
-          searchModel: resolveModelForTask(data.aiIntegration, "utility"),
-          topic,
-          analysisType: listeningType,
-        }),
-      });
-      // Not response.json(): a search that runs past the reverse proxy's
-      // timeout comes back as an HTML gateway error page, and json() turns that
-      // into "Unexpected token '<'", which tells the manager nothing. This
-      // reports the real status instead.
-      const result = await readJsonResponse<
-        | {
-            ok: true;
-            insight: string;
-            quotes: Array<{ text: string; source: string; url: string }>;
-            sourcesCovered: string;
-            dateRange: string;
-            patterns?: ListeningResult["patterns"];
-            recency?: string;
-            olderPostsDropped?: number;
-            usage?: OpenAiUsage;
-            model?: string;
-          }
-        | { ok: false; error: string }
-      >(
-        response,
-        "complete the search",
-        "Searching every source at once can run past the time limit. Try a narrower topic, or search again.",
-      );
-
-      if (!result.ok) {
-        setListeningError(result.error);
-        return null;
-      }
-
-      const entry: ListeningResult = {
-        id: `listen-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
-        topic,
-        analysisType: listeningType,
-        insight: result.insight,
-        quotes: result.quotes,
-        sourcesCovered: result.sourcesCovered,
-        dateRange: result.dateRange,
-        model: result.model ?? "unknown",
-        generatedAt: new Date().toISOString(),
-        status: "new",
-        patterns: result.patterns,
-        recency: result.recency,
-      };
-
-      if (result.usage) {
-        onRecordUsage("Social listening", result.model ?? "unknown", result.usage);
-      }
-
-      return entry;
-    } catch (error) {
-      // A cancel is a choice, not a failure, so it must not read like one.
-      if (error instanceof DOMException && error.name === "AbortError") {
-        setListeningError(
-          "Search cancelled. The server may still finish that run in the background; its result is discarded.",
-        );
-        return null;
-      }
-
-      setListeningError(error instanceof Error ? error.message : String(error));
-      return null;
-    } finally {
-      listeningAbortRef.current = null;
-    }
-  }
-
-  function saveResults(entries: ListeningResult[]) {
-    if (entries.length === 0) {
-      return;
-    }
-
-    onListeningResultsChange([...entries, ...data.listeningResults].slice(0, 20));
-  }
-
-  // One search from a known term. Shared by the topic box and by Trending's
-  // "Research this", so a trending tag goes through exactly the same path as a
-  // typed topic rather than a near-copy of it.
-  async function runListeningFor(topic: string) {
-    if (selectedSources.length === 0) {
-      setListeningError("Pick at least one source to search.");
-      return;
-    }
-
-    setListening(true);
-    setListeningError("");
-
-    try {
-      const entry = await searchTopic(topic);
-      saveResults(entry ? [entry] : []);
-    } finally {
-      setListening(false);
-    }
-  }
-
-  async function runListening() {
-    if (!listeningTopic.trim()) {
-      setListeningError("Enter a topic first, or pick one of the suggested topics.");
-      return;
-    }
-
-    // Unticking everything and then getting everything would be a confusing
-    // thing to do to someone, so an empty selection stops here rather than
-    // quietly falling back to searching the lot.
-    await runListeningFor(listeningTopic.trim());
-  }
-
-  // Discover: run the picked topics one after another through the same search.
-  // Sequential on purpose. Each search already fans out across every ticked
-  // source and the server has a per-run timeout budget, so firing several at
-  // once is the reliable way to make all of them time out together.
-  async function runDiscover(topics: string[]) {
-    if (topics.length === 0) {
-      setListeningError("Pick at least one topic to discover.");
-      return;
-    }
-
-    if (selectedSources.length === 0) {
-      setListeningError("Pick at least one source to search.");
-      return;
-    }
-
-    setListening(true);
-    setListeningError("");
-    setDiscoverProgress({ done: 0, total: topics.length });
-
-    const found: ListeningResult[] = [];
-
-    try {
-      for (const [index, topic] of topics.entries()) {
-        const entry = await searchTopic(topic);
-
-        if (entry) {
-          found.push(entry);
-        }
-
-        setDiscoverProgress({ done: index + 1, total: topics.length });
-
-        // A cancel stops the whole run, not just the topic in flight, and what
-        // was already found is kept rather than thrown away.
-        if (cancelledRef.current) {
-          break;
-        }
-      }
-    } finally {
-      saveResults(found);
-      cancelledRef.current = false;
-      setDiscoverProgress(null);
-      setListening(false);
-    }
-  }
-
-  function cancelListening() {
-    cancelledRef.current = true;
-    listeningAbortRef.current?.abort();
-  }
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <SectionTitle
-          icon={SearchCheck}
-          kicker="Listening"
-          title="Social Listening"
-          description="Real public posts from the sources you choose, read and summarised for internal research. Evidence links are always shown so every claim can be checked. Quotes are never marketing copy."
-        />
-        {!liveAi ? (
-          <p className="text-xs leading-5 text-muted-foreground">
-            Connect OpenAI in Settings to run social listening.
-          </p>
-        ) : null}
-      </CardHeader>
-      <CardContent className="space-y-3">
-          <>
-            <p className="text-xs leading-5 text-muted-foreground">
-              Live public-opinion research, powered by the open-source
-              sc-research and last30days tools (both MIT licence). Pick the
-              sources to search below: fewer sources means a faster search.
-              Quotes are research evidence for internal planning only, never marketing copy.
-            </p>
-
-            <div className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
-              <div className="min-w-[260px] flex-1">
-                <Field label="Topic">
-                  <Input
-                    placeholder="What are people discussing?"
-                    value={listeningTopic}
-                    onChange={(event) => setListeningTopic(event.target.value)}
-                  />
-                </Field>
-              </div>
-              <div className="min-w-[150px]">
-                <Field label="Posted within">
-                  <NativeSelect
-                    onChange={(event) =>
-                      setListeningRecency(event.target.value as ListeningRecency)
-                    }
-                    value={listeningRecency}
-                  >
-                    {LISTENING_RECENCY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </Field>
-              </div>
-              <div className="min-w-[180px]">
-                <Field label="Analysis type">
-                  <NativeSelect
-                    value={listeningType}
-                    onChange={(event) =>
-                      setListeningType(event.target.value as ListeningAnalysisType)
-                    }
-                  >
-                    {LISTENING_ANALYSIS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </Field>
-              </div>
-              <Button
-                disabled={!liveAi || listening}
-                onClick={() => void runListening()}
-                size="sm"
-                type="button"
-              >
-                <SearchCheck className="h-4 w-4" />
-                {listening ? "Researching" : "Run listening research"}
-              </Button>
-
-              {listening ? (
-                <>
-                  <Button onClick={cancelListening} size="sm" type="button" variant="outline">
-                    Cancel
-                  </Button>
-                  {/* No percentage: none of the sources report progress, so a
-                      bar would be invented. A live count of seconds against the
-                      named sources is honest and still tells you it is alive. */}
-                  <div
-                    aria-live="polite"
-                    className="flex w-full items-center gap-2 text-xs leading-5 text-muted-foreground"
-                  >
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>
-                      Searching {listeningSourceLabels(selectedSources).join(", ")}
-                      {"... "}
-                      {listeningElapsed}s elapsed. Fetching real posts takes a
-                      minute or two before the analysis starts.
-                    </span>
-                  </div>
-                </>
-              ) : null}
-
-              <div className="w-full border-t pt-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-medium uppercase text-muted-foreground">
-                    Sources to search
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      className="text-xs underline underline-offset-2 text-muted-foreground hover:text-foreground"
-                      onClick={() => onListeningSourcesChange([...availableSources])}
-                      type="button"
-                    >
-                      All
-                    </button>
-                    <button
-                      className="text-xs underline underline-offset-2 text-muted-foreground hover:text-foreground"
-                      onClick={() => onListeningSourcesChange([])}
-                      type="button"
-                    >
-                      None
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {LISTENING_SOURCES.map((option) => {
-                    // A source whose key is missing stays visible but
-                    // untickable, with the reason on it. Hiding it would leave
-                    // the manager wondering why TikTok is not on the list.
-                    const usable = availableSources.includes(option.id);
-                    const active = usable && selectedSources.includes(option.id);
-
-                    return (
-                      <button
-                        className={cn(
-                          "rounded-full border px-3 py-1 text-xs font-medium transition",
-                          !usable && "cursor-not-allowed border-dashed opacity-50",
-                          usable && active && "border-primary bg-primary text-primary-foreground",
-                          usable && !active && "hover:bg-muted",
-                        )}
-                        disabled={!usable}
-                        key={option.id}
-                        onClick={() => toggleSource(option.id)}
-                        title={usable ? undefined : option.missingKeyReason}
-                        type="button"
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {selectedSources.length === 0 ? (
-                  <p className="mt-2 text-xs leading-5 text-warning-foreground">
-                    Pick at least one source to search.
-                  </p>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTED_LISTENING_TOPICS.map((topic) => (
-                <Button
-                  key={topic}
-                  onClick={() => setListeningTopic(topic)}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {topic}
-                </Button>
-              ))}
-            </div>
-
-            {/* Trending now sits above Discover because it answers the
-                earlier question: Discover asks "more about what we already
-                know", this asks "what is moving that we have not thought of".
-                A picked tag drops into the box above and runs the same search
-                everything else here runs. */}
-            <TrendingNowPanel
-              busy={listening}
-              onResearch={(topic) => {
-                setListeningTopic(topic);
-                void runListeningFor(topic);
-              }}
-              scrapeCreatorsApiKey={data.aiIntegration.scrapeCreatorsApiKey ?? ""}
-            />
-
-            {/* Discover. Not a separate engine: it runs exactly the search
-                above, once per picked topic, with the terms read out of the
-                workspace so nobody has to think of them first. */}
-            <div className="rounded-lg border bg-muted/20 p-3">
-              <button
-                className="flex w-full items-center justify-between gap-2 text-left"
-                onClick={() => setDiscoverOpen(!discoverOpen)}
-                type="button"
-              >
-                <span className="text-xs font-medium uppercase text-muted-foreground">
-                  Discover: not sure what to search?
-                </span>
-                <ChevronDown
-                  className={cn("h-4 w-4 transition", discoverOpen && "rotate-180")}
-                />
-              </button>
-
-              {discoverOpen ? (
-                <div className="mt-3 space-y-3">
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    These topics are read from your own courses, audience
-                    concerns and competitors. Nothing here is invented, and
-                    nothing runs until you press the button. Each ticked topic
-                    is one full search across the sources and window above, so
-                    picking four means four searches and four times the credits
-                    on the paid sources.
-                  </p>
-
-                  {discoveryTopics.length === 0 ? (
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Nothing to suggest yet. Add a course, an audience or a
-                      competitor and topics appear here.
-                    </p>
-                  ) : (
-                    <div className="space-y-1">
-                      {discoveryTopics.map((entry) => (
-                        <label
-                          className="flex items-start gap-2 text-xs leading-5"
-                          key={entry.id}
-                        >
-                          <input
-                            checked={discoverPicked.includes(entry.id)}
-                            className="mt-1"
-                            onChange={() =>
-                              setDiscoverPicked(
-                                discoverPicked.includes(entry.id)
-                                  ? discoverPicked.filter((id) => id !== entry.id)
-                                  : [...discoverPicked, entry.id],
-                              )
-                            }
-                            type="checkbox"
-                          />
-                          <span>
-                            {entry.topic}
-                            <span className="ml-2 text-muted-foreground">{entry.why}</span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      disabled={!liveAi || listening || discoverPicked.length === 0}
-                      onClick={() =>
-                        void runDiscover(
-                          discoveryTopics
-                            .filter((entry) => discoverPicked.includes(entry.id))
-                            .map((entry) => entry.topic),
-                        )
-                      }
-                      size="sm"
-                      type="button"
-                    >
-                      <SearchCheck className="h-4 w-4" />
-                      Run {discoverPicked.length}{" "}
-                      {discoverPicked.length === 1 ? "search" : "searches"}
-                    </Button>
-                    {discoverProgress ? (
-                      <span aria-live="polite" className="text-xs text-muted-foreground">
-                        {discoverProgress.done} of {discoverProgress.total} finished.
-                        Cancel stops after the current one and keeps what it found.
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {listeningError ? (
-              <div className="rounded-md border border-warning-border bg-warning p-3 text-xs leading-5 text-warning-foreground">
-                {listeningError}
-              </div>
-            ) : null}
-
-            {dismissedListeningCount > 0 ? (
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  checked={showDismissedListening}
-                  onChange={(event) => setShowDismissedListening(event.target.checked)}
-                  type="checkbox"
-                />
-                Show {dismissedListeningCount} archived{" "}
-                {dismissedListeningCount === 1 ? "finding" : "findings"}. They stay
-                in the approvals log either way; this only changes what is listed
-                here.
-              </label>
-            ) : null}
-
-            {shownListeningResults.length === 0 ? (
-              <p className="text-sm leading-6 text-muted-foreground">
-                {data.listeningResults.length === 0
-                  ? "No listening research yet. Runs can take a minute or two because the tool fetches real posts before the analysis starts."
-                  : "Every finding here has been archived. Tick the box above to see them."}
-              </p>
-            ) : (
-              shownListeningResults.map((result) => (
-                <div
-                  className={cn(
-                    "space-y-2 rounded-lg border p-3",
-                    result.status === "dismissed" && "border-dashed opacity-60",
-                  )}
-                  key={result.id}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <p className="text-sm font-semibold">
-                      {result.topic}
-                      <span className="ml-2 text-xs font-normal text-muted-foreground">
-                        {LISTENING_ANALYSIS_OPTIONS.find(
-                          (option) => option.value === result.analysisType,
-                        )?.label ?? result.analysisType}
-                      </span>
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{result.dateRange}</Badge>
-                      <Badge
-                        variant={
-                          result.status === "accepted"
-                            ? "success"
-                            : result.status === "dismissed"
-                              ? "secondary"
-                              : "warning"
-                        }
-                      >
-                        {result.status === "accepted"
-                          ? "Accepted"
-                          : result.status === "dismissed"
-                            ? "Archived"
-                            : "New"}
-                      </Badge>
-                    </div>
-                  </div>
-                  <p className="whitespace-pre-wrap text-sm leading-6">{result.insight}</p>
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase text-muted-foreground">
-                      Evidence: real posts this rests on
-                    </p>
-                    {result.quotes.map((quote, index) => (
-                      <div
-                        className="rounded-md border bg-muted/20 p-2 text-xs leading-5"
-                        key={`${result.id}-quote-${index}`}
-                      >
-                        <p className="italic">&ldquo;{quote.text}&rdquo;</p>
-                        <p className="mt-1 text-muted-foreground">
-                          {quote.source}
-                          {" / "}
-                          <a
-                            className="underline underline-offset-2"
-                            href={quote.url}
-                            rel="noreferrer"
-                            target="_blank"
-                          >
-                            view post
-                          </a>
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                  {result.patterns && result.patterns.hashtags.length > 0 ? (
-                    <div className="rounded-md border bg-muted/20 p-2">
-                      <p className="text-xs font-medium uppercase text-muted-foreground">
-                        Patterns in our own search sample
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Counted across the {result.patterns.postCount} posts this
-                        search returned. This is our sample, not platform-wide
-                        trend data, and it is far too small to say what is
-                        trending on any platform.
-                        {result.patterns.undated > 0
-                          ? ` ${result.patterns.undated} of them carried no date, so they were kept rather than assumed to be outside the window.`
-                          : ""}
-                      </p>
-                      <p className="mt-2 text-xs leading-5">
-                        <span className="font-medium">Tags seen more than once:</span>{" "}
-                        {result.patterns.hashtags
-                          .map((tag) => `#${tag.tag} (${tag.count})`)
-                          .join(", ")}
-                      </p>
-                      {result.patterns.sourceMix.length > 0 ? (
-                        <p className="mt-1 text-xs leading-5">
-                          <span className="font-medium">Where they came from:</span>{" "}
-                          {result.patterns.sourceMix
-                            .map((entry) => `${entry.source} (${entry.count})`)
-                            .join(", ")}
-                        </p>
-                      ) : null}
-                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                        Use these to spot themes and formats worth adapting.
-                        Recreating a specific post is not the point and is not
-                        something this tool will help with.
-                      </p>
-                    </div>
-                  ) : null}
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    Covered: {result.sourcesCovered}. Analysed by {result.model} on{" "}
-                    {formatDateTime(result.generatedAt)}. Research
-                    evidence only; do not copy quotes into marketing content.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      disabled={result.status === "accepted"}
-                      onClick={() =>
-                        onListeningResultsChange(
-                          data.listeningResults.map((row) =>
-                            row.id === result.id
-                              ? { ...row, status: "accepted" }
-                              : row,
-                          ),
-                        )
-                      }
-                      size="sm"
-                      type="button"
-                    >
-                      {result.status === "accepted"
-                        ? "Accepted as strategy input"
-                        : "Accept as strategy input"}
-                    </Button>
-                    <Button
-                      disabled={result.status === "dismissed"}
-                      onClick={() =>
-                        onListeningResultsChange(
-                          data.listeningResults.map((row) =>
-                            row.id === result.id
-                              ? { ...row, status: "dismissed" }
-                              : row,
-                          ),
-                        )
-                      }
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      Archive
-                    </Button>
-                  </div>
-
-                  {/* Delete is deliberately not beside Archive and never on an
-                      active finding: archive first, then delete from the
-                      revealed archive. Two deliberate steps, and the
-                      destructive button is never adjacent to the everyday one. */}
-                  {result.status === "dismissed" ? (
-                    <div className="flex flex-wrap items-center gap-2 border-t pt-2">
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        Archived. The approvals log still records this decision.
-                      </p>
-                      <Button
-                        className="text-destructive hover:bg-destructive/10"
-                        onClick={() => onDeleteListeningResult(result.id, result.topic)}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Delete permanently
-                      </Button>
-                    </div>
-                  ) : null}
-
-                  {result.status === "accepted" ? (
-                    // The status badge and the button label both already
-                    // changed on accept, but both are easy to miss, so the
-                    // click read as doing nothing. This states plainly what
-                    // just happened and offers a way to go and see it.
-                    <div className="rounded-md border border-success-border bg-success p-2">
-                      <p className="text-xs font-medium leading-5 text-success-foreground">
-                        Accepted. This finding now feeds Strategy Brief
-                        generation, Campaign suggestions, and the Platform
-                        Intelligence playbook as internal research. Quotes are
-                        never used as copy.
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button
-                          onClick={() => onNavigate("brief")}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          Strategy Brief
-                        </Button>
-                        <Button
-                          onClick={() => onNavigate("campaigns")}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          Campaigns
-                        </Button>
-                        <Button
-                          onClick={() => onNavigate("platformIntel")}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          Platform Intelligence
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Accepted findings feed Strategy Brief generation, Campaign
-                      suggestions, and the Platform Intelligence playbook as
-                      internal research signals. Quotes are never used as copy.
-                    </p>
-                  )}
-                </div>
-              ))
-            )}
-          </>
-      </CardContent>
-    </Card>
-  );
 }
 
 function TrendRadarPanel({
