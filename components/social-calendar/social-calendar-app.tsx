@@ -4201,6 +4201,10 @@ function SocialListeningPanel({
     total: number;
   } | null>(null);
   const [discoverOpen, setDiscoverOpen] = useState(false);
+  // Off by default. Dismissed findings stay in the workspace as audit records
+  // for the approvals log; this only decides whether they are listed here.
+  // Local state on purpose, so every visit starts from the tidy view.
+  const [showDismissedListening, setShowDismissedListening] = useState(false);
 
   // A search fetches real posts from several sources before any analysis
   // starts, so a minute or more of apparently nothing is normal. Counting up
@@ -4221,6 +4225,16 @@ function SocialListeningPanel({
   }, [listening]);
 
   const liveAi = isLiveAiEnabled(data.aiIntegration);
+
+  // Dismissed findings are kept as records, so the list only grows. Filtering
+  // them out of the view is a display choice; nothing is deleted and the
+  // approvals log entry for the dismissal is untouched.
+  const dismissedListeningCount = data.listeningResults.filter(
+    (result) => result.status === "dismissed",
+  ).length;
+  const shownListeningResults = showDismissedListening
+    ? data.listeningResults
+    : data.listeningResults.filter((result) => result.status !== "dismissed");
 
   const availableSources = availableListeningSources(data.aiIntegration);
   const selectedSources = resolveListeningSources(
@@ -4679,14 +4693,35 @@ function SocialListeningPanel({
               </div>
             ) : null}
 
-            {data.listeningResults.length === 0 ? (
+            {dismissedListeningCount > 0 ? (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  checked={showDismissedListening}
+                  onChange={(event) => setShowDismissedListening(event.target.checked)}
+                  type="checkbox"
+                />
+                Show {dismissedListeningCount} dismissed{" "}
+                {dismissedListeningCount === 1 ? "finding" : "findings"}. They stay
+                in the approvals log either way; this only changes what is listed
+                here.
+              </label>
+            ) : null}
+
+            {shownListeningResults.length === 0 ? (
               <p className="text-sm leading-6 text-muted-foreground">
-                No listening research yet. Runs can take a minute or two because
-                the tool fetches real posts before the analysis starts.
+                {data.listeningResults.length === 0
+                  ? "No listening research yet. Runs can take a minute or two because the tool fetches real posts before the analysis starts."
+                  : "Every finding here has been dismissed. Tick the box above to see them."}
               </p>
             ) : (
-              data.listeningResults.map((result) => (
-                <div className="space-y-2 rounded-lg border p-3" key={result.id}>
+              shownListeningResults.map((result) => (
+                <div
+                  className={cn(
+                    "space-y-2 rounded-lg border p-3",
+                    result.status === "dismissed" && "border-dashed opacity-60",
+                  )}
+                  key={result.id}
+                >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="text-sm font-semibold">
                       {result.topic}

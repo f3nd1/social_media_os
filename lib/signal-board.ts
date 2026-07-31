@@ -78,6 +78,9 @@ export type Signal = {
   id: string;
   module: SignalModule;
   view: SignalView;
+  // Kept on the projection so the board can grey a dismissed row out rather
+  // than making the caller re-look it up in the source collection.
+  status: "accepted" | "dismissed";
   title: string;
   detail: string;
   // When the AI produced it, or when the lookup was captured. Deliberately NOT
@@ -98,7 +101,13 @@ export type Signal = {
 
 function signal(
   module: SignalModule,
-  row: { id: string; generatedAt: string; source: string; dateLabel?: "Generated" | "Saved" },
+  row: {
+    id: string;
+    generatedAt: string;
+    source: string;
+    dateLabel?: "Generated" | "Saved";
+    status?: string;
+  },
   title: string,
   detail: string,
 ): Signal {
@@ -108,6 +117,7 @@ function signal(
     id: `${module}-${row.id}`,
     module,
     view: SIGNAL_HOME_VIEW[module],
+    status: row.status === "dismissed" ? "dismissed" : "accepted",
     title,
     detail,
     generatedAt: row.generatedAt,
@@ -119,18 +129,33 @@ function signal(
 
 // Every collection names its provenance and timestamp fields differently, so
 // they are read into the common pair here rather than in four places.
-function ai(row: { id: string; model: string; generatedAt: string }) {
-  return { id: row.id, source: row.model, generatedAt: row.generatedAt };
+function ai(row: { id: string; model: string; generatedAt: string; status?: string }) {
+  return {
+    id: row.id,
+    source: row.model,
+    generatedAt: row.generatedAt,
+    status: row.status,
+  };
 }
 
-export function collectSignals(data: MarketingWorkspaceData): Signal[] {
+// Dismissed findings are hidden by default and shown only when the board asks
+// for them. They are never deleted: the approvals log is derived by diffing
+// the workspace, so a removed row would take its own audit trail with it. This
+// is a display filter over records that stay exactly as they are.
+export function collectSignals(
+  data: MarketingWorkspaceData,
+  includeDismissed = false,
+): Signal[] {
+  const keep = (status: string | undefined) =>
+    status === "accepted" || (includeDismissed && status === "dismissed");
+
   const signals: Signal[] = [
     ...(data.auditInsights ?? [])
-      .filter((row) => row.status === "accepted")
+      .filter((row) => keep(row.status))
       .map((row) => signal("Platform Audit", ai(row), row.platform, row.recommendation)),
 
     ...(data.competitorInsights ?? [])
-      .filter((row) => row.status === "accepted")
+      .filter((row) => keep(row.status))
       .map((row) =>
         signal(
           "Competitor Intelligence",
@@ -141,20 +166,20 @@ export function collectSignals(data: MarketingWorkspaceData): Signal[] {
       ),
 
     ...(data.trendInsights ?? [])
-      .filter((row) => row.status === "accepted")
+      .filter((row) => keep(row.status))
       .map((row) => signal("Trend Radar", ai(row), row.title, row.whyItMatters)),
 
     // Listening rows start at "new", not "draft", and status is optional on
     // older saves. Only an explicit "accepted" counts, so an old save never
     // silently promotes itself onto the board.
     ...(data.listeningResults ?? [])
-      .filter((row) => row.status === "accepted")
+      .filter((row) => keep(row.status))
       .map((row) => signal("Social Listening", ai(row), row.topic, row.insight)),
 
     // Account Research findings are looked up rather than generated, so the
     // provenance is the API name and the timestamp is when it was saved.
     ...(data.accountFindings ?? [])
-      .filter((row) => row.status === "accepted")
+      .filter((row) => keep(row.status))
       .map((row) =>
         signal(
           "Account Research",
@@ -163,6 +188,7 @@ export function collectSignals(data: MarketingWorkspaceData): Signal[] {
             source: row.source,
             generatedAt: row.savedAt,
             dateLabel: "Saved",
+            status: row.status,
           },
           row.subject,
           row.summary,

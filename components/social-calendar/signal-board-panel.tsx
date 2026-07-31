@@ -22,7 +22,7 @@ import {
   type SignalView,
 } from "@/lib/signal-board";
 import type { MarketingWorkspaceData } from "@/lib/social-calendar-data";
-import { formatDisplayDate } from "@/lib/utils";
+import { cn, formatDisplayDate } from "@/lib/utils";
 
 const FILTERS: Array<{ id: SignalModule | "all"; label: string }> = [
   { id: "all", label: "All modules" },
@@ -44,8 +44,15 @@ export function SignalBoardPanel({
   onNavigate: (view: SignalView | "reports") => void;
 }) {
   const [filter, setFilter] = useState<SignalModule | "all">("all");
+  // Off by default: a dismissed finding is kept as an audit record, not as
+  // something the manager still needs to look at. Deliberately not persisted,
+  // so every visit starts from the uncluttered view.
+  const [showDismissed, setShowDismissed] = useState(false);
 
-  const signals = useMemo(() => collectSignals(data), [data]);
+  const signals = useMemo(
+    () => collectSignals(data, showDismissed),
+    [data, showDismissed],
+  );
   const pending = useMemo(() => pendingByModule(data), [data]);
 
   const shown = filter === "all" ? signals : signals.filter((row) => row.module === filter);
@@ -66,6 +73,15 @@ export function SignalBoardPanel({
             reach shown on each card means the finding is available to those
             generators the next time they run, not that they have run.
           </p>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              checked={showDismissed}
+              onChange={(event) => setShowDismissed(event.target.checked)}
+              type="checkbox"
+            />
+            Show dismissed findings. They are kept as audit records either way;
+            this only changes what is listed here.
+          </label>
         </CardHeader>
 
         <CardContent className="space-y-3">
@@ -116,22 +132,35 @@ export function SignalBoardPanel({
             <p className="rounded-md border border-dashed p-4 text-xs leading-5 text-muted-foreground">
               {signals.length === 0
                 ? "Nothing accepted yet. Run a platform audit, competitor observation, trend scan or listening search, then accept what is worth keeping and it appears here."
-                : "No accepted findings from this module yet."}
+                : "Nothing from this module yet."}
             </p>
           ) : null}
 
           <div className="space-y-2">
             {shown.map((row) => (
-              <div className="rounded-lg border p-3" key={row.id}>
+              <div
+                className={cn(
+                  "rounded-lg border p-3",
+                  row.status === "dismissed" && "border-dashed opacity-60",
+                )}
+                key={row.id}
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{row.module}</Badge>
                   <p className="text-sm font-medium">{row.title}</p>
+                  {row.status === "dismissed" ? (
+                    <Badge variant="secondary">Dismissed</Badge>
+                  ) : null}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   {row.detail}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>Available to: {row.reaches.join(", ")}</span>
+                  <span>
+                    {row.status === "dismissed"
+                      ? "Dismissed, feeds nothing"
+                      : `Available to: ${row.reaches.join(", ")}`}
+                  </span>
                   <span aria-hidden>·</span>
                   <span>{row.dateLabel} {formatDisplayDate(row.generatedAt)}</span>
                   {row.source ? (

@@ -87,6 +87,34 @@ assert.ok(
   "a dismissed account finding is off the board",
 );
 
+// Hiding dismissed findings is a display filter, nothing more: asking for them
+// brings back the same records, still marked dismissed, and the underlying
+// collections are never touched.
+const withDismissed = collectSignals(data, true);
+assert.ok(
+  withDismissed.some((row) => row.title.includes("Removed Co")),
+  "asking for dismissed findings shows them",
+);
+assert.ok(
+  withDismissed.some((row) => row.module === "Trend Radar"),
+  "a dismissed trend comes back too, not just account findings",
+);
+assert.ok(
+  withDismissed
+    .filter((row) => row.title.includes("Removed Co"))
+    .every((row) => row.status === "dismissed"),
+  "a revealed finding is still marked dismissed, so the board can grey it",
+);
+assert.ok(
+  signals.every((row) => row.status === "accepted"),
+  "the default view is accepted findings only",
+);
+assert.equal(
+  withDismissed.length,
+  signals.length + 2,
+  "revealing adds exactly the two dismissed rows in the fixture",
+);
+
 // A saved follower count is a reading, not something an AI generated, and the
 // board has to say which it is.
 assert.equal(
