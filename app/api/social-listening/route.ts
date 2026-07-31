@@ -80,15 +80,10 @@ type ListeningDraft = {
 
 function runResearchCli({
   topic,
-  dateRange,
   cwd,
   apiKey,
 }: {
   topic: string;
-  // sc-research accepts --from and --to as plain YYYY-MM-DD and turns them
-  // into Reddit's own period parameter, so this leg genuinely narrows at the
-  // source instead of fetching wide and discarding afterwards.
-  dateRange: { from: string; to: string };
   cwd: string;
   apiKey: string;
 }): Promise<{ code: number; stderr: string }> {
@@ -102,16 +97,21 @@ function runResearchCli({
     );
     // sc-research also supports --source=x|both via an xAI key, but that leg
     // has been removed on cost grounds, so this only ever asks for Reddit now.
+    //
+    // Deliberately NOT passing --from/--to here. sc-research finds Reddit
+    // threads via an LLM web search (a best-effort topical match, not a real
+    // date-bounded query), then applies an exact client-side date filter and
+    // skips writing its output file at all if that filter leaves zero posts.
+    // Since the LLM search cannot guarantee a thread's creation date lands
+    // inside a narrow window, that exact filter was silently discarding
+    // genuinely on-topic Reddit results on almost every real search, which is
+    // why Reddit came back empty. The app already re-filters every source's
+    // posts by recency itself further down (filterPostsByRecency), leniently
+    // and after merging, so letting sc-research return whatever it finds and
+    // filtering once, here, is both simpler and the only version that works.
     const child = spawn(
       process.execPath,
-      [
-        cliPath,
-        "research",
-        topic,
-        "--source=reddit",
-        `--from=${dateRange.from}`,
-        `--to=${dateRange.to}`,
-      ],
+      [cliPath, "research", topic, "--source=reddit"],
       {
         cwd,
         env: {
@@ -680,7 +680,7 @@ export async function POST(request: Request) {
     // waits on the web search, the YouTube fetch, or a last30days run.
     const [run, youtubePosts, last30days, webSearch, instagramHashtagPosts] = await Promise.all([
       source
-        ? runResearchCli({ topic, dateRange, cwd: workDir, apiKey })
+        ? runResearchCli({ topic, cwd: workDir, apiKey })
         : Promise.resolve({ code: 0, stderr: "" }),
       wantsYouTube
         ? fetchYouTubeListeningPosts(topic, youtubeApiKey)
@@ -858,8 +858,11 @@ export async function POST(request: Request) {
       .filter(Boolean)
       .join(", ");
 
-    const from = reddit?.from ?? "";
-    const to = reddit?.to ?? "";
+    // sc-research is no longer told a date range (see runResearchCli), so its
+    // own echoed dateRange no longer means anything: the window actually
+    // applied to every source, uniformly, is the app's own recency filter.
+    const from = dateRange.from;
+    const to = dateRange.to;
 
     return NextResponse.json({
       ok: true,
