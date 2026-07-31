@@ -54,6 +54,7 @@ export function deriveApprovalLogEntries(
   const decidedBy = next.approverName.trim() || "Not named";
   const entries: Array<Omit<ApprovalLogEntry, "id" | "decidedBy" | "decidedAt">> = [];
 
+
   // Strategy brief.
   if (!previous.brief.approved && next.brief.approved) {
     entries.push({
@@ -196,6 +197,7 @@ export function deriveApprovalLogEntries(
       module: "Social Listening",
       subject: `${row ? row.topic.slice(0, 100) : change.id}${reaches}`,
       decision: change.decision,
+      sourceId: change.id,
     });
   }
 
@@ -219,6 +221,7 @@ export function deriveApprovalLogEntries(
       module: "Account Research",
       subject: `${row ? row.subject.slice(0, 100) : change.id}${reaches}`,
       decision: change.decision,
+      sourceId: change.id,
     });
   }
 
@@ -290,4 +293,38 @@ export function appendApprovalLog(
   }
 
   return [...entries, ...log].slice(0, LOG_CAP);
+}
+
+// Strip every log entry belonging to one deleted row.
+//
+// This deliberately destroys audit history. A delete here is a real delete,
+// which the owner asked for and accepted: the row goes and the record that it
+// was ever accepted or archived goes with it. Archive, not delete, is the
+// action that keeps the trail.
+//
+// Matching is by sourceId, which is stamped on entries written from now on.
+// Entries written before that field existed have no id, so they fall back to
+// an exact module-and-subject match. That fallback is exact rather than a
+// prefix test on purpose: a prefix would let one deleted topic take an
+// unrelated entry with it, and losing the wrong history is worse than leaving
+// one stale line behind.
+export function purgeApprovalsForSource(
+  log: ApprovalLogEntry[],
+  module: string,
+  sourceId: string,
+  subjects: string[],
+): ApprovalLogEntry[] {
+  const legacy = new Set(subjects);
+
+  return log.filter((entry) => {
+    if (entry.module !== module) {
+      return true;
+    }
+
+    if (entry.sourceId) {
+      return entry.sourceId !== sourceId;
+    }
+
+    return !legacy.has(entry.subject);
+  });
 }

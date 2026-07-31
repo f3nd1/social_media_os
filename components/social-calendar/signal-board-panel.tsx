@@ -79,7 +79,7 @@ export function SignalBoardPanel({
               onChange={(event) => setShowDismissed(event.target.checked)}
               type="checkbox"
             />
-            Show dismissed findings. They are kept as audit records either way;
+            Show archived findings. They are kept as audit records either way;
             this only changes what is listed here.
           </label>
         </CardHeader>
@@ -149,7 +149,7 @@ export function SignalBoardPanel({
                   <Badge variant="outline">{row.module}</Badge>
                   <p className="text-sm font-medium">{row.title}</p>
                   {row.status === "dismissed" ? (
-                    <Badge variant="secondary">Dismissed</Badge>
+                    <Badge variant="secondary">Archived</Badge>
                   ) : null}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -158,7 +158,7 @@ export function SignalBoardPanel({
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>
                     {row.status === "dismissed"
-                      ? "Dismissed, feeds nothing"
+                      ? "Archived, feeds nothing"
                       : `Available to: ${row.reaches.join(", ")}`}
                   </span>
                   <span aria-hidden>·</span>

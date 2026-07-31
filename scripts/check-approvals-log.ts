@@ -10,7 +10,10 @@
 
 import assert from "node:assert/strict";
 
-import { deriveApprovalLogEntries } from "../lib/approvals-log.ts";
+import {
+  deriveApprovalLogEntries,
+  purgeApprovalsForSource,
+} from "../lib/approvals-log.ts";
 
 const AT = "2026-07-30T09:00:00.000Z";
 
@@ -138,5 +141,51 @@ assert.ok(
 
 // Workspaces saved before account findings existed have no such field.
 assert.doesNotThrow(() => deriveApprovalLogEntries(base, base, AT));
+
+// A decision now carries the id of the row it was about, so a real delete can
+// take that row's history with it. Archive must not: only delete purges.
+assert.equal(savedEntries[0].sourceId, "f1", "an entry names the row it decided on");
+assert.equal(listening[0].sourceId, "l1");
+
+// --- purgeApprovalsForSource
+
+const log = [
+  { id: "1", module: "Social Listening", subject: "IELTS preparation", decision: "approved", decidedBy: "F", decidedAt: AT, sourceId: "l1" },
+  { id: "2", module: "Social Listening", subject: "PRC parents", decision: "approved", decidedBy: "F", decidedAt: AT, sourceId: "l2" },
+  { id: "3", module: "Account Research", subject: "TikTok @rival", decision: "approved", decidedBy: "F", decidedAt: AT, sourceId: "l1" },
+  // Written before sourceId existed.
+  { id: "4", module: "Social Listening", subject: "legacy topic", decision: "approved", decidedBy: "F", decidedAt: AT },
+  { id: "5", module: "Social Listening", subject: "another legacy", decision: "rejected", decidedBy: "F", decidedAt: AT },
+] as never as Parameters<typeof purgeApprovalsForSource>[0];
+
+const afterDelete = purgeApprovalsForSource(log, "Social Listening", "l1", []);
+assert.deepEqual(
+  afterDelete.map((e) => e.id),
+  ["2", "3", "4", "5"],
+  "only the deleted row's own entries go",
+);
+
+// Same id in a different module must survive: ids are unique per collection,
+// not across the workspace.
+assert.ok(
+  purgeApprovalsForSource(log, "Social Listening", "l1", []).some((e) => e.id === "3"),
+  "an identical id in another module is untouched",
+);
+
+// A legacy entry has no id, so it is matched on its exact subject.
+assert.deepEqual(
+  purgeApprovalsForSource(log, "Social Listening", "zz", ["legacy topic"]).map((e) => e.id),
+  ["1", "2", "3", "5"],
+);
+
+// Exact, never a prefix: deleting "legacy" must not take "legacy topic" with
+// it, because losing the wrong history is worse than leaving a stale line.
+assert.deepEqual(
+  purgeApprovalsForSource(log, "Social Listening", "zz", ["legacy"]).map((e) => e.id),
+  ["1", "2", "3", "4", "5"],
+);
+
+// Nothing matching means nothing lost.
+assert.equal(purgeApprovalsForSource(log, "Trend Radar", "l1", []).length, log.length);
 
 console.log("check-approvals-log: all assertions passed");

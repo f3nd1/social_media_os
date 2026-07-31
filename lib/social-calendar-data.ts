@@ -934,6 +934,11 @@ export type ApprovalLogEntry = {
   decision: "approved" | "rejected";
   decidedBy: string;
   decidedAt: string;
+  // The id of the row this decision was about, so a genuine delete can take
+  // the row's audit history with it. Optional: entries written before this
+  // field existed do not have one, and those fall back to matching on module
+  // and subject text. See purgeApprovalsForSource.
+  sourceId?: string;
 };
 
 // The AI weekly narrative for Reports (Module C4). Draft until approved;

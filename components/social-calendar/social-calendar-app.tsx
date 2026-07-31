@@ -149,6 +149,7 @@ import {
 import {
   appendApprovalLog,
   deriveApprovalLogEntries,
+  purgeApprovalsForSource,
 } from "@/lib/approvals-log";
 import {
   downloadApprovalsLogCsv,
@@ -271,7 +272,7 @@ import { ChangelogView } from "@/components/social-calendar/changelog-view";
 import { PaginationControls } from "@/components/social-calendar/pagination-controls";
 import { SignalBoardPanel } from "@/components/social-calendar/signal-board-panel";
 import { TrendingNowPanel } from "@/components/social-calendar/trending-now-panel";
-import { acceptedAccountFindingLines } from "@/lib/signal-board";
+import { acceptedAccountFindingLines, reachSentence } from "@/lib/signal-board";
 import {
   DISCOVERY_DEFAULT_SELECTION,
   suggestDiscoveryTopics,
@@ -655,6 +656,65 @@ export function SocialCalendarApp() {
         ? { ...next, approvalsLog: appendApprovalLog(next.approvalsLog, logEntries) }
         : next;
     });
+  }
+
+  // A real delete, not the soft archive. The row goes and every approvals-log
+  // line derived from it goes with it: that loss of audit history is the whole
+  // difference between this and Archive, so the confirmation has to say it
+  // before anything happens.
+  function confirmDestroy(what: string): boolean {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.confirm(
+      `Delete ${what} permanently?\n\n` +
+        "This also removes its entries from the approvals log, so the record of it being accepted or archived disappears too. " +
+        "This cannot be undone.\n\n" +
+        "To keep the audit trail, use Archive instead.",
+    );
+  }
+
+  function deleteListeningResult(id: string, topic: string) {
+    if (!confirmDestroy(`the listening finding "${topic}"`)) {
+      return;
+    }
+
+    updateWorkspace((current) => ({
+      ...current,
+      listeningResults: current.listeningResults.filter((row) => row.id !== id),
+      approvalsLog: purgeApprovalsForSource(
+        current.approvalsLog,
+        "Social Listening",
+        id,
+        // Legacy entries carry no id, so the exact subject strings the log
+        // would have written for this row are offered as the fallback match.
+        [
+          topic.slice(0, 100),
+          `${topic.slice(0, 100)}, available to ${reachSentence("Social Listening")}`,
+        ],
+      ),
+    }));
+  }
+
+  function deleteAccountFinding(id: string, subject: string) {
+    if (!confirmDestroy(`the saved lookup "${subject}"`)) {
+      return;
+    }
+
+    updateWorkspace((current) => ({
+      ...current,
+      accountFindings: (current.accountFindings ?? []).filter((row) => row.id !== id),
+      approvalsLog: purgeApprovalsForSource(
+        current.approvalsLog,
+        "Account Research",
+        id,
+        [
+          subject.slice(0, 100),
+          `${subject.slice(0, 100)}, available to ${reachSentence("Account Research")}`,
+        ],
+      ),
+    }));
   }
 
   function resetSampleData() {
@@ -1299,12 +1359,14 @@ export function SocialCalendarApp() {
                 <AccountResearchPanel
                   apiKey={data.aiIntegration.scrapeCreatorsApiKey ?? ""}
                   findings={data.accountFindings ?? []}
+                  onDeleteFinding={deleteAccountFinding}
                   onFindingsChange={(accountFindings) =>
                     updateWorkspace((current) => ({ ...current, accountFindings }))
                   }
                 />
                 <SocialListeningPanel
                   data={data}
+                  onDeleteListeningResult={deleteListeningResult}
                   onListeningResultsChange={(listeningResults) =>
                     updateWorkspace((current) => ({ ...current, listeningResults }))
                   }
@@ -4161,12 +4223,14 @@ function acceptedTrendLines(trendInsights: TrendInsight[]): string[] {
 // a display-only relocation.
 function SocialListeningPanel({
   data,
+  onDeleteListeningResult,
   onListeningResultsChange,
   onListeningSourcesChange,
   onNavigate,
   onRecordUsage,
 }: {
   data: MarketingWorkspaceData;
+  onDeleteListeningResult: (id: string, topic: string) => void;
   onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
   onListeningSourcesChange: (listeningSources: string[]) => void;
   onNavigate: (view: ViewId) => void;
@@ -4723,7 +4787,7 @@ function SocialListeningPanel({
                   onChange={(event) => setShowDismissedListening(event.target.checked)}
                   type="checkbox"
                 />
-                Show {dismissedListeningCount} dismissed{" "}
+                Show {dismissedListeningCount} archived{" "}
                 {dismissedListeningCount === 1 ? "finding" : "findings"}. They stay
                 in the approvals log either way; this only changes what is listed
                 here.
@@ -4734,7 +4798,7 @@ function SocialListeningPanel({
               <p className="text-sm leading-6 text-muted-foreground">
                 {data.listeningResults.length === 0
                   ? "No listening research yet. Runs can take a minute or two because the tool fetches real posts before the analysis starts."
-                  : "Every finding here has been dismissed. Tick the box above to see them."}
+                  : "Every finding here has been archived. Tick the box above to see them."}
               </p>
             ) : (
               shownListeningResults.map((result) => (
@@ -4768,7 +4832,7 @@ function SocialListeningPanel({
                         {result.status === "accepted"
                           ? "Accepted"
                           : result.status === "dismissed"
-                            ? "Dismissed"
+                            ? "Archived"
                             : "New"}
                       </Badge>
                     </div>
@@ -4873,9 +4937,32 @@ function SocialListeningPanel({
                       type="button"
                       variant="outline"
                     >
-                      Dismiss
+                      Archive
                     </Button>
                   </div>
+
+                  {/* Delete is deliberately not beside Archive and never on an
+                      active finding: archive first, then delete from the
+                      revealed archive. Two deliberate steps, and the
+                      destructive button is never adjacent to the everyday one. */}
+                  {result.status === "dismissed" ? (
+                    <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        Archived. The approvals log still records this decision.
+                      </p>
+                      <Button
+                        className="text-destructive hover:bg-destructive/10"
+                        onClick={() => onDeleteListeningResult(result.id, result.topic)}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete permanently
+                      </Button>
+                    </div>
+                  ) : null}
+
                   {result.status === "accepted" ? (
                     // The status badge and the button label both already
                     // changed on accept, but both are easy to miss, so the

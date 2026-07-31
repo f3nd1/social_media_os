@@ -82,10 +82,12 @@ function countLabel(value: number | null): string {
 export function AccountResearchPanel({
   apiKey,
   findings,
+  onDeleteFinding,
   onFindingsChange,
 }: {
   apiKey: string;
   findings: AccountFinding[];
+  onDeleteFinding: (id: string, subject: string) => void;
   onFindingsChange: (findings: AccountFinding[]) => void;
 }) {
   const [mode, setMode] = useState<Mode>("account");
@@ -102,8 +104,10 @@ export function AccountResearchPanel({
   const [creators, setCreators] = useState<CreatorResult[]>([]);
   const [comments, setComments] = useState<CommentResult[]>([]);
 
+  const [showArchived, setShowArchived] = useState(false);
   const hasKey = Boolean(apiKey.trim());
   const saved = findings.filter((finding) => finding.status === "accepted");
+  const archived = findings.filter((finding) => finding.status === "dismissed");
   const active = MODES.find((entry) => entry.id === mode);
   const needsIdentifier = mode !== "creators";
   const endpoint = ACCOUNT_ENDPOINTS[platform];
@@ -128,10 +132,10 @@ export function AccountResearchPanel({
     );
   }
 
-  // Marked dismissed rather than deleted, so the approvals log can see the
-  // decision when it diffs the workspace. A deleted row is invisible to that
-  // diff, which would lose the record of the removal.
-  function removeFinding(id: string) {
+  // Archive: marked dismissed rather than deleted, so the approvals log can
+  // see the decision when it diffs the workspace. A deleted row is invisible to
+  // that diff, which is exactly why delete is a separate, confirmed action.
+  function archiveFinding(id: string) {
     onFindingsChange(
       findings.map((finding) =>
         finding.id === id ? { ...finding, status: "dismissed" as const } : finding,
@@ -548,11 +552,11 @@ export function AccountResearchPanel({
                   <p className="text-xs font-medium">{finding.subject}</p>
                   <Button
                     className="h-6 px-2"
-                    onClick={() => removeFinding(finding.id)}
+                    onClick={() => archiveFinding(finding.id)}
                     size="sm"
                     variant="ghost"
                   >
-                    Remove
+                    Archive
                   </Button>
                 </div>
                 <p className="text-xs leading-5 text-muted-foreground">{finding.summary}</p>
@@ -566,6 +570,46 @@ export function AccountResearchPanel({
                 At the {SAVED_CAP} saved lookup limit. Saving another drops the oldest.
               </p>
             ) : null}
+          </div>
+        ) : null}
+
+        {/* The archive, and the only place a lookup can be deleted for real.
+            Archiving first is the safeguard: the destructive button never sits
+            in the list a manager works in day to day. */}
+        {archived.length > 0 ? (
+          <div className="space-y-2 rounded-lg border border-dashed p-3">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                checked={showArchived}
+                onChange={(event) => setShowArchived(event.target.checked)}
+                type="checkbox"
+              />
+              Show {archived.length} archived{" "}
+              {archived.length === 1 ? "lookup" : "lookups"}. They stay in the
+              approvals log; this only changes what is listed here.
+            </label>
+
+            {showArchived
+              ? archived.map((finding) => (
+                  <div className="rounded-md border bg-muted/20 p-2 opacity-70" key={finding.id}>
+                    <p className="text-xs font-medium">{finding.subject}</p>
+                    <p className="text-xs leading-5 text-muted-foreground">{finding.summary}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        Archived. The approvals log still records this.
+                      </p>
+                      <Button
+                        className="h-6 px-2 text-destructive hover:bg-destructive/10"
+                        onClick={() => onDeleteFinding(finding.id, finding.subject)}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        Delete permanently
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              : null}
           </div>
         ) : null}
       </CardContent>
