@@ -26,10 +26,61 @@
 
 export const SCRAPECREATORS_BASE = "https://api.scrapecreators.com";
 
-// The one market this college recruits in. Not a dropdown: a wrong country
-// here would silently return a trend list for somewhere else.
-export const TRENDING_COUNTRY = "SG";
-export const TRENDING_COUNTRY_LABEL = "Singapore";
+// The markets a Singapore college plausibly recruits from, each declaring
+// which of the two sources genuinely covers it. A short fixed list, never free
+// text: a country code neither source accepts would come back as a silent
+// wrong-country list or an unexplained error.
+//
+// tiktok: true only for codes in the endpoint's own published countryCode
+// enum (AU BR CA EG FR DE ID IL IT JP MY PH RU SA SG KR ES TW TH TR AE GB US
+// VN). India and Hong Kong are absent from it, so they are marked false rather
+// than sent and quietly ignored.
+//
+// youtube: these are all ISO 3166-1 alpha-2 codes, which is what regionCode
+// takes. Which regions have a published chart is Google's business and is not
+// documented per region, so the route passes YouTube's own videoChartNotFound
+// straight through rather than this list pretending to know.
+//
+// Mainland China is deliberately absent: TikTok does not operate there (Douyin
+// does) and YouTube is blocked, so neither source could answer honestly. That
+// market needs Xiaohongshu or WeChat, and neither is integrated.
+export type TrendingCountry = {
+  code: string;
+  label: string;
+  tiktok: boolean;
+  youtube: boolean;
+};
+
+export const TRENDING_COUNTRIES: TrendingCountry[] = [
+  { code: "SG", label: "Singapore", tiktok: true, youtube: true },
+  { code: "MY", label: "Malaysia", tiktok: true, youtube: true },
+  { code: "ID", label: "Indonesia", tiktok: true, youtube: true },
+  { code: "VN", label: "Vietnam", tiktok: true, youtube: true },
+  { code: "TH", label: "Thailand", tiktok: true, youtube: true },
+  { code: "PH", label: "Philippines", tiktok: true, youtube: true },
+  { code: "TW", label: "Taiwan", tiktok: true, youtube: true },
+  { code: "KR", label: "South Korea", tiktok: true, youtube: true },
+  { code: "JP", label: "Japan", tiktok: true, youtube: true },
+  { code: "AE", label: "United Arab Emirates", tiktok: true, youtube: true },
+  { code: "GB", label: "United Kingdom", tiktok: true, youtube: true },
+  { code: "US", label: "United States", tiktok: true, youtube: true },
+  { code: "AU", label: "Australia", tiktok: true, youtube: true },
+  { code: "IN", label: "India", tiktok: false, youtube: true },
+  { code: "HK", label: "Hong Kong", tiktok: false, youtube: true },
+];
+
+export const DEFAULT_TRENDING_COUNTRY = "SG";
+
+export function trendingCountry(code: string): TrendingCountry {
+  return (
+    TRENDING_COUNTRIES.find((entry) => entry.code === code) ??
+    (TRENDING_COUNTRIES[0] as TrendingCountry)
+  );
+}
+
+export function trendingCountryLabel(code: string): string {
+  return trendingCountry(code).label;
+}
 
 // TikTok's own industry taxonomy, taken from the endpoint's published
 // parameter list. Only the handful a college could plausibly act on are
@@ -81,11 +132,13 @@ export type TrendingVideo = {
 };
 
 export function buildTikTokHashtagsUrl({
+  country,
   period,
   industry,
   page = 1,
   newOnBoard = false,
 }: {
+  country: string;
   period: TikTokPeriod;
   industry: string;
   page?: number;
@@ -93,7 +146,7 @@ export function buildTikTokHashtagsUrl({
 }): string {
   const url = new URL("/v1/tiktok/hashtags/popular", SCRAPECREATORS_BASE);
 
-  url.searchParams.set("countryCode", TRENDING_COUNTRY);
+  url.searchParams.set("countryCode", country);
   url.searchParams.set("period", String(period));
 
   if (page > 1) {
@@ -115,10 +168,12 @@ export function buildTikTokHashtagsUrl({
 
 export function buildYouTubeTrendingUrl({
   apiKey,
+  country,
   categoryId,
   maxResults = 15,
 }: {
   apiKey: string;
+  country: string;
   categoryId: string;
   maxResults?: number;
 }): string {
@@ -126,7 +181,7 @@ export function buildYouTubeTrendingUrl({
 
   url.searchParams.set("part", "snippet,statistics");
   url.searchParams.set("chart", "mostPopular");
-  url.searchParams.set("regionCode", TRENDING_COUNTRY);
+  url.searchParams.set("regionCode", country);
   url.searchParams.set("maxResults", String(maxResults));
 
   if (categoryId) {
@@ -216,9 +271,22 @@ export function normaliseTrendingVideos(raw: unknown): TrendingVideo[] {
 
 // The search term a "Research this" click hands to Social Listening. A raw
 // hashtag searches badly on Reddit and the web, so the hash is dropped and the
-// market added, which is the same shape the manual search box expects.
-export function tagToSearchTopic(tag: string): string {
+// market added, which is the same shape the manual search box expects. The
+// market is the one the tag was found in, not a fixed Singapore: researching a
+// Malaysian trend as though it were local would misattribute it.
+export function tagToSearchTopic(tag: string, country: string): string {
   const bare = tag.replace(/^#+/, "").trim();
 
-  return bare ? `${bare} ${TRENDING_COUNTRY_LABEL}` : "";
+  return bare ? `${bare} ${trendingCountryLabel(country)}` : "";
 }
+
+// Why a TikTok failure is not a bug report. ScrapeCreators' own documentation
+// labels this endpoint unofficial: it scrapes TikTok's advertiser-facing
+// Creative Center page rather than calling an API TikTok supports, so TikTok
+// can take it down at any time and has. There is nothing to fix on our side
+// when that happens, and retrying in a loop would only spend credits against a
+// page that is not there.
+export const TIKTOK_UNOFFICIAL_NOTE =
+  "This is an external TikTok-side outage, not a fault in this app and not something a redeploy fixes. " +
+  "The hashtag ranking is scraped from TikTok's own Creative Center page, which ScrapeCreators documents as unofficial, so TikTok can take it down without notice. " +
+  "Nothing is retried automatically. Try again later, or use the YouTube list below in the meantime.";

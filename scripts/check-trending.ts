@@ -20,7 +20,7 @@ import {
 
 // --- TikTok request
 
-const url = new URL(buildTikTokHashtagsUrl({ period: 7, industry: "education" }));
+const url = new URL(buildTikTokHashtagsUrl({ country: "SG", period: 7, industry: "education" }));
 
 assert.equal(url.pathname, "/v1/tiktok/hashtags/popular");
 assert.equal(url.searchParams.get("countryCode"), "SG", "the market is never left off");
@@ -30,12 +30,13 @@ assert.equal(url.searchParams.get("newOnBoard"), null, "an unticked box sends no
 
 // "Every industry" is the absence of the parameter. Sending industry="" would
 // filter on an industry literally named empty and return nothing.
-const wide = new URL(buildTikTokHashtagsUrl({ period: 120, industry: "" }));
+const wide = new URL(buildTikTokHashtagsUrl({ country: "MY", period: 120, industry: "" }));
 assert.equal(wide.searchParams.has("industry"), false);
 assert.equal(wide.searchParams.get("period"), "120");
+assert.equal(wide.searchParams.get("countryCode"), "MY", "the chosen market is the one sent");
 
 const fresh = new URL(
-  buildTikTokHashtagsUrl({ period: 30, industry: "education", newOnBoard: true }),
+  buildTikTokHashtagsUrl({ country: "SG", period: 30, industry: "education", newOnBoard: true }),
 );
 assert.equal(fresh.searchParams.get("newOnBoard"), "true");
 
@@ -79,13 +80,13 @@ assert.deepEqual(normaliseTrendingTags({}), [], "an empty reply must not throw")
 
 // --- YouTube request
 
-const yt = new URL(buildYouTubeTrendingUrl({ apiKey: "k", categoryId: "27" }));
+const yt = new URL(buildYouTubeTrendingUrl({ apiKey: "k", country: "SG", categoryId: "27" }));
 assert.equal(yt.searchParams.get("chart"), "mostPopular", "this is the chart, not a search");
 assert.equal(yt.searchParams.get("regionCode"), "SG");
 assert.equal(yt.searchParams.get("videoCategoryId"), "27");
 assert.equal(yt.searchParams.has("q"), false, "a trending call must never carry a query");
 
-const ytAll = new URL(buildYouTubeTrendingUrl({ apiKey: "k", categoryId: "" }));
+const ytAll = new URL(buildYouTubeTrendingUrl({ apiKey: "k", country: "SG", categoryId: "" }));
 assert.equal(ytAll.searchParams.has("videoCategoryId"), false, "All categories sends no filter");
 
 // --- YouTube response
@@ -117,10 +118,41 @@ assert.deepEqual(normaliseTrendingVideos({}), []);
 // --- Handing a tag to the listening search
 
 assert.equal(
-  tagToSearchTopic("#studyinsingapore"),
+  tagToSearchTopic("#studyinsingapore", "SG"),
   "studyinsingapore Singapore",
   "the hash is dropped, because Reddit and web search do not match on it",
 );
-assert.equal(tagToSearchTopic("  "), "", "an empty tag never becomes a bare market search");
+assert.equal(tagToSearchTopic("  ", "SG"), "", "an empty tag never becomes a bare market search");
+
+// A Malaysian trend researched as though it were Singaporean would
+// misattribute it, so the market travels with the tag.
+assert.equal(tagToSearchTopic("#spm", "MY"), "spm Malaysia");
+
+// --- The country catalogue is the honest part of the feature
+
+import {
+  DEFAULT_TRENDING_COUNTRY,
+  TRENDING_COUNTRIES,
+  trendingCountry,
+} from "../lib/trending.ts";
+
+assert.equal(DEFAULT_TRENDING_COUNTRY, "SG", "Singapore stays the default");
+assert.ok(
+  TRENDING_COUNTRIES.every((entry) => entry.tiktok || entry.youtube),
+  "a country neither source covers has no business being offered",
+);
+// India and Hong Kong are genuinely absent from the endpoint's own countryCode
+// enum. Marking them tiktok:true would send a code TikTok ignores, and the
+// default market's list would come back looking like theirs.
+assert.equal(trendingCountry("IN").tiktok, false);
+assert.equal(trendingCountry("HK").tiktok, false);
+assert.equal(trendingCountry("IN").youtube, true);
+assert.equal(trendingCountry("SG").tiktok, true);
+assert.ok(
+  !TRENDING_COUNTRIES.some((entry) => entry.code === "CN"),
+  "mainland China is not offered: TikTok does not operate there and YouTube is blocked",
+);
+// An unknown code must resolve to the default rather than being passed on.
+assert.equal(trendingCountry("ZZ").code, "SG");
 
 console.log("check-trending: all assertions passed");

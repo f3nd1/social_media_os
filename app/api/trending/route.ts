@@ -5,11 +5,14 @@
 import { NextResponse } from "next/server";
 
 import {
+  DEFAULT_TRENDING_COUNTRY,
   TIKTOK_PERIODS,
+  TIKTOK_UNOFFICIAL_NOTE,
   buildTikTokHashtagsUrl,
   buildYouTubeTrendingUrl,
   normaliseTrendingTags,
   normaliseTrendingVideos,
+  trendingCountry,
   type TikTokPeriod,
 } from "@/lib/trending";
 
@@ -20,6 +23,7 @@ type RequestBody = {
   source?: "tiktok-hashtags" | "youtube-popular";
   scrapeCreatorsApiKey?: string;
   youtubeApiKey?: string;
+  country?: string;
   period?: number;
   industry?: string;
   categoryId?: string;
@@ -35,7 +39,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Malformed request." }, { status: 400 });
   }
 
+  // Resolved against the fixed catalogue, so an unknown code can never reach
+  // either API and come back as a confidently wrong country's trend list.
+  const country = trendingCountry(body.country ?? DEFAULT_TRENDING_COUNTRY);
+
   if (body.source === "tiktok-hashtags") {
+    // Said plainly rather than sent anyway: the endpoint ignores a country it
+    // does not know and returns its default market, which would read as a
+    // genuine Indian or Hong Kong trend list.
+    if (!country.tiktok) {
+      return NextResponse.json({
+        ok: false,
+        unsupportedCountry: true,
+        error: `TikTok does not publish a hashtag ranking for ${country.label}. Its ranking covers a fixed list of markets and ${country.label} is not one of them, so there is nothing to show rather than something wrong.`,
+      });
+    }
+
     const apiKey = body.scrapeCreatorsApiKey?.trim() ?? "";
 
     if (!apiKey) {
@@ -57,6 +76,7 @@ export async function POST(request: Request) {
     try {
       response = await fetch(
         buildTikTokHashtagsUrl({
+          country: country.code,
           period,
           industry: body.industry ?? "",
           newOnBoard: Boolean(body.newOnBoard),
@@ -67,9 +87,12 @@ export async function POST(request: Request) {
       const timedOut = error instanceof DOMException && error.name === "TimeoutError";
       return NextResponse.json({
         ok: false,
-        error: timedOut
-          ? "ScrapeCreators did not respond within 45 seconds. Try again."
-          : `Could not reach ScrapeCreators: ${error instanceof Error ? error.message : String(error)}`,
+        sourceDown: true,
+        error:
+          (timedOut
+            ? "ScrapeCreators did not respond within 45 seconds."
+            : `Could not reach ScrapeCreators: ${error instanceof Error ? error.message : String(error)}`) +
+          ` ${TIKTOK_UNOFFICIAL_NOTE}`,
       });
     }
 
@@ -79,8 +102,15 @@ export async function POST(request: Request) {
       // Their own words, not ours: a 402 body says the account is out of
       // credits, which is the one thing the manager needs to read.
       const detail = text.trim().slice(0, 300);
+      // A key or billing problem is ours to fix and must not be dressed up as
+      // a TikTok outage. Everything else on this endpoint is the page being
+      // gone, which is theirs, and gets the standing explanation.
+      const ourProblem =
+        response.status === 401 || response.status === 403 || response.status === 402;
+
       return NextResponse.json({
         ok: false,
+        sourceDown: !ourProblem,
         error:
           `ScrapeCreators returned HTTP ${response.status}.` +
           (detail ? ` It said: ${detail}` : "") +
@@ -88,7 +118,7 @@ export async function POST(request: Request) {
             ? " Check the API key in Settings."
             : response.status === 402
               ? " The account is out of credits."
-              : ""),
+              : ` ${TIKTOK_UNOFFICIAL_NOTE}`),
       });
     }
 
@@ -115,6 +145,14 @@ export async function POST(request: Request) {
   }
 
   if (body.source === "youtube-popular") {
+    if (!country.youtube) {
+      return NextResponse.json({
+        ok: false,
+        unsupportedCountry: true,
+        error: `YouTube does not publish a most-viewed chart for ${country.label}.`,
+      });
+    }
+
     const apiKey = body.youtubeApiKey?.trim() ?? "";
 
     if (!apiKey) {
@@ -128,7 +166,11 @@ export async function POST(request: Request) {
 
     try {
       response = await fetch(
-        buildYouTubeTrendingUrl({ apiKey, categoryId: body.categoryId ?? "" }),
+        buildYouTubeTrendingUrl({
+          apiKey,
+          country: country.code,
+          categoryId: body.categoryId ?? "",
+        }),
         { signal: AbortSignal.timeout(20_000) },
       );
     } catch (error) {
@@ -150,7 +192,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: false,
         error: notCharted
-          ? "YouTube does not publish a popular chart for that category in Singapore. Try All categories."
+          ? `YouTube does not publish a popular chart for that category in ${country.label}. Try All categories.`
           : `YouTube refused the request (HTTP ${response.status}${detail ? `: ${detail}` : ""}).` +
             (response.status === 403
               ? " That is usually the daily quota or a restricted key."
