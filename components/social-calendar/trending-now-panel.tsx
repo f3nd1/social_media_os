@@ -20,7 +20,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Flame, Loader2 } from "lucide-react";
+import { Flame, Loader2, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,45 @@ type Leg = {
 
 const IDLE: Leg = { state: "idle", rows: [], error: "" };
 
+// "trending" is the order ScrapeCreators returned, which is YouTube's own
+// chart ranking rather than a view-count ordering: a video climbing fast today
+// can sit above an older one with more total views. Both orderings answer a
+// real question, so the control names which is which instead of silently
+// picking one.
+type SortBy = "views-desc" | "views-asc" | "trending";
+
+const SORT_OPTIONS: Array<{ value: SortBy; label: string }> = [
+  { value: "views-desc", label: "Most viewed first" },
+  { value: "views-asc", label: "Fewest viewed first" },
+  { value: "trending", label: "YouTube trending order" },
+];
+
+// Sorts a copy, never the state array. Videos whose uploader hides the count
+// come back as null and always sink to the bottom in both directions: a hidden
+// count is not zero views, and sorting it as though it were would rank a video
+// nobody can measure below one that genuinely nobody watched.
+function sortRows(rows: TrendingVideo[], sortBy: SortBy): TrendingVideo[] {
+  if (sortBy === "trending") {
+    return rows;
+  }
+
+  return [...rows].sort((a, b) => {
+    if (a.views === null && b.views === null) {
+      return 0;
+    }
+
+    if (a.views === null) {
+      return 1;
+    }
+
+    if (b.views === null) {
+      return -1;
+    }
+
+    return sortBy === "views-desc" ? b.views - a.views : a.views - b.views;
+  });
+}
+
 export function TrendingNowPanel({
   scrapeCreatorsApiKey,
   onResearch,
@@ -55,7 +94,25 @@ export function TrendingNowPanel({
   busy: boolean;
 }) {
   const [youtube, setYoutube] = useState<Leg>(IDLE);
+  // The list before the last delete, so both Delete and Delete all can be
+  // taken back. Worth having even though nothing here is stored: these rows
+  // are held in component state only, so the only other way back is Refresh,
+  // and that spends another ScrapeCreators request. One level is enough; this
+  // is a scratch list, not a record.
+  const [undoRows, setUndoRows] = useState<TrendingVideo[] | null>(null);
+  const [sortBy, setSortBy] = useState<SortBy>("views-desc");
   const hasKey = Boolean(scrapeCreatorsApiKey.trim());
+
+  // Removing a row here is not the app's usual delete. These are raw trending
+  // items that live in this component's state for the length of the visit:
+  // they are not saved findings, they are not in the workspace document, and
+  // they write nothing to the approvals log. So there is no audit trail to
+  // protect and no soft-delete or confirmation dialog to justify. Hiding a row
+  // is a display choice, and Undo puts it straight back.
+  function dropRows(keep: (row: TrendingVideo) => boolean) {
+    setUndoRows(youtube.rows);
+    setYoutube({ ...youtube, rows: youtube.rows.filter(keep) });
+  }
 
   async function run() {
     if (!hasKey) {
@@ -64,6 +121,9 @@ export function TrendingNowPanel({
     }
 
     setYoutube({ state: "running", rows: [], error: "" });
+    // A fresh chart makes the previous list meaningless, so the undo goes with
+    // it rather than sitting there ready to restore rows from an older fetch.
+    setUndoRows(null);
 
     try {
       const response = await fetch(apiUrl("/api/trending"), {
@@ -145,26 +205,89 @@ export function TrendingNowPanel({
 
         {youtube.state === "done" && youtube.rows.length === 0 ? (
           <p className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">
-            YouTube returned no videos on this chart right now.
+            {/* An emptied list and an empty chart are different facts, and
+                saying the chart was empty when it was not would be wrong. */}
+            {undoRows && undoRows.length > 0
+              ? "You have cleared every video from this list. Undo puts them back, or Refresh reads the chart again."
+              : "YouTube returned no videos on this chart right now."}
           </p>
         ) : null}
 
         {(youtube.state === "done" || youtube.state === "failed") && hasKey ? (
-          <Button
-            disabled={busy}
-            onClick={() => void run()}
-            size="sm"
-            variant="outline"
-            type="button"
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              disabled={busy}
+              onClick={() => void run()}
+              size="sm"
+              variant="outline"
+              type="button"
+            >
+              <Flame className="h-4 w-4" />
+              Refresh
+            </Button>
+
+            {youtube.rows.length > 0 ? (
+              <>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>Sort</span>
+                  <select
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                    disabled={busy}
+                    onChange={(event) => setSortBy(event.target.value as SortBy)}
+                    value={sortBy}
+                  >
+                    {SORT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <Button
+                  className="ml-auto text-destructive hover:bg-destructive/10"
+                  disabled={busy}
+                  onClick={() => dropRows(() => false)}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete all {youtube.rows.length}
+                </Button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+
+        {undoRows ? (
+          <div
+            aria-live="polite"
+            className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 text-xs"
           >
-            <Flame className="h-4 w-4" />
-            Refresh
-          </Button>
+            <span className="text-muted-foreground">
+              {undoRows.length - youtube.rows.length}{" "}
+              {undoRows.length - youtube.rows.length === 1 ? "video" : "videos"} hidden
+              from this list. Nothing was saved or deleted from your workspace.
+            </span>
+            <Button
+              className="h-6 px-2"
+              onClick={() => {
+                setYoutube((current) => ({ ...current, rows: undoRows }));
+                setUndoRows(null);
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Undo
+            </Button>
+          </div>
         ) : null}
 
         {youtube.state === "done" && youtube.rows.length > 0 ? (
           <fieldset className="space-y-2" disabled={busy}>
-            {youtube.rows.map((row) => (
+            {sortRows(youtube.rows, sortBy).map((row) => (
               <div className="rounded-lg border p-3" key={row.url}>
                 <a
                   className="text-sm font-medium underline underline-offset-2"
@@ -192,6 +315,17 @@ export function TrendingNowPanel({
                     variant="ghost"
                   >
                     Research this
+                  </Button>
+                  <Button
+                    aria-label={`Remove ${row.title} from this list`}
+                    className="h-6 px-2 text-destructive hover:bg-destructive/10"
+                    disabled={busy}
+                    onClick={() => dropRows((entry) => entry.url !== row.url)}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
                   </Button>
                 </div>
               </div>
