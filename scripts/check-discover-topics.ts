@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 import {
   DISCOVERY_TOPIC_LIMIT,
+  discoverySourceTarget,
   suggestDiscoveryTopics,
 } from "../lib/discover-topics.ts";
 
@@ -52,6 +53,36 @@ assert.ok(
 assert.ok(topics.every((entry) => entry.why.length > 0));
 assert.equal(topics[0].why, "Course: Diploma in Business");
 assert.equal(topics[1].why, "Concern raised by PRC parents");
+
+// The "why" is for reading; the source is for linking. Both have to point at
+// the same record, and the source has to carry the real workspace id or the
+// link would open the wrong thing (or nothing).
+assert.deepEqual(topics[0].source, { kind: "course", id: "c1" });
+assert.deepEqual(topics[1].source, { kind: "audience", id: "a1" });
+assert.deepEqual(topics[2].source, { kind: "competitor", id: "x1" });
+
+// A course and a competitor each have their own record on a real screen.
+assert.deepEqual(discoverySourceTarget(topics[0].source), {
+  view: "courses",
+  elementId: "record-course-c1",
+  label: "Open course",
+});
+assert.deepEqual(discoverySourceTarget(topics[2].source), {
+  view: "competitors",
+  elementId: "record-competitor-x1",
+  label: "Open competitor",
+});
+
+// A concern deliberately resolves to the AUDIENCE that raised it, not to a
+// concern page: concerns are entries in an audience's pain-points list and
+// have no record of their own. The id must be the audience's, never the
+// concern text, so this pins that the fallback is the honest one rather than
+// an invented destination.
+assert.deepEqual(discoverySourceTarget(topics[1].source), {
+  view: "courses",
+  elementId: "record-audience-a1",
+  label: "Open audience",
+});
 
 // An empty audience concern must not become a search for "Singapore".
 assert.ok(!topics.some((entry) => entry.topic === "Singapore"));

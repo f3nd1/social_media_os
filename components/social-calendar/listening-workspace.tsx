@@ -70,6 +70,7 @@ export function SocialListeningWorkspace({
   onListeningResultsChange,
   onListeningSourcesChange,
   onNavigate,
+  onOpenRecord,
   onRecordUsage,
 }: {
   data: MarketingWorkspaceData;
@@ -79,6 +80,8 @@ export function SocialListeningWorkspace({
   onListeningResultsChange: (listeningResults: ListeningResult[]) => void;
   onListeningSourcesChange: (listeningSources: string[]) => void;
   onNavigate: (view: "brief" | "campaigns" | "platformIntel" | "signals") => void;
+  // Jumps to the workspace record a Discover topic was derived from.
+  onOpenRecord: (view: "courses" | "competitors", elementId: string) => void;
   onRecordUsage: (module: string, model: string, usage: OpenAiUsage) => void;
 }) {
   const [tab, setTab] = useState<TabId>("search");
@@ -496,6 +499,7 @@ export function SocialListeningWorkspace({
           <ListeningDiscoverTab
             busy={busy}
             canRun={liveAi}
+            onOpenRecord={onOpenRecord}
             onRunTopics={(entries) => void runTopics(entries)}
             progress={discoverProgress}
             topics={discoveryTopics.slice(0, Math.max(DISCOVERY_DEFAULT_SELECTION, 8))}

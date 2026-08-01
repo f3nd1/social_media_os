@@ -10,11 +10,11 @@
 
 import { useState } from "react";
 
-import { SearchCheck, Trash2 } from "lucide-react";
+import { ExternalLink, SearchCheck, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { DiscoveryTopic } from "@/lib/discover-topics";
+import { discoverySourceTarget, type DiscoveryTopic } from "@/lib/discover-topics";
 
 type Draft = { id: string; topic: string };
 
@@ -40,12 +40,15 @@ function groupOf(why: string): string {
 export function ListeningDiscoverTab({
   busy,
   canRun,
+  onOpenRecord,
   onRunTopics,
   progress,
   topics,
 }: {
   busy: boolean;
   canRun: boolean;
+  // Opens the workspace record this topic was read out of.
+  onOpenRecord: (view: "courses" | "competitors", elementId: string) => void;
   onRunTopics: (topics: string[]) => void;
   progress: { done: number; total: number } | null;
   topics: DiscoveryTopic[];
@@ -118,6 +121,30 @@ export function ListeningDiscoverTab({
                     <span className="min-w-0">
                       {entry.topic}
                       <span className="ml-1 text-muted-foreground">{entry.why}</span>
+                      {/* The "why" says which record this came from; this goes
+                          and opens it. Rendered as a button rather than an
+                          anchor because the app navigates by view state, not
+                          by url, so there is no href that would work. */}
+                      <button
+                        className="ml-1 inline-flex items-center gap-0.5 align-baseline text-primary underline underline-offset-2 hover:no-underline"
+                        onClick={(event) => {
+                          // The label sits inside the checkbox's <label>, so
+                          // without this the link would also tick the box.
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const target = discoverySourceTarget(entry.source);
+                          onOpenRecord(target.view, target.elementId);
+                        }}
+                        title={
+                          entry.source.kind === "audience"
+                            ? "A concern is one entry in an audience's pain points, not a record of its own, so this opens the audience that raised it"
+                            : undefined
+                        }
+                        type="button"
+                      >
+                        {discoverySourceTarget(entry.source).label}
+                        <ExternalLink className="h-3 w-3" />
+                      </button>
                     </span>
                   </label>
                 ))}

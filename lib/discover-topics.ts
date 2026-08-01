@@ -14,9 +14,20 @@
 
 import type { MarketingWorkspaceData } from "@/lib/social-calendar-data";
 
+// Where a topic came from, as an addressable record rather than only the
+// human-readable "why" string. Courses and competitors each have their own
+// record on a real screen. A concern does not: it is one entry in an
+// audience's "Pain points" list, with no page of its own, so the audience
+// that raised it is the closest honest destination and the kind says so.
+export type DiscoverySource =
+  | { kind: "course"; id: string }
+  | { kind: "audience"; id: string }
+  | { kind: "competitor"; id: string };
+
 export type DiscoveryTopic = {
   id: string;
   topic: string;
+  source: DiscoverySource;
   // Which workspace record this came from, shown next to the topic so a
   // manager can see it is derived from their own data rather than guessed.
   why: string;
@@ -49,7 +60,7 @@ export function suggestDiscoveryTopics(
   const topics: DiscoveryTopic[] = [];
   const seen = new Set<string>();
 
-  function add(topic: string, why: string) {
+  function add(topic: string, why: string, source: DiscoverySource) {
     const text = clean(topic);
     const key = text.toLowerCase();
 
@@ -58,7 +69,7 @@ export function suggestDiscoveryTopics(
     }
 
     seen.add(key);
-    topics.push({ id: `discover-${topics.length}`, topic: text, why });
+    topics.push({ id: `discover-${topics.length}`, topic: text, why, source });
   }
 
   // Three kinds of topic, taken round-robin rather than one list after
@@ -70,7 +81,11 @@ export function suggestDiscoveryTopics(
     // Archived courses are excluded: research on something no longer offered
     // cannot lead anywhere.
     .filter((course) => course.status !== "archived")
-    .map((course) => ({ topic: `${course.name} ${MARKET}`, why: `Course: ${course.name}` }));
+    .map((course) => ({
+      topic: `${course.name} ${MARKET}`,
+      why: `Course: ${course.name}`,
+      source: { kind: "course" as const, id: course.id },
+    }));
 
   // Audience concerns are the questions prospective students are already
   // asking, which is exactly what listening is good at answering.
@@ -78,7 +93,13 @@ export function suggestDiscoveryTopics(
     const concern = (audience.concerns ?? []).find((entry) => clean(entry));
 
     return concern
-      ? [{ topic: `${concern} ${MARKET}`, why: `Concern raised by ${audience.name}` }]
+      ? [
+          {
+            topic: `${concern} ${MARKET}`,
+            why: `Concern raised by ${audience.name}`,
+            source: { kind: "audience" as const, id: audience.id },
+          },
+        ]
       : [];
   });
 
@@ -86,6 +107,7 @@ export function suggestDiscoveryTopics(
   const byCompetitor = (data.competitors ?? []).map((competitor) => ({
     topic: `${competitor.name} reviews`,
     why: `Competitor: ${competitor.name}`,
+    source: { kind: "competitor" as const, id: competitor.id },
   }));
 
   const buckets = [byCourse, byConcern, byCompetitor];
@@ -100,10 +122,46 @@ export function suggestDiscoveryTopics(
       const entry = bucket[index];
 
       if (entry) {
-        add(entry.topic, entry.why);
+        add(entry.topic, entry.why, entry.source);
       }
     }
   }
 
   return topics;
+}
+
+// The DOM id of the card that holds a source record, and the screen it sits
+// on. Kept here so the Discover link and the card that receives it derive the
+// same string from one place rather than agreeing by coincidence.
+//
+// "audience" resolves to the Products & Audiences screen rather than a concern
+// page, because there is no concern page: concerns are the "Pain points" list
+// inside an audience, so the audience card is where that text actually lives
+// and can be edited.
+export function discoverySourceTarget(source: DiscoverySource): {
+  view: "courses" | "competitors";
+  elementId: string;
+  label: string;
+} {
+  if (source.kind === "competitor") {
+    return {
+      view: "competitors",
+      elementId: `record-competitor-${source.id}`,
+      label: "Open competitor",
+    };
+  }
+
+  if (source.kind === "audience") {
+    return {
+      view: "courses",
+      elementId: `record-audience-${source.id}`,
+      label: "Open audience",
+    };
+  }
+
+  return {
+    view: "courses",
+    elementId: `record-course-${source.id}`,
+    label: "Open course",
+  };
 }

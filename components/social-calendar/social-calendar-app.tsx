@@ -472,6 +472,11 @@ export function SocialCalendarApp() {
     createSeedWorkspaceData(),
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
+  // Set when a link elsewhere wants a specific record brought into view after
+  // the screen switches, for example Discover pointing at the course a topic
+  // was derived from. Held rather than scrolled immediately because the target
+  // screen has not rendered yet at the moment of the click.
+  const [pendingRecordId, setPendingRecordId] = useState("");
   // One-shot search seed for the AI Generation Log, set when another screen
   // deep-links into it (e.g. the competitor observe message). Consumed and
   // cleared on the log's first mount so a later plain nav starts unfiltered.
@@ -797,6 +802,38 @@ export function SocialCalendarApp() {
 
   // Records one AI call into the usage meter. Called by every AI feature
   // after a successful response, using OpenAI's own token figures.
+  // Switches screen and brings one record into view. The ring is a temporary
+  // outline, not a selection: it says "this is the one you followed" and then
+  // gets out of the way, so nothing about the record's own state changes.
+  function openRecord(view: ViewId, elementId: string) {
+    setActiveView(view);
+    setPendingRecordId(elementId);
+  }
+
+  useEffect(() => {
+    if (!pendingRecordId) {
+      return;
+    }
+
+    // One frame after the view swap, so the target exists to scroll to.
+    const timer = setTimeout(() => {
+      const target = document.getElementById(pendingRecordId);
+
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.classList.add("ring-2", "ring-primary", "ring-offset-2");
+        setTimeout(
+          () => target.classList.remove("ring-2", "ring-primary", "ring-offset-2"),
+          2200,
+        );
+      }
+
+      setPendingRecordId("");
+    }, 80);
+
+    return () => clearTimeout(timer);
+  }, [pendingRecordId]);
+
   function recordAiUsage(module: string, model: string, usage: OpenAiUsage) {
     updateWorkspace((current) => ({
       ...current,
@@ -1371,6 +1408,7 @@ export function SocialCalendarApp() {
                   updateWorkspace((current) => ({ ...current, listeningSources }))
                 }
                 onNavigate={setActiveView}
+                onOpenRecord={openRecord}
                 onRecordUsage={recordAiUsage}
               />
             ) : null}
@@ -3079,6 +3117,7 @@ function CoursesAudiencesView({
               {visibleCourses.map((course) => (
                 <button
                   className="rounded-lg border bg-card p-4 text-left transition hover:border-primary/50 hover:shadow-sm"
+                  id={`record-course-${course.id}`}
                   key={course.id}
                   onClick={() => setSelectedCourseId(course.id)}
                   type="button"
@@ -3285,7 +3324,11 @@ function CoursesAudiencesView({
             />
           ) : (
             ucc.audiences.map((audience) => (
-              <div className="rounded-lg border bg-muted/20 p-3" key={audience.id}>
+              <div
+                className="rounded-lg border bg-muted/20 p-3"
+                id={`record-audience-${audience.id}`}
+                key={audience.id}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <Badge variant="secondary">{audience.name || "Untitled audience"}</Badge>
@@ -10329,7 +10372,11 @@ function CompetitorIntelligenceView({
                 const sourceCount = competitor.observationSources?.length ?? 0;
 
                 return (
-                  <div className="space-y-4 rounded-lg border bg-card p-5" key={competitor.id}>
+                  <div
+                    className="space-y-4 rounded-lg border bg-card p-5"
+                    id={`record-competitor-${competitor.id}`}
+                    key={competitor.id}
+                  >
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Input
                         placeholder="e.g. Amity Global Education"
